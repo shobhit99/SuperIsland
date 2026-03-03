@@ -1,5 +1,6 @@
-import SwiftUI
 import Combine
+import SwiftUI
+import AppKit
 
 // MARK: - Island State
 enum IslandState: Equatable {
@@ -248,17 +249,59 @@ final class AppState: ObservableObject {
 
     var currentSize: CGSize {
         switch currentState {
-        case .compact: return Constants.compactSize
+        case .compact:
+            return compactIslandMetrics?.size ?? Constants.compactSize
         case .expanded: return Constants.expandedSize
         case .fullExpanded: return Constants.fullExpandedSize
         }
     }
 
+    var windowSize: CGSize {
+        switch currentState {
+        case .compact:
+            return currentSize
+        case .expanded, .fullExpanded:
+            return CGSize(
+                width: currentSize.width + (Constants.moduleCyclerGutterWidth * 2) + 8,
+                height: currentSize.height
+            )
+        }
+    }
+
     var currentCornerRadius: CGFloat {
         switch currentState {
-        case .compact: return Constants.compactCornerRadius
+        case .compact: return currentBottomCornerRadius
         case .expanded: return Constants.expandedCornerRadius
         case .fullExpanded: return Constants.fullExpandedCornerRadius
         }
+    }
+
+    var currentTopCornerRadius: CGFloat {
+        switch currentState {
+        case .compact:
+            return compactIslandMetrics == nil ? Constants.compactCornerRadius : 0
+        case .expanded:
+            return Constants.expandedCornerRadius
+        case .fullExpanded:
+            return Constants.fullExpandedCornerRadius
+        }
+    }
+
+    var currentBottomCornerRadius: CGFloat {
+        switch currentState {
+        case .compact:
+            return compactIslandMetrics?.bottomCornerRadius ?? Constants.compactCornerRadius
+        case .expanded:
+            return Constants.expandedCornerRadius
+        case .fullExpanded:
+            return Constants.fullExpandedCornerRadius
+        }
+    }
+
+    private var compactIslandMetrics: ScreenDetector.CompactIslandMetrics? {
+        guard let screen = ScreenDetector.primaryScreen else {
+            return nil
+        }
+        return ScreenDetector.compactIslandMetrics(screen: screen)
     }
 }

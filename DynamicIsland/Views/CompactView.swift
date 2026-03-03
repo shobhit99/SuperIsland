@@ -32,6 +32,11 @@ struct CompactView: View {
                 BatteryCompactView()
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, horizontalPadding)
+    }
+
+    private var horizontalPadding: CGFloat {
+        let isNowPlayingActive = appState.activeModule == .nowPlaying || (appState.activeModule == nil && !nowPlaying.title.isEmpty)
+        return isNowPlayingActive ? 4 : 12
     }
 }

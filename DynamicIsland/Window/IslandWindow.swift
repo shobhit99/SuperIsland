@@ -5,18 +5,22 @@ final class IslandPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     init() {
+        let initialCompactSize = ScreenDetector.primaryScreen
+            .flatMap(ScreenDetector.compactIslandMetrics(screen:))?
+            .size ?? Constants.compactSize
+
         super.init(
             contentRect: NSRect(
                 x: 0, y: 0,
-                width: Constants.compactSize.width,
-                height: Constants.compactSize.height
+                width: initialCompactSize.width,
+                height: initialCompactSize.height
             ),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
 
-        level = .floating
+        level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         isOpaque = false
         backgroundColor = .clear

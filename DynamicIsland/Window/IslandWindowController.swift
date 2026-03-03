@@ -37,7 +37,7 @@ final class IslandWindowController {
     // MARK: - Positioning
 
     private func positionIsland(on panel: IslandPanel) {
-        let size = appState.currentSize
+        let size = appState.windowSize
         applyFrame(size: size, to: panel, animated: false)
     }
 
@@ -56,7 +56,12 @@ final class IslandWindowController {
         if hasNotch, let notch = notchRect {
             // Center the window over the notch area
             x = notch.midX - windowWidth / 2
-            y = screenFrame.maxY - windowHeight
+            if appState.currentState == .compact {
+                y = notch.midY - (windowHeight / 2) + Constants.compactNotchVerticalOffset
+            } else {
+                // Expanded states behave like a drawer that opens from the notch's lower edge.
+                y = notch.minY - windowHeight + Constants.expandedDrawerTopOverlap
+            }
         } else {
             // Top center of screen
             x = screenFrame.midX - windowWidth / 2
@@ -82,7 +87,7 @@ final class IslandWindowController {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self, let panel = self.panel else { return }
-                self.applyFrame(size: self.appState.currentSize, to: panel, animated: true)
+                self.applyFrame(size: self.appState.windowSize, to: panel, animated: true)
             }
             .store(in: &cancellables)
     }

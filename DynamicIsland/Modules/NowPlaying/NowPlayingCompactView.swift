@@ -4,31 +4,40 @@ struct NowPlayingCompactView: View {
     @ObservedObject private var manager = NowPlayingManager.shared
 
     var body: some View {
-        HStack(spacing: 8) {
-            // Album art thumbnail
-            if let art = manager.albumArt {
-                Image(nsImage: art)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 24, height: 24)
-                    .clipShape(Circle())
-            }
+        HStack(spacing: 0) {
+            albumHint
+            Spacer(minLength: 0)
+            playbackHint
+        }
+    }
 
-            // Song info marquee
-            if !manager.title.isEmpty {
-                MarqueeText(
-                    text: "\(manager.artist) — \(manager.title)",
-                    font: .system(size: 12, weight: .medium),
-                    color: .white
-                )
-                .frame(maxWidth: 120)
-            }
+    @ViewBuilder
+    private var albumHint: some View {
+        if let art = manager.albumArt {
+            Image(nsImage: art)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 24, height: 24)
+                .clipShape(Circle())
+        } else {
+            Image(systemName: "music.note")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white.opacity(0.9))
+                .frame(width: 24, height: 24)
+                .background(.white.opacity(0.08), in: Circle())
+        }
+    }
 
-            // Equalizer bars
-            if manager.isPlaying {
-                EqualizerBarsView()
-                    .frame(width: 16, height: 16)
-            }
+    @ViewBuilder
+    private var playbackHint: some View {
+        if manager.isPlaying {
+            EqualizerBarsView()
+                .frame(width: 16, height: 16)
+        } else {
+            Image(systemName: "play.fill")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.white.opacity(0.9))
+                .frame(width: 18, height: 18)
         }
     }
 }
