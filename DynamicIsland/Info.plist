@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSCalendarsUsageDescription</key>
+    <string>DynamicIsland needs calendar access to show upcoming events.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>DynamicIsland needs Bluetooth access to show connected device notifications.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>DynamicIsland needs location access for weather information.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>DynamicIsland needs microphone access for audio visualization.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>DynamicIsland needs automation access to detect currently playing media in browsers and music apps.</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2024 WorkView. All rights reserved.</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+</dict>
+</plist>
