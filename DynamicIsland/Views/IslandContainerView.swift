@@ -15,12 +15,12 @@ struct IslandContainerView: View {
                 if showModuleCycler {
                     moduleCyclerOverlay
                         .frame(width: geometry.size.width, height: geometry.size.height)
+                        .opacity(compactContentOpacity)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: appState.activeModule)
-        .opacity(appState.currentState == .compact ? appState.idleOpacity : 1.0)
         .onHover { hovering in
             appState.isHovering = hovering
             if hovering && appState.currentState == .compact {
@@ -67,6 +67,7 @@ struct IslandContainerView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
             }
+            .opacity(compactContentOpacity)
             .frame(
                 width: max(0, appState.currentSize.width - 16),
                 height: max(0, appState.currentSize.height - 8)
@@ -92,6 +93,10 @@ struct IslandContainerView: View {
             topCornerRadius: appState.currentTopCornerRadius,
             bottomCornerRadius: appState.currentBottomCornerRadius
         )
+    }
+
+    private var compactContentOpacity: Double {
+        appState.currentState == .compact ? appState.idleOpacity : 1.0
     }
 
     private func handleSwipe(value: DragGesture.Value) {
