@@ -382,6 +382,7 @@ declare namespace DynamicIsland {
         planType: string | null;
         hasCredits: boolean;
         unlimited: boolean;
+        source?: "local-summary" | "oauth-api" | "auth-token" | "unavailable";
       };
       claude: {
         available: boolean;
@@ -393,6 +394,7 @@ declare namespace DynamicIsland {
         updatedAt?: number;
         unifiedRateLimitFallbackAvailable?: boolean;
         isBlocked?: boolean;
+        source?: "local-summary" | "stats-cache" | "unavailable";
       };
     } | null;
   }

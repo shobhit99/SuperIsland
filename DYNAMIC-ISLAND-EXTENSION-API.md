@@ -180,6 +180,10 @@ Notes:
 Notes:
 
 - Requires `"usage"` permission.
+- Data source precedence (aligned with CodexBar-style sources):
+  - Codex: local summary files, then ChatGPT OAuth usage API (`/backend-api/wham/usage`) via `~/.codex/auth.json` token.
+  - Claude: local summary files, then local Claude stats cache (`~/.claude/stats-cache.json`) fallback when live rate-limit endpoints are unavailable.
+- `codex.source` and `claude.source` indicate where each payload came from (`local-summary`, `oauth-api`, `auth-token`, `stats-cache`, `unavailable`).
 
 ### `DynamicIsland.playFeedback(type)`
 

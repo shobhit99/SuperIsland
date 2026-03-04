@@ -1,0 +1,24 @@
+{
+  "id": "com.workview.ai-usage",
+  "name": "AI Usage Rings",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "main": "index.js",
+  "author": {
+    "name": "Workview"
+  },
+  "description": "Codex and Claude usage in the notch with ring indicators.",
+  "license": "MIT",
+  "categories": ["developer", "productivity"],
+  "permissions": ["usage"],
+  "capabilities": {
+    "compact": true,
+    "expanded": true,
+    "fullExpanded": true,
+    "minimalCompact": true,
+    "backgroundRefresh": true,
+    "settings": false
+  },
+  "refreshInterval": 15.0,
+  "activationTriggers": ["manual", "timer"]
+}
