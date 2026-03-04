@@ -424,8 +424,8 @@ Extensions describe their UI using plain JavaScript objects. The host app conver
 
 type ViewNode =
   // Layout
-  | { type: "hstack"; spacing?: number; align?: "top" | "center" | "bottom"; children: ViewNode[] }
-  | { type: "vstack"; spacing?: number; align?: "leading" | "center" | "trailing"; children: ViewNode[] }
+  | { type: "hstack"; spacing?: number; align?: "top" | "center" | "bottom"; distribution?: "natural" | "fillEqually"; children: ViewNode[] }
+  | { type: "vstack"; spacing?: number; align?: "leading" | "center" | "trailing"; distribution?: "natural" | "fillEqually"; children: ViewNode[] }
   | { type: "zstack"; children: ViewNode[] }
   | { type: "spacer"; minLength?: number }
 
@@ -471,10 +471,10 @@ The SDK ships a `View` helper so extension code reads cleanly. This is a thin wr
 
 const View = {
   // Layout
-  hstack: (children: ViewNode[], opts?: { spacing?: number; align?: string }) =>
-    ({ type: "hstack", spacing: opts?.spacing ?? 8, align: opts?.align, children }),
-  vstack: (children: ViewNode[], opts?: { spacing?: number; align?: string }) =>
-    ({ type: "vstack", spacing: opts?.spacing ?? 4, align: opts?.align, children }),
+  hstack: (children: ViewNode[], opts?: { spacing?: number; align?: string; distribution?: "natural" | "fillEqually" }) =>
+    ({ type: "hstack", spacing: opts?.spacing ?? 8, align: opts?.align, distribution: opts?.distribution, children }),
+  vstack: (children: ViewNode[], opts?: { spacing?: number; align?: string; distribution?: "natural" | "fillEqually" }) =>
+    ({ type: "vstack", spacing: opts?.spacing ?? 4, align: opts?.align, distribution: opts?.distribution, children }),
   zstack: (children: ViewNode[]) =>
     ({ type: "zstack", children }),
   spacer: (minLength?: number) =>
@@ -530,6 +530,10 @@ const View = {
   },
 };
 ```
+
+`distribution` controls how direct stack children consume space:
+- `"natural"`: children use intrinsic size
+- `"fillEqually"`: children share equal space along the stack axis
 
 The `View` global is pre-injected into every extension's JSContext so no imports are needed.
 
@@ -658,11 +662,16 @@ struct ExtensionViewState {
     var minimalTrailing: ViewNode?
 }
 
+enum StackDistribution: String, Codable {
+    case natural
+    case fillEqually
+}
+
 /// A node in the extension's view tree (parsed from JS objects).
 indirect enum ViewNode: Codable {
     // Layout
-    case hstack(spacing: CGFloat, alignment: VerticalAlignment, children: [ViewNode])
-    case vstack(spacing: CGFloat, alignment: HorizontalAlignment, children: [ViewNode])
+    case hstack(spacing: CGFloat, alignment: VerticalAlignment, distribution: StackDistribution, children: [ViewNode])
+    case vstack(spacing: CGFloat, alignment: HorizontalAlignment, distribution: StackDistribution, children: [ViewNode])
     case zstack(children: [ViewNode])
     case spacer(minLength: CGFloat?)
 
@@ -698,7 +707,8 @@ indirect enum ViewNode: Codable {
         case "hstack":
             let children = parseChildren(jsValue.forProperty("children"))
             let spacing = jsValue.forProperty("spacing")?.toDouble() ?? 8
-            return .hstack(spacing: spacing, alignment: .center, children: children)
+            let distribution = StackDistribution(rawValue: jsValue.forProperty("distribution")?.toString() ?? "natural") ?? .natural
+            return .hstack(spacing: spacing, alignment: .center, distribution: distribution, children: children)
         case "text":
             let value = jsValue.forProperty("value")?.toString() ?? ""
             let style = TextStyle(rawValue: jsValue.forProperty("style")?.toString() ?? "body") ?? .body
@@ -823,17 +833,27 @@ struct ViewNodeRenderer: View {
                 .font(.system(size: size))
                 .foregroundColor(color.swiftUI)
 
-        case .hstack(let spacing, let alignment, let children):
+        case .hstack(let spacing, let alignment, let distribution, let children):
             HStack(alignment: alignment, spacing: spacing) {
                 ForEach(children.indices, id: \.self) { i in
-                    ViewNodeRenderer(node: children[i], extensionID: extensionID)
+                    if distribution == .fillEqually {
+                        ViewNodeRenderer(node: children[i], extensionID: extensionID)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ViewNodeRenderer(node: children[i], extensionID: extensionID)
+                    }
                 }
             }
 
-        case .vstack(let spacing, let alignment, let children):
+        case .vstack(let spacing, let alignment, let distribution, let children):
             VStack(alignment: alignment, spacing: spacing) {
                 ForEach(children.indices, id: \.self) { i in
-                    ViewNodeRenderer(node: children[i], extensionID: extensionID)
+                    if distribution == .fillEqually {
+                        ViewNodeRenderer(node: children[i], extensionID: extensionID)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ViewNodeRenderer(node: children[i], extensionID: extensionID)
+                    }
                 }
             }
 

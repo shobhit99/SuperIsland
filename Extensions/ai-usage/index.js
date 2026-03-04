@@ -246,9 +246,7 @@ DynamicIsland.registerModule({
             View.text(codex.detail, { style: "footnote", color: "gray" })
           ], { spacing: 2, align: "leading" })
         ], { spacing: 8, align: "center" })
-      ], { spacing: 4, align: "leading" }),
-
-      View.spacer(),
+      ], { spacing: 4, align: "center" }),
 
       View.vstack([
         View.text("Claude", { style: "caption", color: "gray" }),
@@ -259,8 +257,8 @@ DynamicIsland.registerModule({
             View.text(claude.detail, { style: "footnote", color: "gray" })
           ], { spacing: 2, align: "leading" })
         ], { spacing: 8, align: "center" })
-      ], { spacing: 4, align: "leading" })
-    ], { spacing: 10, align: "center" });
+      ], { spacing: 4, align: "center" })
+    ], { spacing: 12, align: "center", distribution: "fillEqually" });
   },
 
   fullExpanded() {

@@ -349,8 +349,8 @@ final class ExtensionJSRuntime {
         context.evaluateScript(
             """
             globalThis.View = {
-              hstack: function(children, opts) { return { type: 'hstack', spacing: (opts && opts.spacing) ?? 8, align: opts && opts.align, children: children || [] }; },
-              vstack: function(children, opts) { return { type: 'vstack', spacing: (opts && opts.spacing) ?? 4, align: opts && opts.align, children: children || [] }; },
+              hstack: function(children, opts) { return { type: 'hstack', spacing: (opts && opts.spacing) ?? 8, align: opts && opts.align, distribution: opts && opts.distribution, children: children || [] }; },
+              vstack: function(children, opts) { return { type: 'vstack', spacing: (opts && opts.spacing) ?? 4, align: opts && opts.align, distribution: opts && opts.distribution, children: children || [] }; },
               zstack: function(children) { return { type: 'zstack', children: children || [] }; },
               spacer: function(minLength) { return { type: 'spacer', minLength: minLength }; },
               text: function(value, opts) { return { type: 'text', value: String(value ?? ''), style: (opts && opts.style) ?? 'body', color: opts && opts.color }; },

@@ -13,6 +13,7 @@ final class CalendarManager: ObservableObject {
     @Published var todayEvents: [EKEvent] = []
     @Published var nextEvent: EKEvent?
     @Published var hasAccess: Bool = false
+    @Published var displayedMonthStart: Date = startOfMonth(for: Date())
 
     private let store = EKEventStore()
     private var refreshTimer: Timer?
@@ -95,7 +96,9 @@ final class CalendarManager: ObservableObject {
     private func startRefreshTimer() {
         // Refresh every 5 minutes
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            self?.fetchTodayEvents()
+            Task { @MainActor in
+                self?.fetchTodayEvents()
+            }
         }
 
         // Also refresh at midnight
@@ -112,6 +115,18 @@ final class CalendarManager: ObservableObject {
     }
 
     // MARK: - Helpers
+
+    func showPreviousMonth() {
+        changeDisplayedMonth(by: -1)
+    }
+
+    func showNextMonth() {
+        changeDisplayedMonth(by: 1)
+    }
+
+    func resetDisplayedMonthToCurrent() {
+        displayedMonthStart = Self.startOfMonth(for: Date())
+    }
 
     var nextEventCountdown: String? {
         guard let next = nextEvent else { return nil }
@@ -144,6 +159,19 @@ final class CalendarManager: ObservableObject {
             }
         }
         return nil
+    }
+
+    private func changeDisplayedMonth(by offset: Int) {
+        let calendar = Foundation.Calendar.current
+        if let updated = calendar.date(byAdding: .month, value: offset, to: displayedMonthStart) {
+            displayedMonthStart = Self.startOfMonth(for: updated)
+        }
+    }
+
+    private static func startOfMonth(for date: Date) -> Date {
+        let calendar = Foundation.Calendar.current
+        let components = calendar.dateComponents([.year, .month], from: date)
+        return calendar.date(from: components) ?? date
     }
 
     deinit {

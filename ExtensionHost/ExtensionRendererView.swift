@@ -72,17 +72,27 @@ struct ViewNodeRenderer: View {
                     .frame(width: width, height: height)
             }
 
-        case .hstack(let spacing, let align, let children):
+        case .hstack(let spacing, let align, let distribution, let children):
             HStack(alignment: verticalAlignment(from: align), spacing: spacing) {
                 ForEach(Array(children.enumerated()), id: \.offset) { _, child in
-                    ViewNodeRenderer(node: child, extensionID: extensionID)
+                    if distribution == "fillEqually" {
+                        ViewNodeRenderer(node: child, extensionID: extensionID)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    } else {
+                        ViewNodeRenderer(node: child, extensionID: extensionID)
+                    }
                 }
             }
 
-        case .vstack(let spacing, let align, let children):
+        case .vstack(let spacing, let align, let distribution, let children):
             VStack(alignment: horizontalAlignment(from: align), spacing: spacing) {
                 ForEach(Array(children.enumerated()), id: \.offset) { _, child in
-                    ViewNodeRenderer(node: child, extensionID: extensionID)
+                    if distribution == "fillEqually" {
+                        ViewNodeRenderer(node: child, extensionID: extensionID)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    } else {
+                        ViewNodeRenderer(node: child, extensionID: extensionID)
+                    }
                 }
             }
 

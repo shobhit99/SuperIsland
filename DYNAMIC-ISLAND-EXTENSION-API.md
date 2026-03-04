@@ -221,8 +221,8 @@ Use `View.*` helpers to build UI nodes (no HTML/DOM).
 
 ### Layout
 
-- `View.hstack(children, { spacing?, align? })`
-- `View.vstack(children, { spacing?, align? })`
+- `View.hstack(children, { spacing?, align?, distribution? })`
+- `View.vstack(children, { spacing?, align?, distribution? })`
 - `View.zstack(children)`
 - `View.spacer(minLength?)`
 
@@ -230,6 +230,7 @@ Alignment values:
 
 - `hstack.align`: `top | center | bottom`
 - `vstack.align`: `leading | center | trailing`
+- `distribution`: `natural | fillEqually` (`fillEqually` makes each direct child consume equal space along the stack axis)
 
 ### Content
 

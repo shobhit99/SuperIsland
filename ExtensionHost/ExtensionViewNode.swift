@@ -83,8 +83,8 @@ enum TextStyle: String {
 }
 
 indirect enum ViewNode: Equatable {
-    case hstack(spacing: Double, align: String, children: [ViewNode])
-    case vstack(spacing: Double, align: String, children: [ViewNode])
+    case hstack(spacing: Double, align: String, distribution: String, children: [ViewNode])
+    case vstack(spacing: Double, align: String, distribution: String, children: [ViewNode])
     case zstack(children: [ViewNode])
     case spacer(minLength: Double?)
 
@@ -126,6 +126,7 @@ indirect enum ViewNode: Equatable {
             return .hstack(
                 spacing: value.forProperty("spacing")?.toDouble() ?? 8,
                 align: value.forProperty("align")?.toString() ?? "center",
+                distribution: value.forProperty("distribution")?.toString() ?? "natural",
                 children: parseChildren(value.forProperty("children"))
             )
 
@@ -133,6 +134,7 @@ indirect enum ViewNode: Equatable {
             return .vstack(
                 spacing: value.forProperty("spacing")?.toDouble() ?? 4,
                 align: value.forProperty("align")?.toString() ?? "center",
+                distribution: value.forProperty("distribution")?.toString() ?? "natural",
                 children: parseChildren(value.forProperty("children"))
             )
 
