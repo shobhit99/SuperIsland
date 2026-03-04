@@ -43,7 +43,10 @@ final class IslandWindowController {
     }
 
     private func applyFrame(size: CGSize, to panel: IslandPanel, animated: Bool) {
-        guard let screen = NSScreen.main else { return }
+        guard let screen = panel.screen
+            ?? ScreenDetector.activeScreen
+            ?? ScreenDetector.primaryScreen
+            ?? NSScreen.screens.first else { return }
         let screenFrame = screen.frame
         let hasNotch = ScreenDetector.hasNotch(screen: screen)
         let notchRect = ScreenDetector.notchRect(screen: screen)

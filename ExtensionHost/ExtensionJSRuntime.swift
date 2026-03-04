@@ -465,7 +465,13 @@ final class ExtensionJSRuntime {
             return
         }
 
-        if let data = try? JSONSerialization.data(withJSONObject: value, options: []) {
+        if value is NSNull {
+            defaults.removeObject(forKey: key)
+            return
+        }
+
+        if JSONSerialization.isValidJSONObject(value),
+           let data = try? JSONSerialization.data(withJSONObject: value, options: []) {
             defaults.set(data, forKey: key)
             return
         }

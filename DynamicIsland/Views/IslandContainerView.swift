@@ -83,7 +83,8 @@ struct IslandContainerView: View {
             case .expanded:
                 appState.fullyExpand()
             case .fullExpanded:
-                appState.dismiss()
+                // Do not dismiss on blank-area taps in full mode.
+                break
             }
         }
     }

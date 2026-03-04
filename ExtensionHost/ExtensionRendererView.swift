@@ -101,10 +101,12 @@ struct ViewNodeRenderer: View {
                 .tint(color.swiftUI)
 
         case .circularProgress(let value, let total, let lineWidth, let color):
-            ProgressView(value: value, total: total)
-                .progressViewStyle(.circular)
-                .tint(color.swiftUI)
-                .scaleEffect(max(0.5, lineWidth / 4))
+            ExtensionCircularProgressNode(
+                value: value,
+                total: total,
+                lineWidth: lineWidth,
+                color: color.swiftUI
+            )
 
         case .gauge(let value, let min, let max, let label):
             Gauge(value: value, in: min...max) {
@@ -198,6 +200,44 @@ struct ViewNodeRenderer: View {
         case "vertical": return .vertical
         default: return .all
         }
+    }
+}
+
+private struct ExtensionCircularProgressNode: View {
+    let value: Double
+    let total: Double
+    let lineWidth: Double
+    let color: Color
+
+    private var normalizedProgress: Double {
+        guard total > 0 else { return 0 }
+        let raw = value / total
+        return min(1, max(0, raw))
+    }
+
+    private var strokeWidth: CGFloat {
+        max(1, CGFloat(lineWidth))
+    }
+
+    private var diameter: CGFloat {
+        max(10, strokeWidth * 4)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.white.opacity(0.18), lineWidth: strokeWidth)
+
+            Circle()
+                .trim(from: 0, to: normalizedProgress)
+                .stroke(
+                    color,
+                    style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round, lineJoin: .round)
+                )
+                .rotationEffect(.degrees(-90))
+                .animation(.easeInOut(duration: 0.2), value: normalizedProgress)
+        }
+        .frame(width: diameter, height: diameter)
     }
 }
 

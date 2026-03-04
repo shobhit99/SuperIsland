@@ -13,10 +13,16 @@ final class ExtensionManager: ObservableObject {
     let localExtensionsDirectory: URL
     let developmentExtensionsDirectory: URL
     let installedExtensionsDirectory: URL
+    private let fallbackRepoExtensionsDirectory: URL?
 
     var discoveryDirectories: [URL] {
         var paths: [String: URL] = [:]
-        for directory in [localExtensionsDirectory, developmentExtensionsDirectory, installedExtensionsDirectory] {
+        for directory in [
+            fallbackRepoExtensionsDirectory,
+            localExtensionsDirectory,
+            developmentExtensionsDirectory,
+            installedExtensionsDirectory
+        ].compactMap({ $0 }) {
             paths[directory.path] = directory
         }
         return Array(paths.values)
@@ -35,6 +41,7 @@ final class ExtensionManager: ObservableObject {
         let cwd = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
         localExtensionsDirectory = cwd.appendingPathComponent("Extensions", isDirectory: true)
         developmentExtensionsDirectory = cwd.appendingPathComponent("ExtensionsDev", isDirectory: true)
+        fallbackRepoExtensionsDirectory = Self.resolveRepoExtensionsDirectory()
 
         let appSupportBase = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -43,6 +50,20 @@ final class ExtensionManager: ObservableObject {
             .appendingPathComponent("Extensions", isDirectory: true)
 
         try? fileManager.createDirectory(at: installedExtensionsDirectory, withIntermediateDirectories: true)
+    }
+
+    private static func resolveRepoExtensionsDirectory() -> URL? {
+        // In local development builds, #filePath resolves to this source file path.
+        // That lets us reliably find "<repo>/Extensions" even if process CWD differs.
+        let sourceFileURL = URL(fileURLWithPath: #filePath)
+        let extensionHostDirectory = sourceFileURL.deletingLastPathComponent()
+        let repoRoot = extensionHostDirectory.deletingLastPathComponent()
+        let repoExtensions = repoRoot.appendingPathComponent("Extensions", isDirectory: true)
+
+        if FileManager.default.fileExists(atPath: repoExtensions.path) {
+            return repoExtensions
+        }
+        return nil
     }
 
     func discoverExtensions() {

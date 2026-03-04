@@ -5,6 +5,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var islandWindowController: IslandWindowController?
     private var statusItem: NSStatusItem?
+    private static var fallbackSettingsWindowController: NSWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupIslandWindow()
@@ -110,12 +111,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
-        Self.showSettingsWindow()
+        // NSStatusItem menu actions run while the menu is still tracking.
+        // Defer window presentation to the next runloop tick so it reliably appears.
+        DispatchQueue.main.async {
+            Self.showSettingsWindow()
+        }
     }
 
     static func showSettingsWindow() {
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        // Avoid opening the SwiftUI Settings scene via AppKit selectors in menu-bar mode.
+        // macOS may reject those calls with a "use SettingsLink" warning.
+        showFallbackSettingsWindow()
+    }
+
+    private static func showFallbackSettingsWindow() {
+        if let window = fallbackSettingsWindowController?.window {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let rootView = SettingsView()
+            .environmentObject(AppState.shared)
+        let hostingController = NSHostingController(rootView: rootView)
+
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "DynamicIsland Settings"
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.setContentSize(NSSize(width: 480, height: 400))
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+
+        fallbackSettingsWindowController = NSWindowController(window: window)
+        fallbackSettingsWindowController?.showWindow(nil)
     }
 
     @objc private func quitApp() {
