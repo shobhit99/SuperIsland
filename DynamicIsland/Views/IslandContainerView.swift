@@ -134,7 +134,7 @@ struct IslandContainerView: View {
     }
 
     private var enabledModuleCount: Int {
-        ModuleType.allCases.filter { appState.isModuleEnabled($0) }.count
+        appState.availableModules.count
     }
 
     private var moduleCyclerOverlay: some View {

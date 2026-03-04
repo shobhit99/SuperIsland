@@ -49,6 +49,7 @@ enum ModuleType: String, CaseIterable, Identifiable {
 }
 
 // MARK: - App State
+@MainActor
 final class AppState: ObservableObject {
     static let shared = AppState()
 
@@ -57,8 +58,8 @@ final class AppState: ObservableObject {
             handleStateTransition(from: oldValue, to: currentState)
         }
     }
-    @Published var activeModule: ModuleType? = nil
-    @Published var previousModule: ModuleType? = nil
+    @Published var activeModule: ActiveModule? = nil
+    @Published var previousModule: ActiveModule? = nil
     @Published var isHovering: Bool = false
     // Module enabled states (persisted via UserDefaults)
     @AppStorage("module.nowPlaying.enabled") var nowPlayingEnabled = true
@@ -133,7 +134,13 @@ final class AppState: ObservableObject {
     // MARK: - HUD Management
 
     func showHUD(module: ModuleType, autoDismiss: Bool = true) {
-        guard isModuleEnabled(module) else { return }
+        showHUD(module: .builtIn(module), autoDismiss: autoDismiss)
+    }
+
+    func showHUD(module: ActiveModule, autoDismiss: Bool = true) {
+        if case .builtIn(let builtIn) = module, !isModuleEnabled(builtIn) {
+            return
+        }
 
         cancelAutoDismiss()
 
@@ -205,25 +212,31 @@ final class AppState: ObservableObject {
     // MARK: - Module Cycling
 
     func cycleModule(forward: Bool) {
-        let enabledModules = ModuleType.allCases.filter { isModuleEnabled($0) }
-        guard !enabledModules.isEmpty else { return }
+        let modules = availableModules
+        guard !modules.isEmpty else { return }
 
-        if let current = activeModule, let index = enabledModules.firstIndex(of: current) {
+        if let current = activeModule, let index = modules.firstIndex(of: current) {
             let nextIndex = forward
-                ? enabledModules.index(after: index) % enabledModules.count
-                : (index - 1 + enabledModules.count) % enabledModules.count
+                ? modules.index(after: index) % modules.count
+                : (index - 1 + modules.count) % modules.count
             withAnimation(Constants.contentSwap) {
-                activeModule = enabledModules[nextIndex]
+                activeModule = modules[nextIndex]
             }
         } else {
             withAnimation(Constants.contentSwap) {
-                activeModule = enabledModules.first
+                activeModule = modules.first
             }
         }
     }
 
     func setActiveModule(_ module: ModuleType) {
-        guard isModuleEnabled(module) else { return }
+        setActiveModule(.builtIn(module))
+    }
+
+    func setActiveModule(_ module: ActiveModule) {
+        if case .builtIn(let builtIn) = module, !isModuleEnabled(builtIn) {
+            return
+        }
         withAnimation(Constants.contentSwap) {
             previousModule = activeModule
             activeModule = module
@@ -243,6 +256,20 @@ final class AppState: ObservableObject {
         case .weather: return weatherEnabled
         case .notifications: return notificationsEnabled
         }
+    }
+
+    var activeBuiltInModule: ModuleType? {
+        guard case .builtIn(let module) = activeModule else {
+            return nil
+        }
+        return module
+    }
+
+    var availableModules: [ActiveModule] {
+        let builtIns = ModuleType.allCases
+            .filter { isModuleEnabled($0) }
+            .map(ActiveModule.builtIn)
+        return builtIns + ExtensionManager.shared.availableModules
     }
 
     // MARK: - Size Helpers

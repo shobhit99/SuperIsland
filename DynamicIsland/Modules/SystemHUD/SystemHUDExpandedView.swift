@@ -34,7 +34,7 @@ struct SystemHUDExpandedView: View {
                     .frame(height: 6)
 
                 // Device name (volume only)
-                if appState.activeModule == .volumeHUD {
+                if appState.activeBuiltInModule == .volumeHUD {
                     Text(volumeManager.outputDeviceName)
                         .font(.system(size: 10))
                         .foregroundColor(.white.opacity(0.4))
@@ -49,7 +49,7 @@ struct SystemHUDExpandedView: View {
     }
 
     private var iconName: String {
-        switch appState.activeModule {
+        switch appState.activeBuiltInModule {
         case .volumeHUD: return volumeManager.volumeIconName
         case .brightnessHUD: return brightnessManager.brightnessIconName
         default: return "speaker.wave.2.fill"
@@ -57,7 +57,7 @@ struct SystemHUDExpandedView: View {
     }
 
     private var label: String {
-        switch appState.activeModule {
+        switch appState.activeBuiltInModule {
         case .volumeHUD: return "Volume"
         case .brightnessHUD: return "Brightness"
         default: return ""
@@ -65,7 +65,7 @@ struct SystemHUDExpandedView: View {
     }
 
     private var currentValue: Float {
-        switch appState.activeModule {
+        switch appState.activeBuiltInModule {
         case .volumeHUD: return volumeManager.volume
         case .brightnessHUD: return brightnessManager.brightness
         default: return 0
@@ -77,7 +77,7 @@ struct SystemHUDExpandedView: View {
     }
 
     private var currentBinding: Binding<Float> {
-        switch appState.activeModule {
+        switch appState.activeBuiltInModule {
         case .volumeHUD:
             return Binding(
                 get: { volumeManager.volume },

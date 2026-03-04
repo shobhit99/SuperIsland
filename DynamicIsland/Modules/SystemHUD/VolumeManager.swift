@@ -3,6 +3,7 @@ import CoreAudio
 import AudioToolbox
 import Combine
 
+@MainActor
 final class VolumeManager: ObservableObject {
     static let shared = VolumeManager()
 

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Combine
 
+@MainActor
 final class IslandWindowController {
     private var panel: IslandPanel?
     private let appState = AppState.shared

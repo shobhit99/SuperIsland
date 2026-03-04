@@ -18,6 +18,10 @@ targets:
       - path: DynamicIsland
         excludes:
           - "**/.DS_Store"
+      - path: ExtensionHost
+        excludes:
+          - "**/.DS_Store"
+          - "**/*.md"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.workview.DynamicIsland

@@ -2,6 +2,7 @@ import Foundation
 import IOKit
 import Combine
 
+@MainActor
 final class BrightnessManager: ObservableObject {
     static let shared = BrightnessManager()
 

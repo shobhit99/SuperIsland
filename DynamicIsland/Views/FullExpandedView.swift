@@ -15,20 +15,22 @@ struct FullExpandedView: View {
             Group {
                 if let module = appState.activeModule {
                     switch module {
-                    case .nowPlaying:
+                    case .builtIn(.nowPlaying):
                         NowPlayingExpandedView()
-                    case .volumeHUD, .brightnessHUD:
+                    case .builtIn(.volumeHUD), .builtIn(.brightnessHUD):
                         SystemHUDExpandedView()
-                    case .battery:
+                    case .builtIn(.battery):
                         BatteryExpandedView()
-                    case .connectivity:
+                    case .builtIn(.connectivity):
                         ConnectivityExpandedView()
-                    case .calendar:
+                    case .builtIn(.calendar):
                         CalendarExpandedView()
-                    case .weather:
+                    case .builtIn(.weather):
                         WeatherExpandedView()
-                    case .notifications:
+                    case .builtIn(.notifications):
                         NotificationExpandedView()
+                    case .extension_(let extensionID):
+                        ExtensionRendererView(extensionID: extensionID, displayMode: .fullExpanded)
                     }
                 } else {
                     defaultFullView
@@ -54,6 +56,6 @@ struct FullExpandedView: View {
     }
 
     private var horizontalPadding: CGFloat {
-        appState.activeModule == .nowPlaying ? 6 : 10
+        appState.activeBuiltInModule == .nowPlaying ? 6 : 10
     }
 }

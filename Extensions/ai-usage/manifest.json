@@ -1,0 +1,25 @@
+{
+  "id": "com.workview.ai-usage",
+  "name": "AI Usage Remaining",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "main": "index.js",
+  "author": {
+    "name": "DynamicIsland",
+    "url": "https://example.com"
+  },
+  "description": "Shows local Codex and Claude usage availability inside the island.",
+  "license": "MIT",
+  "categories": ["developer", "productivity"],
+  "permissions": ["usage"],
+  "capabilities": {
+    "compact": true,
+    "expanded": true,
+    "fullExpanded": true,
+    "minimalCompact": true,
+    "backgroundRefresh": true,
+    "settings": false
+  },
+  "refreshInterval": 30,
+  "activationTriggers": ["manual"]
+}

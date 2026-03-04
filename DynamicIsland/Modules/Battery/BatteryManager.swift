@@ -2,6 +2,7 @@ import Foundation
 import IOKit.ps
 import Combine
 
+@MainActor
 final class BatteryManager: ObservableObject {
     static let shared = BatteryManager()
 
@@ -14,6 +15,7 @@ final class BatteryManager: ObservableObject {
     @Published var cycleCount: Int = 0
 
     private var runLoopSource: CFRunLoopSource?
+    private var hasLoadedInitialSnapshot = false
 
     private init() {
         updateBatteryInfo()
@@ -53,7 +55,7 @@ final class BatteryManager: ObservableObject {
             isLowBattery = capacity <= 20
 
             // Trigger HUD on significant changes
-            if abs(oldLevel - capacity) >= 5 || (oldLevel > 20 && capacity <= 20) {
+            if hasLoadedInitialSnapshot && (abs(oldLevel - capacity) >= 5 || (oldLevel > 20 && capacity <= 20)) {
                 AppState.shared.showHUD(module: .battery)
             }
         }
@@ -61,7 +63,7 @@ final class BatteryManager: ObservableObject {
         if let charging = info[kIOPSIsChargingKey] as? Bool {
             let wasCharging = isCharging
             isCharging = charging
-            if charging != wasCharging {
+            if hasLoadedInitialSnapshot && charging != wasCharging {
                 AppState.shared.showHUD(module: .battery)
             }
         }
@@ -82,6 +84,8 @@ final class BatteryManager: ObservableObject {
         } else {
             timeRemaining = isCharging ? "Calculating..." : ""
         }
+
+        hasLoadedInitialSnapshot = true
     }
 
     // MARK: - Helpers

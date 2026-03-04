@@ -32,7 +32,7 @@ struct SystemHUDCompactView: View {
     }
 
     private var iconName: String {
-        switch appState.activeModule {
+        switch appState.activeBuiltInModule {
         case .volumeHUD:
             return volumeManager.volumeIconName
         case .brightnessHUD:
@@ -43,7 +43,7 @@ struct SystemHUDCompactView: View {
     }
 
     private var currentValue: Float {
-        switch appState.activeModule {
+        switch appState.activeBuiltInModule {
         case .volumeHUD:
             return volumeManager.volume
         case .brightnessHUD:

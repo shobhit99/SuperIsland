@@ -32,6 +32,7 @@ struct BluetoothDeviceInfo: Identifiable {
     }
 }
 
+@MainActor
 final class BluetoothManager: ObservableObject {
     static let shared = BluetoothManager()
 

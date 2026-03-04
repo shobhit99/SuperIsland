@@ -24,6 +24,7 @@ private let kMRMediaRemoteNowPlayingInfoDuration = "kMRMediaRemoteNowPlayingInfo
 private let kMRMediaRemoteNowPlayingInfoElapsedTime = "kMRMediaRemoteNowPlayingInfoElapsedTime"
 private let kMRMediaRemoteNowPlayingInfoPlaybackRate = "kMRMediaRemoteNowPlayingInfoPlaybackRate"
 
+@MainActor
 final class NowPlayingManager: ObservableObject {
     static let shared = NowPlayingManager()
 

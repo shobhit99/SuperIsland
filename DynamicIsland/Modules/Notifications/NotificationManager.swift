@@ -11,6 +11,7 @@ struct IslandNotification: Identifiable {
     let timestamp: Date
 }
 
+@MainActor
 final class NotificationManager: ObservableObject {
     static let shared = NotificationManager()
 

@@ -7,20 +7,22 @@ struct ExpandedView: View {
         Group {
             if let module = appState.activeModule {
                 switch module {
-                case .nowPlaying:
+                case .builtIn(.nowPlaying):
                     NowPlayingExpandedView()
-                case .volumeHUD, .brightnessHUD:
+                case .builtIn(.volumeHUD), .builtIn(.brightnessHUD):
                     SystemHUDExpandedView()
-                case .battery:
+                case .builtIn(.battery):
                     BatteryExpandedView()
-                case .connectivity:
+                case .builtIn(.connectivity):
                     ConnectivityExpandedView()
-                case .calendar:
+                case .builtIn(.calendar):
                     CalendarExpandedView()
-                case .weather:
+                case .builtIn(.weather):
                     WeatherExpandedView()
-                case .notifications:
+                case .builtIn(.notifications):
                     NotificationExpandedView()
+                case .extension_(let extensionID):
+                    ExtensionRendererView(extensionID: extensionID, displayMode: .expanded)
                 }
             } else {
                 // Default expanded view - show quick summary
@@ -37,7 +39,7 @@ struct ExpandedView: View {
     }
 
     private var horizontalPadding: CGFloat {
-        appState.activeModule == .nowPlaying ? 4 : 8
+        appState.activeBuiltInModule == .nowPlaying ? 4 : 8
     }
 }
 

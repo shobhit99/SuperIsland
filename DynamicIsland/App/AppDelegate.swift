@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var islandWindowController: IslandWindowController?
     private var statusItem: NSStatusItem?
@@ -25,6 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if state.calendarEnabled { _ = CalendarManager.shared }
         if state.weatherEnabled { _ = WeatherManager.shared }
         if state.notificationsEnabled { _ = NotificationManager.shared }
+
+        let extensions = ExtensionManager.shared
+        extensions.discoverExtensions()
+        extensions.activateDiscoveredExtensions()
     }
 
     // MARK: - Island Window

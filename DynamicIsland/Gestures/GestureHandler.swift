@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 
+@MainActor
 final class GestureHandler: ObservableObject {
     static let shared = GestureHandler()
 
@@ -19,7 +20,7 @@ final class GestureHandler: ObservableObject {
             appState.cycleModule(forward: direction == .right)
         case (.left, .expanded), (.right, .expanded):
             // If now playing, skip track
-            if appState.activeModule == .nowPlaying {
+            if appState.activeBuiltInModule == .nowPlaying {
                 NowPlayingManager.shared.skipTrack(forward: direction == .right)
             } else {
                 appState.cycleModule(forward: direction == .right)

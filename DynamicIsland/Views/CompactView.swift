@@ -9,20 +9,22 @@ struct CompactView: View {
         HStack(spacing: 8) {
             if let module = appState.activeModule {
                 switch module {
-                case .nowPlaying:
+                case .builtIn(.nowPlaying):
                     NowPlayingCompactView()
-                case .volumeHUD, .brightnessHUD:
+                case .builtIn(.volumeHUD), .builtIn(.brightnessHUD):
                     SystemHUDCompactView()
-                case .battery:
+                case .builtIn(.battery):
                     BatteryCompactView()
-                case .connectivity:
+                case .builtIn(.connectivity):
                     ConnectivityCompactView()
-                case .calendar:
+                case .builtIn(.calendar):
                     CalendarCompactView()
-                case .weather:
+                case .builtIn(.weather):
                     WeatherCompactView()
-                case .notifications:
+                case .builtIn(.notifications):
                     NotificationCompactView()
+                case .extension_(let extensionID):
+                    ExtensionRendererView(extensionID: extensionID, displayMode: .compact)
                 }
             } else if !nowPlaying.title.isEmpty {
                 // Auto-show Now Playing when music is detected
@@ -36,7 +38,7 @@ struct CompactView: View {
     }
 
     private var horizontalPadding: CGFloat {
-        let isNowPlayingActive = appState.activeModule == .nowPlaying || (appState.activeModule == nil && !nowPlaying.title.isEmpty)
+        let isNowPlayingActive = appState.activeBuiltInModule == .nowPlaying || (appState.activeModule == nil && !nowPlaying.title.isEmpty)
         return isNowPlayingActive ? 4 : 12
     }
 }
