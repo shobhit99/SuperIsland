@@ -5,12 +5,12 @@ struct AppearanceSettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 SettingsCard(
                     title: "Shape",
                     subtitle: "Visual geometry for the Dynamic Island container."
                 ) {
-                    HStack {
+                    HStack(spacing: 8) {
                         Text("Corner Radius")
                         Slider(value: $appState.cornerRadius, in: 8...30, step: 1)
                         Text("\(Int(appState.cornerRadius))")
@@ -23,7 +23,7 @@ struct AppearanceSettingsView: View {
                     title: "Opacity",
                     subtitle: "Adjust idle visibility strength."
                 ) {
-                    HStack {
+                    HStack(spacing: 8) {
                         Text("Idle Opacity")
                         Slider(value: $appState.idleOpacity, in: 0.1...1.0, step: 0.05)
                         Text("\(Int(appState.idleOpacity * 100))%")
@@ -34,5 +34,6 @@ struct AppearanceSettingsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .scrollIndicators(.hidden)
     }
 }

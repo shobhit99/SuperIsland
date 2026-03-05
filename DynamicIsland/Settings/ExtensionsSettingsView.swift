@@ -24,12 +24,16 @@ struct ExtensionsSettingsView: View {
     @State private var listFilter: ExtensionListFilter = .all
 
     var body: some View {
-        HStack(spacing: 10) {
-            leftPane
-                .frame(width: 300)
+        VStack(alignment: .leading, spacing: 8) {
+            filterBar
 
-            rightPane
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack(spacing: 10) {
+                leftPane
+                    .frame(width: 300)
+
+                rightPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
@@ -47,35 +51,44 @@ struct ExtensionsSettingsView: View {
         }
     }
 
-    private var leftPane: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Extensions")
-                    .font(.headline.weight(.semibold))
+    private var filterBar: some View {
+        HStack(spacing: 10) {
+            Text("Filter")
+                .font(.system(size: 13, weight: .semibold))
 
-                Spacer()
-
-                Button {
-                    manager.discoverExtensions()
-                    preserveSelection()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-
-            Picker("Filter", selection: $listFilter) {
+            Picker("", selection: $listFilter) {
                 ForEach(ExtensionListFilter.allCases) { filter in
                     Text(filter.title).tag(filter)
                 }
             }
+            .labelsHidden()
             .pickerStyle(.segmented)
+            .frame(maxWidth: 320)
+
+            Spacer(minLength: 0)
 
             Text("\(filteredManifests.count) shown")
                 .font(.caption)
                 .foregroundColor(.secondary)
+
+            Button {
+                manager.discoverExtensions()
+                preserveSelection()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 2)
+        .padding(.top, 2)
+    }
+
+    private var leftPane: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Extensions")
+                .font(.headline.weight(.semibold))
 
             ScrollView {
                 LazyVStack(spacing: 6) {
@@ -189,7 +202,7 @@ struct ExtensionsSettingsView: View {
             }
 
             Text(manifest.description)
-                .font(.body)
+                .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.secondary)
 
             HStack(spacing: 10) {
@@ -244,8 +257,17 @@ struct ExtensionsSettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(isSelected ? Color.accentColor : Color.clear)
+                .fill(
+                    isSelected
+                    ? Color.accentColor
+                    : Color(nsColor: .controlBackgroundColor).opacity(0.20)
+                )
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(isSelected ? Color.white.opacity(0.15) : Color.primary.opacity(0.06), lineWidth: 1)
+        )
+        .shadow(color: isSelected ? Color.accentColor.opacity(0.25) : .clear, radius: 6, x: 0, y: 2)
         .foregroundColor(isSelected ? .white : .primary)
     }
 
@@ -340,7 +362,7 @@ struct ExtensionsSettingsView: View {
 
     private func extensionSource(for manifest: ExtensionManifest) -> (label: String, color: Color) {
         if isInstalledExtension(manifest) {
-            return ("Installed", .blue)
+            return ("Installed", Color.accentColor)
         }
         return ("Bundled", .secondary)
     }
@@ -371,11 +393,12 @@ private extension View {
         self
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.8))
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.86))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
             )
+            .shadow(color: Color.black.opacity(0.12), radius: 5, x: 0, y: 2)
     }
 }

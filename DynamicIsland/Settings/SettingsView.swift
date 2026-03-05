@@ -32,7 +32,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
-    @State private var selectedPane: SettingsPane? = .general
+    @State private var selectedPane: SettingsPane = .general
 
     var body: some View {
         ZStack {
@@ -66,6 +66,16 @@ struct SettingsView: View {
                     topPaneButton(for: pane)
                 }
             }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.75))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+            )
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
@@ -73,24 +83,27 @@ struct SettingsView: View {
     }
 
     private var detailPane: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text((selectedPane ?? .general).title)
-                .font(.title3.weight(.semibold))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-
-            Divider()
-                .opacity(0.35)
-
-            detailContent
+        GeometryReader { proxy in
+            if selectedPane == .extensions {
+                detailContent
+                    .padding(12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    detailContent
+                        .frame(width: max(560, proxy.size.width * 0.75), alignment: .topLeading)
+                    Spacer(minLength: 0)
+                }
                 .padding(12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func topPaneButton(for pane: SettingsPane) -> some View {
-        let isSelected = (selectedPane ?? .general) == pane
+        let isSelected = selectedPane == pane
         return Button {
             selectedPane = pane
         } label: {
@@ -108,13 +121,17 @@ struct SettingsView: View {
                     .fill(isSelected ? Color.accentColor : Color.clear)
             )
             .foregroundColor(isSelected ? .white : .primary)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isSelected ? Color.white.opacity(0.18) : Color.clear, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
     }
 
     @ViewBuilder
     private var detailContent: some View {
-        switch selectedPane ?? .general {
+        switch selectedPane {
         case .general:
             GeneralSettingsView()
         case .modules:
@@ -151,11 +168,12 @@ struct SettingsCard<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.8))
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.86))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.09), lineWidth: 1)
         )
+        .shadow(color: Color.black.opacity(0.12), radius: 5, x: 0, y: 2)
     }
 }

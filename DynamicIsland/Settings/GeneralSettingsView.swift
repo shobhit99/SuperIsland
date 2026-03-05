@@ -6,7 +6,7 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 SettingsCard(
                     title: "Startup",
                     subtitle: "Control launch behavior and menu bar visibility."
@@ -20,6 +20,7 @@ struct GeneralSettingsView: View {
                             }
                         }
 
+                    Divider().opacity(0.2)
                     Toggle("Show menu bar icon", isOn: $appState.showMenuBarIcon)
                 }
 
@@ -29,6 +30,7 @@ struct GeneralSettingsView: View {
                 ) {
                     Toggle("Show on all Spaces", isOn: $appState.showOnAllSpaces)
 
+                    Divider().opacity(0.2)
                     Picker("Animation speed", selection: $appState.animationSpeed) {
                         Text("Normal").tag(1.0)
                         Text("Reduced").tag(1.5)
@@ -71,5 +73,6 @@ struct GeneralSettingsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .scrollIndicators(.hidden)
     }
 }

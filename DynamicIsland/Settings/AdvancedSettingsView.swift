@@ -5,7 +5,7 @@ struct AdvancedSettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 SettingsCard(
                     title: "Debug",
                     subtitle: "Administrative actions for local state."
@@ -35,6 +35,7 @@ struct AdvancedSettingsView: View {
                             .foregroundColor(.secondary)
                     }
 
+                    Divider().opacity(0.2)
                     HStack {
                         Text("Build")
                         Spacer()
@@ -45,6 +46,7 @@ struct AdvancedSettingsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .scrollIndicators(.hidden)
     }
 
     private func resetAllSettings() {
