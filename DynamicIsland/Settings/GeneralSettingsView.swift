@@ -5,55 +5,71 @@ struct GeneralSettingsView: View {
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
 
     var body: some View {
-        Form {
-            Section("Startup") {
-                Toggle("Launch at login", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, newValue in
-                        if newValue {
-                            LaunchAtLogin.enable()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                SettingsCard(
+                    title: "Startup",
+                    subtitle: "Control launch behavior and menu bar visibility."
+                ) {
+                    Toggle("Launch at login", isOn: $launchAtLogin)
+                        .onChange(of: launchAtLogin) { _, newValue in
+                            if newValue {
+                                LaunchAtLogin.enable()
+                            } else {
+                                LaunchAtLogin.disable()
+                            }
+                        }
+
+                    Toggle("Show menu bar icon", isOn: $appState.showMenuBarIcon)
+                }
+
+                SettingsCard(
+                    title: "Display",
+                    subtitle: "Tune how Dynamic Island appears and animates."
+                ) {
+                    Toggle("Show on all Spaces", isOn: $appState.showOnAllSpaces)
+
+                    Picker("Animation speed", selection: $appState.animationSpeed) {
+                        Text("Normal").tag(1.0)
+                        Text("Reduced").tag(1.5)
+                        Text("Minimal").tag(2.0)
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                SettingsCard(
+                    title: "Behavior",
+                    subtitle: "Adjust how long expanded content remains visible."
+                ) {
+                    HStack {
+                        Text("Expanded collapse delay")
+                        Slider(value: $appState.expandedAutoDismissDelay, in: 0.5...10.0, step: 0.5)
+                        Text("\(appState.expandedAutoDismissDelay, specifier: "%.1f")s")
+                            .frame(width: 44)
+                            .monospacedDigit()
+                    }
+                }
+
+                SettingsCard(
+                    title: "Permissions",
+                    subtitle: "System permissions required for full functionality."
+                ) {
+                    HStack {
+                        Text("Accessibility")
+                        Spacer()
+                        if PermissionsManager.shared.checkAccessibility() {
+                            Label("Granted", systemImage: "checkmark.circle.fill")
+                                .foregroundColor(.green)
                         } else {
-                            LaunchAtLogin.disable()
-                        }
-                    }
-
-                Toggle("Show menu bar icon", isOn: $appState.showMenuBarIcon)
-            }
-
-            Section("Display") {
-                Toggle("Show on all Spaces", isOn: $appState.showOnAllSpaces)
-
-                Picker("Animation speed", selection: $appState.animationSpeed) {
-                    Text("Normal").tag(1.0)
-                    Text("Reduced").tag(1.5)
-                    Text("Minimal").tag(2.0)
-                }
-            }
-
-            Section("Behavior") {
-                HStack {
-                    Text("Expanded collapse delay")
-                    Slider(value: $appState.expandedAutoDismissDelay, in: 0.5...10.0, step: 0.5)
-                    Text("\(appState.expandedAutoDismissDelay, specifier: "%.1f")s")
-                        .frame(width: 44)
-                }
-            }
-
-            Section("Permissions") {
-                HStack {
-                    Text("Accessibility")
-                    Spacer()
-                    if PermissionsManager.shared.checkAccessibility() {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                    } else {
-                        Button("Grant Access") {
-                            PermissionsManager.shared.requestAccessibility()
+                            Button("Grant Access") {
+                                PermissionsManager.shared.requestAccessibility()
+                            }
+                            .buttonStyle(.borderedProminent)
                         }
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .formStyle(.grouped)
-        .padding()
     }
 }

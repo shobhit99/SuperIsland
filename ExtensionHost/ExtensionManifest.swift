@@ -37,6 +37,16 @@ struct ExtensionManifest: Codable, Identifiable, Hashable {
         bundleURL.appendingPathComponent(main)
     }
 
+    var iconURL: URL? {
+        guard let icon, !icon.isEmpty else { return nil }
+
+        if icon.hasPrefix("/") {
+            return URL(fileURLWithPath: icon)
+        }
+
+        return bundleURL.appendingPathComponent(icon)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case name

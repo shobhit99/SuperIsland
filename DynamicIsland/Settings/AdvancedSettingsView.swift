@@ -4,39 +4,47 @@ struct AdvancedSettingsView: View {
     @State private var showResetAlert = false
 
     var body: some View {
-        Form {
-            Section("Debug") {
-                Button("Reset All Settings") {
-                    showResetAlert = true
-                }
-                .alert("Reset Settings", isPresented: $showResetAlert) {
-                    Button("Cancel", role: .cancel) {}
-                    Button("Reset", role: .destructive) {
-                        resetAllSettings()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                SettingsCard(
+                    title: "Debug",
+                    subtitle: "Administrative actions for local state."
+                ) {
+                    Button("Reset All Settings") {
+                        showResetAlert = true
                     }
-                } message: {
-                    Text("This will reset all DynamicIsland settings to their defaults.")
-                }
-            }
-
-            Section("About") {
-                HStack {
-                    Text("Version")
-                    Spacer()
-                    Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
-                        .foregroundColor(.secondary)
+                    .buttonStyle(.bordered)
+                    .alert("Reset Settings", isPresented: $showResetAlert) {
+                        Button("Cancel", role: .cancel) {}
+                        Button("Reset", role: .destructive) {
+                            resetAllSettings()
+                        }
+                    } message: {
+                        Text("This will reset all DynamicIsland settings to their defaults.")
+                    }
                 }
 
-                HStack {
-                    Text("Build")
-                    Spacer()
-                    Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
-                        .foregroundColor(.secondary)
+                SettingsCard(
+                    title: "About",
+                    subtitle: "Application build metadata."
+                ) {
+                    HStack {
+                        Text("Version")
+                        Spacer()
+                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Build")
+                        Spacer()
+                        Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .formStyle(.grouped)
-        .padding()
     }
 
     private func resetAllSettings() {
