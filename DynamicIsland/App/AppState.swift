@@ -80,6 +80,7 @@ final class AppState: ObservableObject {
     @AppStorage("general.showMenuBarIcon") var showMenuBarIcon = true
     @AppStorage("general.showOnAllSpaces") var showOnAllSpaces = true
     @AppStorage("general.launchAtLogin") var launchAtLogin = false
+    @AppStorage("general.showInScreenRecordings") var showInScreenRecordings = false
     @AppStorage("general.expandedAutoDismissDelay") var expandedAutoDismissDelay: Double = 2.0
 
     private var autoDismissWorkItem: DispatchWorkItem?

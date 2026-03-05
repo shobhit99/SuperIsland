@@ -3,6 +3,7 @@ import AppKit
 final class IslandPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+    private static let showInScreenRecordingsDefaultsKey = "general.showInScreenRecordings"
 
     init() {
         let initialCompactSize = ScreenDetector.primaryScreen
@@ -32,7 +33,13 @@ final class IslandPanel: NSPanel {
         titlebarAppearsTransparent = true
         animationBehavior = .none
 
-        // Exclude from screen recordings
-        sharingType = .none
+        let shouldShowInRecordings = UserDefaults.standard.object(
+            forKey: Self.showInScreenRecordingsDefaultsKey
+        ) as? Bool ?? false
+        setVisibleInScreenRecordings(shouldShowInRecordings)
+    }
+
+    func setVisibleInScreenRecordings(_ visible: Bool) {
+        sharingType = visible ? .readOnly : .none
     }
 }

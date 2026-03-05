@@ -22,6 +22,9 @@ struct GeneralSettingsView: View {
 
                     Divider().opacity(0.2)
                     Toggle("Show menu bar icon", isOn: $appState.showMenuBarIcon)
+
+                    Divider().opacity(0.2)
+                    Toggle("Show in screen recordings", isOn: $appState.showInScreenRecordings)
                 }
 
                 SettingsCard(

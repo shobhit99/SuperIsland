@@ -8,6 +8,7 @@
     "name": "Workview"
   },
   "description": "Codex and Claude usage in the notch with ring indicators.",
+  "icon": "icon.svg",
   "license": "MIT",
   "categories": ["developer", "productivity"],
   "permissions": ["usage"],

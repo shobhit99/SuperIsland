@@ -7,6 +7,7 @@ final class IslandWindowController {
     private var panel: IslandPanel?
     private let appState = AppState.shared
     private var screenObserver: Any?
+    private var defaultsObserver: Any?
     private var cancellables = Set<AnyCancellable>()
 
     func showIsland() {
@@ -25,9 +26,11 @@ final class IslandWindowController {
 
         panel.contentView = hostingView
         positionIsland(on: panel)
+        panel.setVisibleInScreenRecordings(appState.showInScreenRecordings)
         panel.orderFrontRegardless()
 
         observeScreenChanges()
+        observeSettingsChanges()
         observeStateChanges()
     }
 
@@ -109,8 +112,24 @@ final class IslandWindowController {
         }
     }
 
+    private func observeSettingsChanges() {
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.panel?.setVisibleInScreenRecordings(self.appState.showInScreenRecordings)
+            }
+        }
+    }
+
     deinit {
         if let observer = screenObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = defaultsObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         cancellables.removeAll()

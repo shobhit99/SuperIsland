@@ -8,6 +8,7 @@
     "name": "Workview"
   },
   "description": "Focus timer with compact countdown and quick controls.",
+  "icon": "icon.svg",
   "license": "MIT",
   "categories": ["productivity", "timer"],
   "permissions": ["notifications", "storage"],
