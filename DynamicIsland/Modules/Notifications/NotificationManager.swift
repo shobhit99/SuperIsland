@@ -997,22 +997,54 @@ final class NotificationManager: ObservableObject {
 
             // Merge near-identical WhatsApp notifications coming from different
             // ingestion paths (web bridge, delivered center, log observer).
+            var mergedNotification = normalized
             if let duplicateIndex = self.recentNotifications.firstIndex(where: { existing in
                 existing.appName.localizedCaseInsensitiveCompare(normalized.appName) == .orderedSame &&
                 existing.title == normalized.title &&
                 existing.body == normalized.body &&
                 abs(existing.timestamp.timeIntervalSince(normalized.timestamp)) <= 15
             }) {
+                mergedNotification = self.mergeDuplicateNotification(
+                    existing: self.recentNotifications[duplicateIndex],
+                    incoming: normalized
+                )
                 self.recentNotifications.remove(at: duplicateIndex)
             }
 
-            self.latestNotification = normalized
-            self.recentNotifications.removeAll { $0.sourceID == normalized.sourceID }
-            self.recentNotifications.insert(normalized, at: 0)
+            self.latestNotification = mergedNotification
+            self.recentNotifications.removeAll { $0.sourceID == mergedNotification.sourceID }
+            self.recentNotifications.insert(mergedNotification, at: 0)
             if self.recentNotifications.count > self.maxNotifications {
                 self.recentNotifications.removeLast()
             }
             AppState.shared.showHUD(module: .notifications)
+        }
+    }
+
+    func updateNotificationAvatar(sourceID: String, avatarURL: String) {
+        guard let cleanedAvatarURL = cleanText(avatarURL) else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            if let latest = self.latestNotification,
+               latest.sourceID == sourceID,
+               latest.avatarURL != cleanedAvatarURL {
+                self.latestNotification = self.notification(
+                    from: latest,
+                    replacingAvatarURL: cleanedAvatarURL
+                )
+            }
+
+            guard let index = self.recentNotifications.firstIndex(where: { $0.sourceID == sourceID }),
+                  self.recentNotifications[index].avatarURL != cleanedAvatarURL else {
+                return
+            }
+
+            self.recentNotifications[index] = self.notification(
+                from: self.recentNotifications[index],
+                replacingAvatarURL: cleanedAvatarURL
+            )
         }
     }
 
@@ -1050,6 +1082,47 @@ final class NotificationManager: ObservableObject {
             previewText: resolvedPreview,
             avatarURL: cleanText(notification.avatarURL),
             timestamp: notification.timestamp
+        )
+    }
+
+    private func notification(
+        from notification: IslandNotification,
+        replacingAvatarURL avatarURL: String?
+    ) -> IslandNotification {
+        IslandNotification(
+            sourceID: notification.sourceID,
+            appName: notification.appName,
+            bundleIdentifier: notification.bundleIdentifier,
+            appIcon: notification.appIcon,
+            appIconURL: notification.appIconURL,
+            title: notification.title,
+            body: notification.body,
+            senderName: notification.senderName,
+            previewText: notification.previewText,
+            avatarURL: avatarURL,
+            timestamp: notification.timestamp
+        )
+    }
+
+    private func mergeDuplicateNotification(
+        existing: IslandNotification,
+        incoming: IslandNotification
+    ) -> IslandNotification {
+        let preserveExistingSourceID = existing.sourceID.hasPrefix("whatsapp-web:") && !incoming.sourceID.hasPrefix("whatsapp-web:")
+        let mergedSourceID = preserveExistingSourceID ? existing.sourceID : incoming.sourceID
+
+        return IslandNotification(
+            sourceID: mergedSourceID,
+            appName: incoming.appName,
+            bundleIdentifier: incoming.bundleIdentifier ?? existing.bundleIdentifier,
+            appIcon: incoming.appIcon,
+            appIconURL: incoming.appIconURL ?? existing.appIconURL,
+            title: incoming.title,
+            body: incoming.body,
+            senderName: incoming.senderName ?? existing.senderName,
+            previewText: incoming.previewText ?? existing.previewText,
+            avatarURL: incoming.avatarURL ?? existing.avatarURL,
+            timestamp: incoming.timestamp >= existing.timestamp ? incoming.timestamp : existing.timestamp
         )
     }
 

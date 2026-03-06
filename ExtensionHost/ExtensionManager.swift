@@ -4,6 +4,7 @@ import WebKit
 import AppKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import CryptoKit
 
 @MainActor
 final class ExtensionManager: ObservableObject {
@@ -328,6 +329,8 @@ final class WhatsAppWebBridge: ObservableObject {
     private var seenMessageIDs: [String] = []
     private let maxSeenMessageIDs = 600
     private var cachedNodeExecutableURL: URL?
+    private var pendingAvatarDownloads: Set<String> = []
+    private var cachedAvatarFileURLs: [String: String] = [:]
 
     private init() {}
 
@@ -341,6 +344,10 @@ final class WhatsAppWebBridge: ObservableObject {
         appSupportDirectory
             .appendingPathComponent("WhatsAppWebAuth", isDirectory: true)
             .appendingPathComponent("default", isDirectory: true)
+    }
+
+    private var avatarCacheDirectory: URL {
+        appSupportDirectory.appendingPathComponent("WhatsAppWebAvatarCache", isDirectory: true)
     }
 
     private static var providerDirectory: URL {
@@ -797,14 +804,28 @@ final class WhatsAppWebBridge: ObservableObject {
     }
 
     private func handleProviderMessage(_ payload: [String: Any]) {
-        guard let identifier = normalizedString(payload["id"]),
-              !seenMessageIDs.contains(identifier) else {
+        guard let identifier = normalizedString(payload["id"]) else {
             return
         }
         let sender = normalizedString(payload["sender"]) ?? "WhatsApp"
         let preview = normalizedString(payload["preview"]) ?? "New message"
+        let avatarURL = resolvedAvatarURLString(
+            from: normalizedString(payload["avatarURL"]),
+            messageID: identifier
+        )
         let timestampValue = payload["timestamp"]
         let timestamp = timestamp(from: timestampValue)
+
+        if seenMessageIDs.contains(identifier) {
+            applyMessageUpdate(
+                id: identifier,
+                sender: sender,
+                preview: preview,
+                avatarURL: avatarURL,
+                timestamp: timestamp
+            )
+            return
+        }
 
         seenMessageIDs.append(identifier)
         if seenMessageIDs.count > maxSeenMessageIDs {
@@ -815,9 +836,46 @@ final class WhatsAppWebBridge: ObservableObject {
             id: identifier,
             sender: sender,
             preview: preview,
-            avatarURL: nil,
+            avatarURL: avatarURL,
             timestamp: timestamp
         )
+    }
+
+    private func applyMessageUpdate(
+        id: String,
+        sender: String,
+        preview: String,
+        avatarURL: String?,
+        timestamp: Date
+    ) {
+        guard let existingIndex = recentMessages.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        let existing = recentMessages[existingIndex]
+        let resolvedAvatarURL = avatarURL ?? existing.avatarURL
+        guard existing.sender != sender ||
+              existing.preview != preview ||
+              existing.avatarURL != resolvedAvatarURL else {
+            return
+        }
+
+        performBridgeUpdate {
+            recentMessages[existingIndex] = WhatsAppWebMessage(
+                id: id,
+                sender: sender,
+                preview: preview,
+                avatarURL: resolvedAvatarURL,
+                timestamp: timestamp
+            )
+        }
+
+        if let resolvedAvatarURL, resolvedAvatarURL != existing.avatarURL {
+            NotificationManager.shared.updateNotificationAvatar(
+                sourceID: "whatsapp-web:\(id)",
+                avatarURL: resolvedAvatarURL
+            )
+        }
     }
 
     private func handleSendResult(_ payload: [String: Any]) {
@@ -980,5 +1038,114 @@ final class WhatsAppWebBridge: ObservableObject {
         }
 
         return "data:image/png;base64,\(pngData.base64EncodedString())"
+    }
+
+    private func resolvedAvatarURLString(from rawURLString: String?, messageID: String) -> String? {
+        guard let rawURLString = normalizedString(rawURLString) else { return nil }
+
+        if rawURLString.hasPrefix("/") {
+            return URL(fileURLWithPath: rawURLString).absoluteString
+        }
+
+        guard let url = URL(string: rawURLString) else {
+            return nil
+        }
+
+        if url.isFileURL {
+            return url.absoluteString
+        }
+
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return nil
+        }
+
+        if let cached = cachedLocalAvatarURL(forRemoteURLString: rawURLString) {
+            return cached
+        }
+
+        downloadAvatarIfNeeded(remoteURLString: rawURLString, messageID: messageID)
+        return nil
+    }
+
+    private func cachedLocalAvatarURL(forRemoteURLString remoteURLString: String) -> String? {
+        if let cached = cachedAvatarFileURLs[remoteURLString],
+           let cachedURL = URL(string: cached),
+           fileManager.fileExists(atPath: cachedURL.path) {
+            return cached
+        }
+
+        let fileURL = avatarCacheFileURL(forRemoteURLString: remoteURLString)
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+
+        let localURLString = fileURL.absoluteString
+        cachedAvatarFileURLs[remoteURLString] = localURLString
+        return localURLString
+    }
+
+    private func avatarCacheFileURL(forRemoteURLString remoteURLString: String) -> URL {
+        let digest = SHA256.hash(data: Data(remoteURLString.utf8))
+        let fileName = digest.map { String(format: "%02x", $0) }.joined()
+        return avatarCacheDirectory.appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    private func downloadAvatarIfNeeded(remoteURLString: String, messageID: String) {
+        guard !pendingAvatarDownloads.contains(remoteURLString),
+              let remoteURL = URL(string: remoteURLString) else {
+            return
+        }
+
+        pendingAvatarDownloads.insert(remoteURLString)
+
+        let managedExtensionID = Self.managedExtensionID
+        let cacheDirectory = avatarCacheDirectory
+        let destinationURL = avatarCacheFileURL(forRemoteURLString: remoteURLString)
+        URLSession.shared.dataTask(with: remoteURL) { data, _, error in
+            defer {
+                Task { @MainActor [weak self] in
+                    self?.pendingAvatarDownloads.remove(remoteURLString)
+                }
+            }
+
+            guard error == nil,
+                  let data,
+                  !data.isEmpty,
+                  NSImage(data: data) != nil else {
+                return
+            }
+
+            do {
+                try FileManager.default.createDirectory(
+                    at: cacheDirectory,
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: destinationURL, options: .atomic)
+            } catch {
+                ExtensionLogger.shared.log(
+                    managedExtensionID,
+                    .warning,
+                    "Failed to cache WhatsApp avatar: \(error.localizedDescription)"
+                )
+                return
+            }
+
+            let localURLString = destinationURL.absoluteString
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.cachedAvatarFileURLs[remoteURLString] = localURLString
+                guard let existingMessage = self.recentMessages.first(where: { $0.id == messageID }) else {
+                    return
+                }
+                self.applyMessageUpdate(
+                    id: messageID,
+                    sender: existingMessage.sender,
+                    preview: existingMessage.preview,
+                    avatarURL: localURLString,
+                    timestamp: existingMessage.timestamp
+                )
+            }
+        }.resume()
     }
 }

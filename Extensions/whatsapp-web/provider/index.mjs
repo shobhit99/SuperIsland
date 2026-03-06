@@ -27,6 +27,52 @@ const silentLogger = {
   fatal() {},
 };
 
+const AVATAR_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const AVATAR_NEGATIVE_CACHE_TTL_MS = 15 * 60 * 1000;
+
+function parseJid(value) {
+  const jid = sanitizeText(value);
+  const atIndex = jid.indexOf("@");
+  if (atIndex <= 0) {
+    return null;
+  }
+  const server = jid.slice(atIndex + 1);
+  const userCombined = jid.slice(0, atIndex);
+  const [userAgent] = userCombined.split(":");
+  const [user] = userAgent.split("_");
+  if (!user || !server) {
+    return null;
+  }
+  return { user, server };
+}
+
+function normalizeJid(value) {
+  const parsed = parseJid(value);
+  if (!parsed) {
+    return "";
+  }
+  return `${parsed.user}@${parsed.server === "c.us" ? "s.whatsapp.net" : parsed.server}`;
+}
+
+function isGroupJid(value) {
+  return sanitizeText(value).endsWith("@g.us");
+}
+
+function isBroadcastJid(value) {
+  return sanitizeText(value).endsWith("@broadcast");
+}
+
+function isAvatarEligibleJid(value) {
+  const normalized = normalizeJid(value);
+  if (!normalized) {
+    return false;
+  }
+  if (isGroupJid(normalized) || isBroadcastJid(normalized) || normalized === "status@broadcast") {
+    return false;
+  }
+  return true;
+}
+
 function parseArgs(argv) {
   const result = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -194,6 +240,8 @@ class WhatsAppSocketProvider {
     this.reconnectTimer = null;
     this.reconnectAttempts = 0;
     this.saveQueue = Promise.resolve();
+    this.avatarCache = new Map();
+    this.pendingAvatarLookups = new Map();
   }
 
   emitState(state, statusText, extra = {}) {
@@ -336,6 +384,143 @@ class WhatsAppSocketProvider {
     return sock;
   }
 
+  getCachedAvatarURL(jid) {
+    const candidates = Array.isArray(jid) ? jid : [jid];
+    for (const candidate of candidates) {
+      const normalized = normalizeJid(candidate);
+      if (!normalized) {
+        continue;
+      }
+      const cached = this.avatarCache.get(normalized);
+      if (!cached) {
+        continue;
+      }
+      if (cached.expires <= Date.now()) {
+        this.avatarCache.delete(normalized);
+        continue;
+      }
+      return cached.url ?? null;
+    }
+    return null;
+  }
+
+  async fetchAvatarURLForCandidate(sock, jid) {
+    const normalized = sanitizeText(jid);
+    if (!normalized) {
+      return null;
+    }
+
+    const cached = this.avatarCache.get(normalized);
+    if (cached && cached.expires > Date.now()) {
+      return cached.url ?? null;
+    }
+
+    const pending = this.pendingAvatarLookups.get(normalized);
+    if (pending) {
+      return pending;
+    }
+
+    const lookup = (async () => {
+      try {
+        const imageURL = (await sock.profilePictureUrl(normalized, "image", 2000)) ?? null;
+        const url = imageURL ?? (await sock.profilePictureUrl(normalized, "preview", 2000)) ?? null;
+        this.avatarCache.set(normalized, {
+          url,
+          expires: Date.now() + (url ? AVATAR_CACHE_TTL_MS : AVATAR_NEGATIVE_CACHE_TTL_MS),
+        });
+        return url;
+      } catch {
+        this.avatarCache.set(normalized, {
+          url: null,
+          expires: Date.now() + AVATAR_NEGATIVE_CACHE_TTL_MS,
+        });
+        return null;
+      } finally {
+        this.pendingAvatarLookups.delete(normalized);
+      }
+    })();
+
+    this.pendingAvatarLookups.set(normalized, lookup);
+    return lookup;
+  }
+
+  async fetchAvatarURL(sock, jids) {
+    const candidates = Array.isArray(jids) ? jids : [jids];
+    const normalizedCandidates = Array.from(
+      new Set(
+        candidates
+          .map((value) => normalizeJid(value))
+          .filter((value) => isAvatarEligibleJid(value)),
+      ),
+    );
+
+    if (normalizedCandidates.length === 0) {
+      return null;
+    }
+
+    const cached = this.getCachedAvatarURL(normalizedCandidates);
+    if (cached) {
+      return cached;
+    }
+
+    for (const candidate of normalizedCandidates) {
+      const avatarURL = await this.fetchAvatarURLForCandidate(sock, candidate);
+      if (avatarURL) {
+        for (const alias of normalizedCandidates) {
+          this.avatarCache.set(alias, {
+            url: avatarURL,
+            expires: Date.now() + AVATAR_CACHE_TTL_MS,
+          });
+        }
+        return avatarURL;
+      }
+    }
+
+    return null;
+  }
+
+  async resolveAvatarCandidateJids(sock, message) {
+    const key = message?.key ?? {};
+    const candidates = [
+      key.participantAlt,
+      key.participant,
+      key.remoteJidAlt,
+      key.remoteJid,
+    ]
+      .map((value) => normalizeJid(value))
+      .filter((value) => isAvatarEligibleJid(value));
+
+    const lidLookup = sock.signalRepository?.lidMapping;
+    const expanded = [...candidates];
+    for (const candidate of candidates) {
+      try {
+        if (candidate.endsWith("@lid")) {
+          const pn = await lidLookup?.getPNForLID?.(candidate);
+          if (pn) {
+            expanded.push(normalizeJid(pn));
+          }
+        } else if (candidate.endsWith("@s.whatsapp.net")) {
+          const lid = await lidLookup?.getLIDForPN?.(candidate);
+          if (lid) {
+            expanded.push(normalizeJid(lid));
+          }
+        }
+      } catch {
+        // ignore lookup failures
+      }
+    }
+
+    return Array.from(new Set(expanded.filter((value) => isAvatarEligibleJid(value))));
+  }
+
+  async maybeEmitAvatarUpdate(sock, jids, payload) {
+    const avatarURL = await this.fetchAvatarURL(sock, jids);
+    if (!avatarURL || avatarURL === payload.avatarURL) {
+      return;
+    }
+    emit({ ...payload, avatarURL });
+  }
+
   nextReconnectDelay(statusCode) {
     if (statusCode === 515) {
       return 500;
@@ -417,15 +602,23 @@ class WhatsAppSocketProvider {
       if (!preview) {
         continue;
       }
-      emit({
+      const avatarJids = await this.resolveAvatarCandidateJids(sock, message);
+      const payload = {
         type: "message",
         id: [message.key?.remoteJid ?? "", message.key?.participant ?? "", message.key?.id ?? ""].join(":"),
         sender: extractSender(message),
         preview,
+        avatarURL: this.getCachedAvatarURL(avatarJids),
         timestamp: coerceTimestampMs(message.messageTimestamp),
         chatJid: message.key?.remoteJid ?? null,
         participant: message.key?.participant ?? null,
-      });
+        participantAlt: message.key?.participantAlt ?? null,
+        chatJidAlt: message.key?.remoteJidAlt ?? null,
+      };
+      emit(payload);
+      if (avatarJids.length > 0 && !payload.avatarURL) {
+        void this.maybeEmitAvatarUpdate(sock, avatarJids, payload);
+      }
     }
   }
 
