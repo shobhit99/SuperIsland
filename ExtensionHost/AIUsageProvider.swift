@@ -1,7 +1,10 @@
 import Foundation
+#if os(macOS)
+import Security
+#endif
 
 enum AIUsageProvider {
-    private static let cacheTTL: TimeInterval = 60
+    private static let cacheTTL: TimeInterval = 300
     private static var cachedSnapshot: [String: Any]?
     private static var cachedAt: Date?
     private static let cacheLock = NSLock()
@@ -150,6 +153,10 @@ enum AIUsageProvider {
             return buildClaudePayloadFromLocalSummary(localSummary, updatedAt: updatedAt)
         }
 
+        if let oauthPayload = loadClaudePayloadFromOAuthAPI(updatedAt: updatedAt) {
+            return oauthPayload
+        }
+
         if let statsPayload = buildClaudePayloadFromStatsCache(updatedAt: updatedAt) {
             return statsPayload
         }
@@ -158,6 +165,9 @@ enum AIUsageProvider {
             "available": false,
             "status": NSNull(),
             "statusLabel": NSNull(),
+            "remainingPercent": NSNull(),
+            "weeklyRemainingPercent": NSNull(),
+            "currentSessionRemainingPercent": NSNull(),
             "hoursTillReset": NSNull(),
             "resetAt": NSNull(),
             "model": NSNull(),
@@ -169,7 +179,10 @@ enum AIUsageProvider {
     }
 
     private static func buildClaudePayloadFromLocalSummary(_ data: [String: Any], updatedAt: Int) -> [String: Any] {
-        [
+        let remainingPercent = claudeRemainingPercent(from: data)
+        let weeklyRemainingPercent = claudeWeeklyRemainingPercent(from: data)
+        let currentSessionRemainingPercent = claudeCurrentSessionRemainingPercent(from: data)
+        var payload: [String: Any] = [
             "available": true,
             "status": data["status"] ?? NSNull(),
             "statusLabel": data["statusLabel"] ?? NSNull(),
@@ -181,6 +194,62 @@ enum AIUsageProvider {
             "isBlocked": data["isBlocked"] as? Bool ?? false,
             "source": "local-summary"
         ]
+        payload["remainingPercent"] = remainingPercent ?? NSNull()
+        payload["weeklyRemainingPercent"] = weeklyRemainingPercent ?? NSNull()
+        payload["currentSessionRemainingPercent"] = currentSessionRemainingPercent ?? NSNull()
+        return payload
+    }
+
+    private static func loadClaudePayloadFromOAuthAPI(updatedAt: Int) -> [String: Any]? {
+        guard let accessToken = loadClaudeAccessToken(),
+              let url = URL(string: "https://api.anthropic.com/api/oauth/usage"),
+              let response = fetchJSON(
+                url: url,
+                bearerToken: accessToken,
+                timeout: 3.0,
+                extraHeaders: [
+                    "anthropic-beta": "oauth-2025-04-20",
+                    "Content-Type": "application/json"
+                ]
+              ) else {
+            return nil
+        }
+
+        guard let sessionRemainingPercent = claudeCurrentSessionRemainingPercent(from: response) else {
+            return nil
+        }
+
+        let weeklyRemainingPercent = claudeWeeklyRemainingPercent(from: response)
+        let overallRemainingPercent = weeklyRemainingPercent.map { min(sessionRemainingPercent, $0) } ?? sessionRemainingPercent
+        let status: String
+        if overallRemainingPercent <= 0 {
+            status = "rejected"
+        } else if overallRemainingPercent <= 25 {
+            status = "allowed_warning"
+        } else {
+            status = "allowed"
+        }
+
+        let resetAt = claudeResetAtISO8601(from: response)
+        let hoursTillReset = claudeHoursUntilReset(fromISO8601: resetAt)
+        let model = claudeOAuthPreferredModel(from: response)
+
+        var payload: [String: Any] = [
+            "available": true,
+            "status": status,
+            "statusLabel": "From Claude OAuth API",
+            "hoursTillReset": hoursTillReset ?? NSNull(),
+            "resetAt": resetAt ?? NSNull(),
+            "model": model ?? NSNull(),
+            "updatedAt": updatedAt,
+            "unifiedRateLimitFallbackAvailable": false,
+            "isBlocked": status == "rejected",
+            "source": "oauth-api"
+        ]
+        payload["remainingPercent"] = overallRemainingPercent
+        payload["weeklyRemainingPercent"] = weeklyRemainingPercent ?? NSNull()
+        payload["currentSessionRemainingPercent"] = sessionRemainingPercent
+        return payload
     }
 
     private static func buildClaudePayloadFromStatsCache(updatedAt: Int) -> [String: Any]? {
@@ -199,8 +268,11 @@ enum AIUsageProvider {
             let fileUpdatedAt = Int((modificationDate ?? Date()).timeIntervalSince1970)
             let ageHours = max(0, Int(Date().timeIntervalSince1970 - TimeInterval(fileUpdatedAt)) / 3600)
             let isFresh = ageHours <= 36
+            let remainingPercent = claudeRemainingPercent(from: object)
+            let weeklyRemainingPercent = claudeWeeklyRemainingPercent(from: object)
+            let currentSessionRemainingPercent = claudeCurrentSessionRemainingPercent(from: object)
 
-            return [
+            var payload: [String: Any] = [
                 "available": true,
                 "status": isFresh ? "allowed" : "allowed_warning",
                 "statusLabel": isFresh ? "From local Claude stats cache" : "Claude stats cache may be stale",
@@ -212,9 +284,324 @@ enum AIUsageProvider {
                 "isBlocked": false,
                 "source": "stats-cache"
             ]
+            payload["remainingPercent"] = remainingPercent ?? NSNull()
+            payload["weeklyRemainingPercent"] = weeklyRemainingPercent ?? NSNull()
+            payload["currentSessionRemainingPercent"] = currentSessionRemainingPercent ?? NSNull()
+            return payload
         }
         return nil
     }
+
+    private static func claudeRemainingPercent(from payload: [String: Any]) -> Double? {
+        let sessionRemaining = claudeCurrentSessionRemainingPercent(from: payload)
+        let weeklyRemaining = claudeWeeklyRemainingPercent(from: payload)
+        if let sessionRemaining, let weeklyRemaining {
+            return min(sessionRemaining, weeklyRemaining)
+        }
+        if let sessionRemaining {
+            return sessionRemaining
+        }
+        if let weeklyRemaining {
+            return weeklyRemaining
+        }
+
+        let candidates: [Any?] = [
+            payload["remainingPercent"],
+            payload["remaining_percent"],
+            payload["percentRemaining"],
+            payload["percentageRemaining"],
+            payload["remaining"],
+            payload["usageRemainingPercent"],
+            payload["availablePercent"],
+            payload["available_percent"]
+        ]
+
+        for candidate in candidates {
+            if let value = asDoubleOrNil(candidate) {
+                return max(0, min(100, value))
+            }
+        }
+
+        if let usage = payload["usage"] as? [String: Any] {
+            return claudeRemainingPercent(from: usage)
+        }
+
+        if let limits = payload["limits"] as? [String: Any] {
+            return claudeRemainingPercent(from: limits)
+        }
+
+        if let rateLimit = payload["rateLimit"] as? [String: Any] {
+            return claudeRemainingPercent(from: rateLimit)
+        }
+
+        return nil
+    }
+
+    private static func claudeWeeklyRemainingPercent(from payload: [String: Any]) -> Double? {
+        for key in ["seven_day_sonnet", "seven_day", "seven_day_opus", "seven_day_oauth_apps"] {
+            if let window = payload[key] as? [String: Any],
+               let remaining = claudeRemainingFromUsageWindow(window) {
+                return remaining
+            }
+        }
+
+        let candidates: [Any?] = [
+            payload["weeklyRemainingPercent"],
+            payload["weekly_remaining_percent"],
+            payload["weekRemainingPercent"],
+            payload["weeklyPercentRemaining"],
+            payload["weeklyRemaining"],
+            payload["remainingPercentWeek"]
+        ]
+        for candidate in candidates {
+            if let value = asDoubleOrNil(candidate) {
+                return max(0, min(100, value))
+            }
+        }
+        if let weekly = payload["weekly"] as? [String: Any] {
+            return claudeWeeklyRemainingPercent(from: weekly)
+        }
+        if let usage = payload["usage"] as? [String: Any] {
+            return claudeWeeklyRemainingPercent(from: usage)
+        }
+        if let limits = payload["limits"] as? [String: Any] {
+            return claudeWeeklyRemainingPercent(from: limits)
+        }
+        return nil
+    }
+
+    private static func claudeCurrentSessionRemainingPercent(from payload: [String: Any]) -> Double? {
+        if let window = payload["five_hour"] as? [String: Any],
+           let remaining = claudeRemainingFromUsageWindow(window) {
+            return remaining
+        }
+
+        let candidates: [Any?] = [
+            payload["currentSessionRemainingPercent"],
+            payload["current_session_remaining_percent"],
+            payload["sessionRemainingPercent"],
+            payload["session_percent_remaining"],
+            payload["currentSessionPercentRemaining"],
+            payload["sessionRemaining"],
+            payload["remainingPercentCurrentSession"]
+        ]
+        for candidate in candidates {
+            if let value = asDoubleOrNil(candidate) {
+                return max(0, min(100, value))
+            }
+        }
+        if let currentSession = payload["currentSession"] as? [String: Any] {
+            return claudeCurrentSessionRemainingPercent(from: currentSession)
+        }
+        if let usage = payload["usage"] as? [String: Any] {
+            return claudeCurrentSessionRemainingPercent(from: usage)
+        }
+        if let limits = payload["limits"] as? [String: Any] {
+            return claudeCurrentSessionRemainingPercent(from: limits)
+        }
+        return nil
+    }
+
+    private static func claudeRemainingFromUsageWindow(_ window: [String: Any]) -> Double? {
+        guard let utilization = asDoubleOrNil(window["utilization"]) else {
+            return nil
+        }
+        return max(0, min(100, 100 - utilization))
+    }
+
+    private static func claudeResetAtISO8601(from payload: [String: Any]) -> String? {
+        for key in ["five_hour", "seven_day_sonnet", "seven_day", "seven_day_opus", "seven_day_oauth_apps"] {
+            if let window = payload[key] as? [String: Any],
+               let resetAt = window["resets_at"] as? String,
+               !resetAt.isEmpty {
+                return resetAt
+            }
+        }
+        return nil
+    }
+
+    private static func claudeHoursUntilReset(fromISO8601 resetAt: String?) -> Int? {
+        guard let resetAt,
+              let resetDate = parseISO8601Date(resetAt) else {
+            return nil
+        }
+        let seconds = resetDate.timeIntervalSinceNow
+        if seconds <= 0 {
+            return 0
+        }
+        return Int(ceil(seconds / 3600))
+    }
+
+    private static func parseISO8601Date(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) {
+            return date
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
+    }
+
+    private static func claudeOAuthPreferredModel(from payload: [String: Any]) -> String? {
+        if payload["seven_day_sonnet"] != nil {
+            return "sonnet"
+        }
+        if payload["seven_day_opus"] != nil {
+            return "opus"
+        }
+        if payload["seven_day_oauth_apps"] != nil {
+            return "oauth-apps"
+        }
+        return nil
+    }
+
+    private static func loadClaudeAccessToken() -> String? {
+        let environment = ProcessInfo.processInfo.environment
+        let envKeys = [
+            "CLAUDE_CODE_OAUTH_ACCESS_TOKEN",
+            "CLAUDE_OAUTH_ACCESS_TOKEN",
+            "ANTHROPIC_OAUTH_ACCESS_TOKEN"
+        ]
+        for key in envKeys {
+            if let token = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !token.isEmpty {
+                return token
+            }
+        }
+
+        if let token = loadClaudeAccessTokenFromCredentialsFile() {
+            return token
+        }
+
+        #if os(macOS)
+        if let token = loadClaudeAccessTokenFromKeychain() {
+            return token
+        }
+        #endif
+
+        return nil
+    }
+
+    private static func loadClaudeAccessTokenFromCredentialsFile() -> String? {
+        let credentialCandidates = homePathCandidates([
+            ".claude/.credentials.json",
+            ".claude/credentials.json",
+            ".config/claude/.credentials.json",
+            ".config/claude/credentials.json"
+        ])
+
+        for path in credentialCandidates {
+            let url = URL(fileURLWithPath: path)
+            guard FileManager.default.fileExists(atPath: url.path),
+                  let data = try? Data(contentsOf: url),
+                  let object = try? JSONSerialization.jsonObject(with: data),
+                  let token = claudeAccessToken(fromJSONObject: object) else {
+                continue
+            }
+            return token
+        }
+
+        return nil
+    }
+
+    private static func claudeAccessToken(fromJSONObject object: Any) -> String? {
+        guard let token = findStringValue(
+            in: object,
+            keys: ["access_token", "accessToken"],
+            depth: 0,
+            maxDepth: 8
+        ) else {
+            return nil
+        }
+
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func findStringValue(
+        in object: Any,
+        keys: Set<String>,
+        depth: Int,
+        maxDepth: Int
+    ) -> String? {
+        if depth > maxDepth {
+            return nil
+        }
+
+        if let dictionary = object as? [String: Any] {
+            for key in keys {
+                if let value = dictionary[key] as? String, !value.isEmpty {
+                    return value
+                }
+            }
+
+            for value in dictionary.values {
+                if let nested = findStringValue(
+                    in: value,
+                    keys: keys,
+                    depth: depth + 1,
+                    maxDepth: maxDepth
+                ) {
+                    return nested
+                }
+            }
+            return nil
+        }
+
+        if let array = object as? [Any] {
+            for value in array {
+                if let nested = findStringValue(
+                    in: value,
+                    keys: keys,
+                    depth: depth + 1,
+                    maxDepth: maxDepth
+                ) {
+                    return nested
+                }
+            }
+        }
+
+        return nil
+    }
+
+    #if os(macOS)
+    private static func loadClaudeAccessTokenFromKeychain() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "Claude Code-credentials",
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+
+        if let object = try? JSONSerialization.jsonObject(with: data),
+           let token = claudeAccessToken(fromJSONObject: object) {
+            return token
+        }
+
+        guard let text = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return nil
+        }
+
+        if let jsonData = trimmed.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: jsonData),
+           let token = claudeAccessToken(fromJSONObject: object) {
+            return token
+        }
+
+        return nil
+    }
+    #endif
 
     private static func preferredClaudeModel(from stats: [String: Any]) -> String? {
         guard let modelUsage = stats["modelUsage"] as? [String: Any], !modelUsage.isEmpty else {
@@ -239,12 +626,20 @@ enum AIUsageProvider {
 
     // MARK: - Shared
 
-    private static func fetchJSON(url: URL, bearerToken: String, timeout: TimeInterval) -> [String: Any]? {
+    private static func fetchJSON(
+        url: URL,
+        bearerToken: String,
+        timeout: TimeInterval,
+        extraHeaders: [String: String] = [:]
+    ) -> [String: Any]? {
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("DynamicIsland/1.0", forHTTPHeaderField: "User-Agent")
+        for (header, value) in extraHeaders {
+            request.setValue(value, forHTTPHeaderField: header)
+        }
 
         let semaphore = DispatchSemaphore(value: 0)
         var parsed: [String: Any]?
@@ -274,6 +669,15 @@ enum AIUsageProvider {
         if let value = value as? String, let parsed = Double(value) { return parsed }
         return 0
     }
+
+    private static func asDoubleOrNil(_ value: Any?) -> Double? {
+        if let value = value as? Double { return value }
+        if let value = value as? Int { return Double(value) }
+        if let value = value as? NSNumber { return value.doubleValue }
+        if let value = value as? String, let parsed = Double(value) { return parsed }
+        return nil
+    }
+
 
     private static func loadJSONDictionary(fromCandidates candidates: [String]) -> [String: Any]? {
         for candidate in candidates {

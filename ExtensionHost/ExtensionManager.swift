@@ -30,8 +30,14 @@ final class ExtensionManager: ObservableObject {
 
     var availableModules: [ActiveModule] {
         installed
-            .filter { runtimes[$0.id] != nil }
+            .filter { manifest in
+                runtimes[manifest.id] != nil && !manifest.capabilities.notificationFeed
+            }
             .map { ActiveModule.extension_($0.id) }
+    }
+
+    func isNotificationFeedExtension(_ extensionID: String) -> Bool {
+        installed.first(where: { $0.id == extensionID })?.capabilities.notificationFeed == true
     }
 
     private var refreshTimers: [String: Timer] = [:]

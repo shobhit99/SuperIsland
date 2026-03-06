@@ -29,6 +29,11 @@ function formatPercent(value) {
   return `${Math.round(clamp(value, 0, 100))}%`;
 }
 
+function percentLabel(value) {
+  if (value === null || value === undefined) return "--%";
+  return `${Math.round(clamp(value, 0, 100))}%`;
+}
+
 function sourceLabel(source) {
   switch (source) {
     case "oauth-api":
@@ -77,6 +82,35 @@ function codexRemainingPercent(codexWindow) {
   return null;
 }
 
+function codexUsageStats(codex) {
+  const windows = [];
+  const primary = asObject(codex.primary);
+  const secondary = asObject(codex.secondary);
+
+  [primary, secondary].forEach((window) => {
+    if (!window) return;
+    const remainingPercent = codexRemainingPercent(window);
+    if (remainingPercent === null) return;
+    windows.push({
+      remainingPercent,
+      windowMinutes: toNumber(window.windowMinutes, 0)
+    });
+  });
+
+  if (windows.length === 0) {
+    return { weeklyRemaining: null, sessionRemaining: null };
+  }
+
+  windows.sort((a, b) => a.windowMinutes - b.windowMinutes);
+  const session = windows[0];
+  const weekly = windows[windows.length - 1];
+
+  return {
+    weeklyRemaining: weekly ? Math.round(clamp(weekly.remainingPercent, 0, 100)) : null,
+    sessionRemaining: session ? Math.round(clamp(session.remainingPercent, 0, 100)) : null
+  };
+}
+
 function codexModel(usage) {
   const codex = asObject(usage && usage.codex);
   const source = codex && typeof codex.source === "string" ? codex.source : null;
@@ -87,6 +121,8 @@ function codexModel(usage) {
       remaining: 0,
       progress: 0,
       color: "gray",
+      weeklyRemaining: null,
+      sessionRemaining: null,
       detail: withSource("Not available", source)
     };
   }
@@ -98,12 +134,15 @@ function codexModel(usage) {
       remaining: 100,
       progress: 1,
       color: "green",
+      weeklyRemaining: 100,
+      sessionRemaining: 100,
       detail: withSource("Unlimited", source)
     };
   }
 
   const window = pickCodexWindow(codex);
   const remaining = codexRemainingPercent(window);
+  const usageStats = codexUsageStats(codex);
 
   if (remaining === null) {
     return {
@@ -112,6 +151,8 @@ function codexModel(usage) {
       remaining: 0,
       progress: 0,
       color: "gray",
+      weeklyRemaining: usageStats.weeklyRemaining,
+      sessionRemaining: usageStats.sessionRemaining,
       detail: withSource("No window data", source)
     };
   }
@@ -122,6 +163,8 @@ function codexModel(usage) {
     remaining,
     progress: remaining / 100,
     color: colorForRemaining(remaining),
+    weeklyRemaining: usageStats.weeklyRemaining,
+    sessionRemaining: usageStats.sessionRemaining,
     detail: withSource(window && window.windowLabel ? window.windowLabel : "Usage window", source)
   };
 }
@@ -136,23 +179,46 @@ function claudeModel(usage) {
       remaining: 0,
       progress: 0,
       color: "gray",
+      weeklyRemaining: null,
+      sessionRemaining: null,
       detail: withSource("Not available", source)
     };
   }
 
   const status = typeof claude.status === "string" ? claude.status : "allowed";
   const statusLabel = typeof claude.statusLabel === "string" ? claude.statusLabel : null;
+  const explicitRemaining = toNumber(claude.remainingPercent, null);
+  const explicitWeeklyRemaining = toNumber(claude.weeklyRemainingPercent, null);
+  const explicitSessionRemaining = toNumber(claude.currentSessionRemainingPercent, null);
   const hoursTillReset = toNumber(claude.hoursTillReset, null);
 
   let remaining;
   let detail;
 
-  if (status === "rejected") {
+  if (explicitRemaining !== null) {
+    remaining = clamp(explicitRemaining, 0, 100);
+    detail = statusLabel || "Usage data";
+  } else if (status === "rejected") {
     remaining = 0;
     detail = statusLabel || "Blocked";
   } else if (status === "allowed_warning") {
-    remaining = 20;
-    detail = statusLabel || "Low remaining";
+    const warningLooksLow = statusLabel && /(low|limit|blocked|exceeded|critical)/i.test(statusLabel);
+    if (warningLooksLow) {
+      remaining = 20;
+      detail = statusLabel || "Low remaining";
+    } else if (hoursTillReset !== null) {
+      if (hoursTillReset <= 1) {
+        remaining = 8;
+      } else if (hoursTillReset <= 3) {
+        remaining = 22;
+      } else {
+        remaining = 55;
+      }
+      detail = statusLabel || `${Math.ceil(hoursTillReset)}h to reset`;
+    } else {
+      remaining = 55;
+      detail = statusLabel || "Warning";
+    }
   } else if (hoursTillReset !== null) {
     if (hoursTillReset <= 1) {
       remaining = 8;
@@ -173,18 +239,20 @@ function claudeModel(usage) {
     remaining,
     progress: remaining / 100,
     color: colorForRemaining(remaining),
+    weeklyRemaining: explicitWeeklyRemaining !== null ? Math.round(clamp(explicitWeeklyRemaining, 0, 100)) : null,
+    sessionRemaining: explicitSessionRemaining !== null ? Math.round(clamp(explicitSessionRemaining, 0, 100)) : null,
     detail: withSource(detail, source)
   };
 }
 
-function ringWithLabel(shortName, model, lineWidth) {
+function ringWithPercent(model, lineWidth) {
   return View.hstack([
     View.circularProgress(model.progress, {
       total: 1,
       lineWidth,
       color: model.color
     }),
-    View.text(`${shortName} ${model.text}`, {
+    View.text(model.text, {
       style: "monospacedSmall",
       color: model.color
     })
@@ -203,9 +271,9 @@ DynamicIsland.registerModule({
     const claude = claudeModel(usage);
 
     return View.hstack([
-      ringWithLabel("CX", codex, 2.5),
+      ringWithPercent(codex, 2.5),
       View.spacer(),
-      ringWithLabel("CL", claude, 2.5)
+      ringWithPercent(claude, 2.5)
     ], { spacing: 8, align: "center" });
   },
 
@@ -241,10 +309,7 @@ DynamicIsland.registerModule({
         View.text("Codex", { style: "caption", color: "gray" }),
         View.hstack([
           View.circularProgress(codex.progress, { total: 1, lineWidth: 4, color: codex.color }),
-          View.vstack([
-            View.text(codex.text, { style: "monospaced", color: codex.color }),
-            View.text(codex.detail, { style: "footnote", color: "gray" })
-          ], { spacing: 2, align: "leading" })
+          View.text(codex.text, { style: "monospaced", color: codex.color })
         ], { spacing: 8, align: "center" })
       ], { spacing: 4, align: "center" }),
 
@@ -252,10 +317,7 @@ DynamicIsland.registerModule({
         View.text("Claude", { style: "caption", color: "gray" }),
         View.hstack([
           View.circularProgress(claude.progress, { total: 1, lineWidth: 4, color: claude.color }),
-          View.vstack([
-            View.text(claude.text, { style: "monospaced", color: claude.color }),
-            View.text(claude.detail, { style: "footnote", color: "gray" })
-          ], { spacing: 2, align: "leading" })
+          View.text(claude.text, { style: "monospaced", color: claude.color })
         ], { spacing: 8, align: "center" })
       ], { spacing: 4, align: "center" })
     ], { spacing: 12, align: "center", distribution: "fillEqually" });
@@ -273,18 +335,17 @@ DynamicIsland.registerModule({
           View.circularProgress(codex.progress, { total: 1, lineWidth: 6, color: codex.color }),
           View.text("Codex", { style: "caption", color: "gray" }),
           View.text(codex.text, { style: "monospaced", color: codex.color }),
-          View.text(codex.detail, { style: "footnote", color: "gray" })
+          View.text(`Week ${percentLabel(codex.weeklyRemaining)}`, { style: "footnote", color: "gray" }),
+          View.text(`Session ${percentLabel(codex.sessionRemaining)}`, { style: "footnote", color: "gray" })
         ], { spacing: 4, align: "center" }),
-
-        View.spacer(),
-
         View.vstack([
           View.circularProgress(claude.progress, { total: 1, lineWidth: 6, color: claude.color }),
           View.text("Claude", { style: "caption", color: "gray" }),
           View.text(claude.text, { style: "monospaced", color: claude.color }),
-          View.text(claude.detail, { style: "footnote", color: "gray" })
+          View.text(`Week ${percentLabel(claude.weeklyRemaining)}`, { style: "footnote", color: "gray" }),
+          View.text(`Session ${percentLabel(claude.sessionRemaining)}`, { style: "footnote", color: "gray" })
         ], { spacing: 4, align: "center" })
-      ], { spacing: 20, align: "center" })
+      ], { spacing: 20, align: "center", distribution: "fillEqually" })
     ], { spacing: 10, align: "center" });
   }
 });

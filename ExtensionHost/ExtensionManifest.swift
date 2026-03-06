@@ -13,6 +13,42 @@ struct ExtensionManifest: Codable, Identifiable, Hashable {
         var minimalCompact: Bool = false
         var backgroundRefresh: Bool = true
         var settings: Bool = true
+        // If enabled, the extension is hidden from module slots and uses the shared Notifications module.
+        var notificationFeed: Bool = false
+
+        private enum CodingKeys: String, CodingKey {
+            case compact
+            case expanded
+            case fullExpanded
+            case minimalCompact
+            case backgroundRefresh
+            case settings
+            case notificationFeed
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            compact = try container.decodeIfPresent(Bool.self, forKey: .compact) ?? true
+            expanded = try container.decodeIfPresent(Bool.self, forKey: .expanded) ?? true
+            fullExpanded = try container.decodeIfPresent(Bool.self, forKey: .fullExpanded) ?? true
+            minimalCompact = try container.decodeIfPresent(Bool.self, forKey: .minimalCompact) ?? false
+            backgroundRefresh = try container.decodeIfPresent(Bool.self, forKey: .backgroundRefresh) ?? true
+            settings = try container.decodeIfPresent(Bool.self, forKey: .settings) ?? true
+            notificationFeed = try container.decodeIfPresent(Bool.self, forKey: .notificationFeed) ?? false
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(compact, forKey: .compact)
+            try container.encode(expanded, forKey: .expanded)
+            try container.encode(fullExpanded, forKey: .fullExpanded)
+            try container.encode(minimalCompact, forKey: .minimalCompact)
+            try container.encode(backgroundRefresh, forKey: .backgroundRefresh)
+            try container.encode(settings, forKey: .settings)
+            try container.encode(notificationFeed, forKey: .notificationFeed)
+        }
     }
 
     let id: String

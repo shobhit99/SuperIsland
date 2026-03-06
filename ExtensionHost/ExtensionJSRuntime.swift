@@ -33,6 +33,9 @@ final class ExtensionJSRuntime {
     private var didActivate = false
 
     private let defaults = UserDefaults.standard
+    private var islandActivationModule: ActiveModule {
+        manifest.capabilities.notificationFeed ? .builtIn(.notifications) : .extension_(extensionID)
+    }
 
     init(manifest: ExtensionManifest, manager: ExtensionManager) throws {
         guard let context = JSContext() else {
@@ -200,7 +203,7 @@ final class ExtensionJSRuntime {
             guard let self else { return }
             let autoDismiss = autoDismissArg?.isBoolean == true ? autoDismissArg?.toBool() ?? true : true
             DispatchQueue.main.async {
-                AppState.shared.showHUD(module: .extension_(self.extensionID), autoDismiss: autoDismiss)
+                AppState.shared.showHUD(module: self.islandActivationModule, autoDismiss: autoDismiss)
             }
         }
 
@@ -224,10 +227,32 @@ final class ExtensionJSRuntime {
 
         let send: @convention(block) (JSValue) -> Void = { [weak self] options in
             guard let self else { return }
-            let title = options.forProperty("title")?.toString() ?? ""
-            let body = options.forProperty("body")?.toString() ?? ""
+            let title = self.normalizedText(options.forProperty("title")?.toString()) ?? ""
+            let body = self.normalizedText(options.forProperty("body")?.toString()) ?? ""
             let sound = options.forProperty("sound")?.toBool() ?? false
-            self.sendNotification(title: title, body: body, sound: sound)
+            let appName = self.normalizedText(options.forProperty("appName")?.toString())
+            let bundleIdentifier = self.normalizedText(options.forProperty("bundleIdentifier")?.toString())
+            let senderName = self.normalizedText(options.forProperty("senderName")?.toString())
+            let previewText = self.normalizedText(options.forProperty("previewText")?.toString())
+            let avatarURL = self.normalizedResourceURLString(options.forProperty("avatarURL")?.toString())
+            let appIconURL = self.normalizedResourceURLString(options.forProperty("appIconURL")?.toString())
+            let sourceID = self.normalizedText(options.forProperty("id")?.toString())
+            let shouldShowSystemNotification = options.forProperty("systemNotification")?.isBoolean == true
+                ? (options.forProperty("systemNotification")?.toBool() ?? true)
+                : true
+            self.sendNotification(
+                title: title,
+                body: body,
+                sound: sound,
+                appName: appName,
+                bundleIdentifier: bundleIdentifier,
+                senderName: senderName,
+                previewText: previewText,
+                avatarURL: avatarURL,
+                appIconURL: appIconURL,
+                sourceID: sourceID,
+                shouldShowSystemNotification: shouldShowSystemNotification
+            )
         }
 
         notifications.setObject(send, forKeyedSubscript: "send" as NSString)
@@ -264,7 +289,48 @@ final class ExtensionJSRuntime {
             return JSValue(object: AIUsageProvider.snapshot(), in: self.context)
         }
 
+        let getLatestNotification: @convention(block) () -> JSValue? = { [weak self] in
+            guard let self else { return nil }
+            guard self.manifest.permissions.contains("notifications") else {
+                return JSValue(nullIn: self.context)
+            }
+            guard Thread.isMainThread else {
+                return JSValue(nullIn: self.context)
+            }
+
+            let payload = MainActor.assumeIsolated {
+                self.latestNotificationPayload()
+            }
+            return JSValue(object: payload ?? NSNull(), in: self.context)
+        }
+
+        let getRecentNotifications: @convention(block) (JSValue?) -> JSValue? = { [weak self] limitArg in
+            guard let self else { return nil }
+            guard self.manifest.permissions.contains("notifications") else {
+                return JSValue(object: [], in: self.context)
+            }
+            guard Thread.isMainThread else {
+                return JSValue(object: [], in: self.context)
+            }
+
+            var limit = 20
+            if let limitArg, !limitArg.isUndefined, !limitArg.isNull {
+                let candidate = Int(limitArg.toInt32())
+                if candidate > 0 {
+                    limit = candidate
+                }
+            }
+            limit = max(1, min(100, limit))
+
+            let payload = MainActor.assumeIsolated {
+                self.recentNotificationPayloads(limit: limit)
+            }
+            return JSValue(object: payload, in: self.context)
+        }
+
         system.setObject(getAIUsage, forKeyedSubscript: "getAIUsage" as NSString)
+        system.setObject(getLatestNotification, forKeyedSubscript: "getLatestNotification" as NSString)
+        system.setObject(getRecentNotifications, forKeyedSubscript: "getRecentNotifications" as NSString)
         dynamicIsland.setObject(system, forKeyedSubscript: "system" as NSString)
     }
 
@@ -353,7 +419,7 @@ final class ExtensionJSRuntime {
               vstack: function(children, opts) { return { type: 'vstack', spacing: (opts && opts.spacing) ?? 4, align: opts && opts.align, distribution: opts && opts.distribution, children: children || [] }; },
               zstack: function(children) { return { type: 'zstack', children: children || [] }; },
               spacer: function(minLength) { return { type: 'spacer', minLength: minLength }; },
-              text: function(value, opts) { return { type: 'text', value: String(value ?? ''), style: (opts && opts.style) ?? 'body', color: opts && opts.color }; },
+              text: function(value, opts) { return { type: 'text', value: String(value ?? ''), style: (opts && opts.style) ?? 'body', color: opts && opts.color, lineLimit: opts && opts.lineLimit }; },
               icon: function(name, opts) { return { type: 'icon', name: name, size: (opts && opts.size) ?? 14, color: opts && opts.color }; },
               image: function(url, opts) { return { type: 'image', url: url, width: opts.width, height: opts.height, cornerRadius: opts.cornerRadius }; },
               progress: function(value, opts) { return { type: 'progress', value: value, total: (opts && opts.total) ?? 1, color: opts && opts.color }; },
@@ -419,7 +485,7 @@ final class ExtensionJSRuntime {
         }
 
         islandNamespace.setObject(state, forKeyedSubscript: "state" as NSString)
-        islandNamespace.setObject(AppState.shared.activeModule == .extension_(extensionID), forKeyedSubscript: "isActive" as NSString)
+        islandNamespace.setObject(AppState.shared.activeModule == islandActivationModule, forKeyedSubscript: "isActive" as NSString)
     }
 
     private func scheduleTimer(callback: JSValue, milliseconds: Double, repeats: Bool) -> Int {
@@ -555,20 +621,111 @@ final class ExtensionJSRuntime {
         ], in: context)
     }
 
-    private func sendNotification(title: String, body: String, sound: Bool) {
+    private func sendNotification(
+        title: String,
+        body: String,
+        sound: Bool,
+        appName: String?,
+        bundleIdentifier: String?,
+        senderName: String?,
+        previewText: String?,
+        avatarURL: String?,
+        appIconURL: String?,
+        sourceID: String?,
+        shouldShowSystemNotification: Bool
+    ) {
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
 
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = sound ? .default : nil
+        if manifest.capabilities.notificationFeed {
+            let resolvedAppName = appName ?? manifest.name
+            let resolvedBundleIdentifier = bundleIdentifier ?? extensionID
+            let resolvedSenderName = senderName ?? (title.isEmpty ? nil : title)
+            let resolvedPreviewText = previewText ?? (body.isEmpty ? nil : body)
+            let resolvedTitle = resolvedSenderName ?? (title.isEmpty ? resolvedAppName : title)
+            let resolvedBody = resolvedPreviewText ?? body
+            let resolvedAppIconURL = appIconURL ?? manifest.iconURL?.absoluteString
+            let resolvedSourceID = sourceID ?? "extension:\(extensionID):\(UUID().uuidString)"
 
-        let request = UNNotificationRequest(
-            identifier: "dynamicisland.\(extensionID).\(UUID().uuidString)",
-            content: content,
-            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
-        )
-        center.add(request)
+            Task { @MainActor in
+                let notification = IslandNotification(
+                    sourceID: resolvedSourceID,
+                    appName: resolvedAppName,
+                    bundleIdentifier: resolvedBundleIdentifier,
+                    appIcon: "app.badge",
+                    appIconURL: resolvedAppIconURL,
+                    title: resolvedTitle,
+                    body: resolvedBody,
+                    senderName: resolvedSenderName,
+                    previewText: resolvedPreviewText,
+                    avatarURL: avatarURL,
+                    timestamp: Date()
+                )
+                NotificationManager.shared.addNotification(notification)
+            }
+        }
+
+        if shouldShowSystemNotification {
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = sound ? .default : nil
+
+            let request = UNNotificationRequest(
+                identifier: "dynamicisland.\(extensionID).\(UUID().uuidString)",
+                content: content,
+                trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+            )
+            center.add(request)
+        }
+    }
+
+    @MainActor
+    private func latestNotificationPayload() -> [String: Any]? {
+        guard let latest = NotificationManager.shared.latestNotification else {
+            return nil
+        }
+        return notificationPayload(from: latest)
+    }
+
+    @MainActor
+    private func recentNotificationPayloads(limit: Int) -> [[String: Any]] {
+        NotificationManager.shared.recentNotifications
+            .prefix(limit)
+            .map(notificationPayload(from:))
+    }
+
+    private func notificationPayload(from notification: IslandNotification) -> [String: Any] {
+        [
+            "id": notification.sourceID,
+            "localID": notification.id.uuidString,
+            "appName": notification.appName,
+            "bundleIdentifier": notification.bundleIdentifier as Any,
+            "appIcon": notification.appIcon,
+            "appIconURL": notification.appIconURL as Any,
+            "title": notification.title,
+            "body": notification.body,
+            "senderName": notification.senderName as Any,
+            "previewText": notification.previewText as Any,
+            "avatarURL": notification.avatarURL as Any,
+            "timestamp": Int(notification.timestamp.timeIntervalSince1970)
+        ]
+    }
+
+    private func normalizedText(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func normalizedResourceURLString(_ value: String?) -> String? {
+        guard let raw = normalizedText(value) else { return nil }
+        if raw.hasPrefix("file://") || raw.hasPrefix("http://") || raw.hasPrefix("https://") || raw.hasPrefix("data:") {
+            return raw
+        }
+        if raw.hasPrefix("/") {
+            return URL(fileURLWithPath: raw).absoluteString
+        }
+        return nil
     }
 }

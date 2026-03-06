@@ -88,7 +88,7 @@ indirect enum ViewNode: Equatable {
     case zstack(children: [ViewNode])
     case spacer(minLength: Double?)
 
-    case text(String, style: TextStyle, color: ColorValue)
+    case text(String, style: TextStyle, color: ColorValue, lineLimit: Int?)
     case icon(name: String, size: Double, color: ColorValue)
     case image(url: String, width: Double, height: Double, cornerRadius: Double)
     case progress(value: Double, total: Double, color: ColorValue)
@@ -152,7 +152,8 @@ indirect enum ViewNode: Equatable {
             return .text(
                 value.forProperty("value")?.toString() ?? "",
                 style: style,
-                color: parseColor(value.forProperty("color"))
+                color: parseColor(value.forProperty("color")),
+                lineLimit: propertyInt(value, key: "lineLimit")
             )
 
         case "icon":
@@ -274,6 +275,14 @@ indirect enum ViewNode: Equatable {
             return nil
         }
         return property.toDouble()
+    }
+
+    private static func propertyInt(_ value: JSValue, key: String) -> Int? {
+        guard let property = value.forProperty(key), !property.isUndefined, !property.isNull else {
+            return nil
+        }
+        let number = Int(property.toInt32())
+        return number > 0 ? number : nil
     }
 
     private static func parseChildren(_ value: JSValue?) -> [ViewNode] {

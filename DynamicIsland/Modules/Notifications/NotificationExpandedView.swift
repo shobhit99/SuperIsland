@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct NotificationExpandedView: View {
     @ObservedObject private var manager = NotificationManager.shared
@@ -46,14 +47,21 @@ struct NotificationExpandedView: View {
 
                 ForEach(manager.recentNotifications.prefix(5)) { notif in
                     HStack(spacing: 8) {
-                        Image(systemName: notif.appIcon)
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.6))
+                        notificationLeadingView(notif, size: 18)
 
-                        Text(notif.title)
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.8))
-                            .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(headline(for: notif))
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.9))
+                                .lineLimit(1)
+
+                            if let message = message(for: notif) {
+                                Text(message)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.white.opacity(0.7))
+                                    .lineLimit(2)
+                            }
+                        }
 
                         Spacer()
 
@@ -81,10 +89,7 @@ struct NotificationExpandedView: View {
 
     private func featuredNotification(_ notif: IslandNotification) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: notif.appIcon)
-                .font(.system(size: 20))
-                .foregroundColor(.white)
-                .frame(width: 28, height: 28)
+            notificationLeadingView(notif, size: 32)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
@@ -97,19 +102,103 @@ struct NotificationExpandedView: View {
                         .foregroundColor(.white.opacity(0.4))
                 }
 
-                Text(notif.title)
+                Text(headline(for: notif))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white)
                     .lineLimit(1)
 
-                if !notif.body.isEmpty {
-                    Text(notif.body)
+                if let message = message(for: notif) {
+                    Text(message)
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.7))
                         .lineLimit(2)
                 }
             }
         }
+    }
+
+    private func headline(for notification: IslandNotification) -> String {
+        if let senderName = sanitized(notification.senderName) {
+            return senderName
+        }
+        if let title = sanitized(notification.title) {
+            return title
+        }
+        return notification.appName
+    }
+
+    private func message(for notification: IslandNotification) -> String? {
+        let headline = headline(for: notification)
+        if let preview = sanitized(notification.previewText),
+           preview.localizedCaseInsensitiveCompare(headline) != .orderedSame {
+            return preview
+        }
+        if let body = sanitized(notification.body),
+           body.localizedCaseInsensitiveCompare(headline) != .orderedSame {
+            return body
+        }
+        return nil
+    }
+
+    private func sanitized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    @ViewBuilder
+    private func notificationLeadingView(_ notification: IslandNotification, size: CGFloat) -> some View {
+        if let avatar = image(from: notification.avatarURL) {
+            Image(nsImage: avatar)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+        } else if let iconImage = image(from: notification.appIconURL) {
+            Image(nsImage: iconImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.25, style: .continuous))
+        } else if let appIcon = appIcon(for: notification.bundleIdentifier, size: size) {
+            Image(nsImage: appIcon)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.25, style: .continuous))
+        } else {
+            Image(systemName: notification.appIcon)
+                .font(.system(size: max(10, size * 0.58)))
+                .foregroundColor(.white.opacity(0.85))
+                .frame(width: size, height: size)
+        }
+    }
+
+    private func image(from urlString: String?) -> NSImage? {
+        guard let urlString = sanitized(urlString) else { return nil }
+        let resolvedURL: URL?
+        if urlString.hasPrefix("/") {
+            resolvedURL = URL(fileURLWithPath: urlString)
+        } else {
+            resolvedURL = URL(string: urlString)
+        }
+
+        guard let url = resolvedURL, url.isFileURL else {
+            return nil
+        }
+
+        return NSImage(contentsOf: url)
+    }
+
+    private func appIcon(for bundleIdentifier: String?, size: CGFloat) -> NSImage? {
+        guard let bundleIdentifier,
+              let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
+            return nil
+        }
+
+        let icon = NSWorkspace.shared.icon(forFile: appURL.path)
+        icon.size = NSSize(width: size, height: size)
+        return icon
     }
 
     private func timeAgo(_ date: Date) -> String {

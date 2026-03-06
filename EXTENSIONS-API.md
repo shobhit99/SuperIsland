@@ -113,7 +113,8 @@ Published extensions are distributed as `.zip` files. The CLI compiles TS → JS
     "fullExpanded": true,
     "minimalCompact": true,
     "backgroundRefresh": true,
-    "settings": true
+    "settings": true,
+    "notificationFeed": false
   },
   "refreshInterval": 1.0,
   "activationTriggers": ["manual", "timer"]
@@ -121,10 +122,15 @@ Published extensions are distributed as `.zip` files. The CLI compiles TS → JS
 ```
 
 Supported permissions currently:
-- `notifications` — send macOS notifications
+- `notifications` — send macOS notifications and read mirrored notification feed via `DynamicIsland.system`
 - `storage` — persist extension-scoped key/value state
 - `network` — make requests through `DynamicIsland.http.fetch()`
 - `usage` — read local Codex and Claude usage summaries through `DynamicIsland.system.getAIUsage()`
+
+`capabilities.notificationFeed`:
+- When `true`, the extension is not shown as a separate module in island cycling.
+- `DynamicIsland.island.activate()` targets the shared Notifications module.
+- `DynamicIsland.notifications.send(...)` is mirrored into the shared Dynamic Island notifications feed.
 
 #### 1.3 JavaScriptCore Bridge (Swift Side)
 
@@ -295,7 +301,7 @@ declare namespace DynamicIsland {
   // ─── Island Control ────────────────────────────────────
 
   namespace island {
-    /** Request the island to show this extension. */
+    /** Request the island to show this extension (or Notifications when manifest.capabilities.notificationFeed=true). */
     function activate(autoDismiss?: boolean): void;
     /** Dismiss the island back to compact. */
     function dismiss(): void;
@@ -317,11 +323,19 @@ declare namespace DynamicIsland {
   // ─── Notifications ─────────────────────────────────────
 
   namespace notifications {
-    /** Send a macOS notification. */
+    /** Send a macOS notification. Notification-feed extensions are mirrored to the shared notifications bar. */
     function send(options: {
       title: string;
       body: string;
       sound?: boolean;
+      id?: string;
+      appName?: string;
+      bundleIdentifier?: string;
+      senderName?: string;
+      previewText?: string;
+      avatarURL?: string;
+      appIconURL?: string;
+      systemNotification?: boolean;
     }): void;
   }
 
@@ -394,9 +408,41 @@ declare namespace DynamicIsland {
         updatedAt?: number;
         unifiedRateLimitFallbackAvailable?: boolean;
         isBlocked?: boolean;
-        source?: "local-summary" | "stats-cache" | "unavailable";
+        source?: "local-summary" | "oauth-api" | "stats-cache" | "unavailable";
       };
     } | null;
+
+    /** Read latest mirrored notification entry (requires "notifications" permission). */
+    function getLatestNotification(): {
+      id: string;
+      localID: string;
+      appName: string;
+      bundleIdentifier: string | null;
+      appIcon: string;
+      appIconURL: string | null;
+      title: string;
+      body: string;
+      senderName: string | null;
+      previewText: string | null;
+      avatarURL: string | null;
+      timestamp: number;
+    } | null;
+
+    /** Read mirrored notifications (requires "notifications" permission). */
+    function getRecentNotifications(limit?: number): Array<{
+      id: string;
+      localID: string;
+      appName: string;
+      bundleIdentifier: string | null;
+      appIcon: string;
+      appIconURL: string | null;
+      title: string;
+      body: string;
+      senderName: string | null;
+      previewText: string | null;
+      avatarURL: string | null;
+      timestamp: number;
+    }>;
   }
 }
 
@@ -430,7 +476,7 @@ type ViewNode =
   | { type: "spacer"; minLength?: number }
 
   // Content
-  | { type: "text"; value: string; style?: TextStyle; color?: Color }
+  | { type: "text"; value: string; style?: TextStyle; color?: Color; lineLimit?: number }
   | { type: "icon"; name: string; size?: number; color?: Color }
   | { type: "image"; url: string; width: number; height: number; cornerRadius?: number }
   | { type: "progress"; value: number; total?: number; color?: Color }
@@ -481,8 +527,8 @@ const View = {
     ({ type: "spacer", minLength }),
 
   // Content
-  text: (value: string, opts?: { style?: TextStyle; color?: Color }) =>
-    ({ type: "text", value, style: opts?.style ?? "body", color: opts?.color }),
+  text: (value: string, opts?: { style?: TextStyle; color?: Color; lineLimit?: number }) =>
+    ({ type: "text", value, style: opts?.style ?? "body", color: opts?.color, lineLimit: opts?.lineLimit }),
   icon: (name: string, opts?: { size?: number; color?: Color }) =>
     ({ type: "icon", name, size: opts?.size ?? 14, color: opts?.color }),
   image: (url: string, opts: { width: number; height: number; cornerRadius?: number }) =>

@@ -66,6 +66,7 @@ Common fields:
   - `minimalCompact` (default `false`)
   - `backgroundRefresh` (default `true`)
   - `settings` (default `true`)
+  - `notificationFeed` (default `false`) - extension is hidden from module slots; `DynamicIsland.island.activate()` opens the shared Notifications module
 - `refreshInterval` (seconds, default `1.0`, minimum `0.1`)
 - `activationTriggers` (default `["manual"]`)
 
@@ -124,6 +125,10 @@ Registers your extension module config.
 - `state`: `"compact" | "expanded" | "fullExpanded"`
 - `isActive`: boolean
 
+Notes:
+
+- If `manifest.capabilities.notificationFeed` is `true`, `activate()` targets the main Notifications module instead of an extension-specific island slot.
+
 Timer/background-safe pattern:
 
 ```js
@@ -155,7 +160,22 @@ Extension settings key/value store (paired with `settings.json`).
 
 ### `DynamicIsland.notifications`
 
-- `send({ title, body, sound? })`
+- `send(options)`
+  - `title` (string)
+  - `body` (string)
+  - `sound?` (boolean)
+  - `id?` (string): stable ID for de-dup/update in notification feed
+  - `appName?` (string): app label shown in notification bar
+  - `bundleIdentifier?` (string): app bundle ID used for app icon fallback
+  - `senderName?` (string): sender/contact name shown as headline
+  - `previewText?` (string): message/content preview
+  - `avatarURL?` (string): sender avatar (`file://`, absolute file path, `http(s)://`)
+  - `appIconURL?` (string): extension/app icon (`file://`, absolute file path, `http(s)://`)
+  - `systemNotification?` (boolean, default `true`): when `false`, only Dynamic Island feed is updated
+
+Notes:
+
+- For extensions with `capabilities.notificationFeed: true`, sent notifications are mirrored into the shared Dynamic Island Notifications feed.
 
 ### `DynamicIsland.http`
 
@@ -176,14 +196,19 @@ Notes:
 ### `DynamicIsland.system`
 
 - `getAIUsage()` -> usage object or `null`
+- `getLatestNotification()` -> latest mirrored notification object or `null`
+- `getRecentNotifications(limit?)` -> mirrored notifications array (newest first)
 
 Notes:
 
 - Requires `"usage"` permission.
 - Data source precedence (aligned with CodexBar-style sources):
   - Codex: local summary files, then ChatGPT OAuth usage API (`/backend-api/wham/usage`) via `~/.codex/auth.json` token.
-  - Claude: local summary files, then local Claude stats cache (`~/.claude/stats-cache.json`) fallback when live rate-limit endpoints are unavailable.
+  - Claude: local summary files, then Claude OAuth usage API (`/api/oauth/usage`), then local stats cache fallback.
 - `codex.source` and `claude.source` indicate where each payload came from (`local-summary`, `oauth-api`, `auth-token`, `stats-cache`, `unavailable`).
+- Mirrored notification APIs require `"notifications"` permission and return entries shaped like:
+  - `{ id, localID, appName, bundleIdentifier, appIcon, appIconURL, title, body, senderName, previewText, avatarURL, timestamp }`
+  - `previewText`/`avatarURL` are best-effort and depend on what macOS exposes for that notification (privacy settings can hide previews).
 
 ### `DynamicIsland.playFeedback(type)`
 
@@ -234,7 +259,7 @@ Alignment values:
 
 ### Content
 
-- `View.text(value, { style?, color? })`
+- `View.text(value, { style?, color?, lineLimit? })`
 - `View.icon(name, { size?, color? })`
 - `View.image(url, { width, height, cornerRadius? })`
 - `View.progress(value, { total?, color? })`
@@ -339,6 +364,7 @@ Sandbox behavior in current runtime:
 - JS runs in isolated JavaScriptCore context.
 - `network` permission is enforced for `DynamicIsland.http.fetch`.
 - `usage` permission is enforced for `DynamicIsland.system.getAIUsage`.
+- `notifications` permission is enforced for `DynamicIsland.system.getLatestNotification` and `DynamicIsland.system.getRecentNotifications`.
 
 Other permission names are currently metadata for compatibility/future policy, but should still be declared correctly in `manifest.json`.
 

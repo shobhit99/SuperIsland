@@ -1,0 +1,26 @@
+{
+  "id": "com.workview.whatsapp-notifier",
+  "name": "WhatsApp Notifier",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "main": "index.js",
+  "author": {
+    "name": "Workview"
+  },
+  "description": "Shows new WhatsApp messages in DynamicIsland as they arrive.",
+  "icon": "icon.svg",
+  "license": "MIT",
+  "categories": ["communication", "productivity"],
+  "permissions": ["notifications", "storage"],
+  "capabilities": {
+    "compact": true,
+    "expanded": true,
+    "fullExpanded": true,
+    "minimalCompact": true,
+    "backgroundRefresh": true,
+    "settings": true,
+    "notificationFeed": true
+  },
+  "refreshInterval": 1.0,
+  "activationTriggers": ["manual", "timer"]
+}

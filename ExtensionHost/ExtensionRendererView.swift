@@ -46,10 +46,13 @@ struct ViewNodeRenderer: View {
     @ViewBuilder
     var body: some View {
         switch node {
-        case .text(let value, let style, let color):
+        case .text(let value, let style, let color, let lineLimit):
             Text(value)
                 .font(style.font)
                 .foregroundStyle(color.swiftUI)
+                .lineLimit(lineLimit)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.leading)
 
         case .icon(let name, let size, let color):
             Image(systemName: name)
