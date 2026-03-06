@@ -22,17 +22,26 @@ struct NotificationCompactView: View {
     }
 
     private func headline(for notification: IslandNotification) -> String {
-        let sender = notification.senderName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !sender.isEmpty {
+        if let sender = sanitized(notification.senderName) {
             return sender
         }
 
-        let title = notification.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !title.isEmpty {
+        if let title = sanitized(notification.title) {
             return title
         }
 
         return notification.appName
+    }
+
+    private func sanitized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let lowered = trimmed.lowercased()
+        if lowered == "undefined" || lowered == "null" || lowered == "(null)" {
+            return nil
+        }
+        return trimmed
     }
 
     @ViewBuilder

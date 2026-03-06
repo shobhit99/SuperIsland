@@ -198,10 +198,16 @@ Notes:
 - `getAIUsage()` -> usage object or `null`
 - `getLatestNotification()` -> latest mirrored notification object or `null`
 - `getRecentNotifications(limit?)` -> mirrored notifications array (newest first)
+- `getWhatsAppWeb(limit?)` -> WhatsApp Web bridge state + recent parsed messages (requires `"network"`)
+- `startWhatsAppWeb()` -> starts the WhatsApp Web bridge (requires `"network"`)
+- `refreshWhatsAppWebQR()` -> reloads WhatsApp Web and refreshes QR code (requires `"network"`)
+- `sendWhatsAppWebMessage(recipient, message)` -> queues message send via the logged-in WhatsApp Web session (requires `"network"`)
 
 Notes:
 
-- Requires `"usage"` permission.
+- Requires `"usage"` for `getAIUsage`.
+- Requires `"notifications"` for mirrored notification APIs.
+- Requires `"network"` for WhatsApp Web bridge APIs.
 - Data source precedence (aligned with CodexBar-style sources):
   - Codex: local summary files, then ChatGPT OAuth usage API (`/backend-api/wham/usage`) via `~/.codex/auth.json` token.
   - Claude: local summary files, then Claude OAuth usage API (`/api/oauth/usage`), then local stats cache fallback.

@@ -7,3 +7,5 @@ DerivedData/
 *.xcworkspace
 *.swp
 *~
+Extensions/whatsapp-web/provider/node_modules/
+tmp/*

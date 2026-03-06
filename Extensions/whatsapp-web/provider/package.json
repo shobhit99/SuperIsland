@@ -1,0 +1,8 @@
+{
+  "name": "dynamic-whatsapp-web-provider",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc.9"
+  }
+}

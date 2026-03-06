@@ -328,9 +328,68 @@ final class ExtensionJSRuntime {
             return JSValue(object: payload, in: self.context)
         }
 
+        let getWhatsAppWeb: @convention(block) (JSValue?) -> JSValue? = { [weak self] limitArg in
+            guard let self else { return JSValue(nullIn: JSContext.current()) }
+            guard self.manifest.permissions.contains("network") else {
+                return JSValue(object: NSNull(), in: self.context)
+            }
+            guard Thread.isMainThread else {
+                return JSValue(object: NSNull(), in: self.context)
+            }
+
+            var limit = 10
+            if let limitArg, !limitArg.isUndefined, !limitArg.isNull {
+                let candidate = Int(limitArg.toInt32())
+                if candidate > 0 {
+                    limit = candidate
+                }
+            }
+            limit = max(1, min(50, limit))
+
+            let payload = MainActor.assumeIsolated {
+                WhatsAppWebBridge.shared.snapshot(limit: limit)
+            }
+            return JSValue(object: payload, in: self.context)
+        }
+
+        let startWhatsAppWeb: @convention(block) () -> Void = { [weak self] in
+            guard let self else { return }
+            guard self.manifest.permissions.contains("network") else { return }
+            Task { @MainActor in
+                WhatsAppWebBridge.shared.start()
+            }
+        }
+
+        let refreshWhatsAppWebQR: @convention(block) () -> Void = { [weak self] in
+            guard let self else { return }
+            guard self.manifest.permissions.contains("network") else { return }
+            Task { @MainActor in
+                WhatsAppWebBridge.shared.refreshQRCode()
+            }
+        }
+
+        let sendWhatsAppWebMessage: @convention(block) (String, String) -> JSValue? = { [weak self] recipient, message in
+            guard let self else { return JSValue(nullIn: JSContext.current()) }
+            guard self.manifest.permissions.contains("network") else {
+                return JSValue(object: ["ok": false, "queued": false, "error": "permission_denied"], in: self.context)
+            }
+            guard Thread.isMainThread else {
+                return JSValue(object: ["ok": false, "queued": false, "error": "main_thread_required"], in: self.context)
+            }
+
+            let payload = MainActor.assumeIsolated {
+                WhatsAppWebBridge.shared.sendMessage(to: recipient, body: message)
+            }
+            return JSValue(object: payload, in: self.context)
+        }
+
         system.setObject(getAIUsage, forKeyedSubscript: "getAIUsage" as NSString)
         system.setObject(getLatestNotification, forKeyedSubscript: "getLatestNotification" as NSString)
         system.setObject(getRecentNotifications, forKeyedSubscript: "getRecentNotifications" as NSString)
+        system.setObject(getWhatsAppWeb, forKeyedSubscript: "getWhatsAppWeb" as NSString)
+        system.setObject(startWhatsAppWeb, forKeyedSubscript: "startWhatsAppWeb" as NSString)
+        system.setObject(refreshWhatsAppWebQR, forKeyedSubscript: "refreshWhatsAppWebQR" as NSString)
+        system.setObject(sendWhatsAppWebMessage, forKeyedSubscript: "sendWhatsAppWebMessage" as NSString)
         dynamicIsland.setObject(system, forKeyedSubscript: "system" as NSString)
     }
 
@@ -715,7 +774,14 @@ final class ExtensionJSRuntime {
     private func normalizedText(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        guard !trimmed.isEmpty else { return nil }
+
+        let lowered = trimmed.lowercased()
+        if lowered == "undefined" || lowered == "null" || lowered == "(null)" {
+            return nil
+        }
+
+        return trimmed
     }
 
     private func normalizedResourceURLString(_ value: String?) -> String? {

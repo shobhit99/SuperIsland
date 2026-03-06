@@ -79,7 +79,7 @@ struct NotificationExpandedView: View {
                 .buttonStyle(.plain)
             }
         }
-        .frame(maxWidth: 320, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(
             maxWidth: .infinity,
             maxHeight: .infinity,
@@ -115,6 +115,7 @@ struct NotificationExpandedView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func headline(for notification: IslandNotification) -> String {
@@ -143,7 +144,12 @@ struct NotificationExpandedView: View {
     private func sanitized(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        guard !trimmed.isEmpty else { return nil }
+        let lowered = trimmed.lowercased()
+        if lowered == "undefined" || lowered == "null" || lowered == "(null)" {
+            return nil
+        }
+        return trimmed
     }
 
     @ViewBuilder

@@ -7,6 +7,7 @@ const PREVIEW_CHAR_LIMIT = 100;
 const COMPACT_CHAR_LIMIT = 40;
 const EXTENSION_BUNDLE_ID = "com.workview.whatsapp-notifier";
 const WHATSAPP_BUNDLE_ID = "net.whatsapp.WhatsApp";
+const LAST_HANDLED_KEY = "lastHandledWhatsAppMessageID";
 
 let latestMessage = null;
 let recentMessages = [];
@@ -30,6 +31,15 @@ function normalizeAvatarURL(value) {
   return null;
 }
 
+function normalizeText(value) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const lowered = trimmed.toLowerCase();
+  if (lowered === "undefined" || lowered === "null" || lowered === "(null)") return "";
+  return trimmed;
+}
+
 function sanitizeNotification(value) {
   const notification = asObject(value);
   if (!notification) return null;
@@ -38,12 +48,12 @@ function sanitizeNotification(value) {
   const localID = typeof notification.localID === "string" ? notification.localID : null;
   const id = sourceID || localID;
 
-  const appName = typeof notification.appName === "string" ? notification.appName : "";
-  const bundleIdentifier = typeof notification.bundleIdentifier === "string" ? notification.bundleIdentifier : "";
-  const senderName = typeof notification.senderName === "string" ? notification.senderName.trim() : "";
-  const title = typeof notification.title === "string" ? notification.title : "";
-  const body = typeof notification.body === "string" ? notification.body : "";
-  const previewText = typeof notification.previewText === "string" ? notification.previewText : "";
+  const appName = normalizeText(notification.appName);
+  const bundleIdentifier = normalizeText(notification.bundleIdentifier);
+  const senderName = normalizeText(notification.senderName);
+  const title = normalizeText(notification.title);
+  const body = normalizeText(notification.body);
+  const previewText = normalizeText(notification.previewText);
   const avatarURL = normalizeAvatarURL(notification.avatarURL);
 
   const rawTimestamp = Number(notification.timestamp);
@@ -92,19 +102,19 @@ function isWhatsAppNotification(notification) {
 }
 
 function isGenericLabel(value) {
-  const text = String(value || "").trim().toLowerCase();
+  const text = normalizeText(value).toLowerCase();
   return text === "" || text === "whatsapp" || text === "new whatsapp message" || text === "new message" || text === "message";
 }
 
 function truncateWithEllipsis(text, maxChars) {
-  const normalized = String(text || "").trim();
+  const normalized = normalizeText(text);
   if (!normalized) return "";
   if (normalized.length <= maxChars) return normalized;
   return `${normalized.slice(0, maxChars).trimEnd()}...`;
 }
 
 function inferSenderFromPreview(notification) {
-  const preview = String(notification.previewText || notification.body || "").trim();
+  const preview = normalizeText(notification.previewText || notification.body || "");
   if (!preview) return "";
 
   const match = preview.match(/^([^:]{2,40}):\s+/);
@@ -115,10 +125,10 @@ function inferSenderFromPreview(notification) {
 }
 
 function resolveDisplayName(notification) {
-  const explicitSender = String(notification.senderName || "").trim();
+  const explicitSender = normalizeText(notification.senderName || "");
   if (explicitSender && !isGenericLabel(explicitSender)) return explicitSender;
 
-  const title = String(notification.title || "").trim();
+  const title = normalizeText(notification.title || "");
   if (title && !isGenericLabel(title)) return title;
 
   const inferredSender = inferSenderFromPreview(notification);
@@ -128,7 +138,7 @@ function resolveDisplayName(notification) {
 }
 
 function resolvePreview(notification) {
-  const rawPreview = String(notification.previewText || notification.body || "").trim();
+  const rawPreview = normalizeText(notification.previewText || notification.body || "");
   if (!rawPreview || isGenericLabel(rawPreview)) return PREVIEW_UNAVAILABLE;
 
   const inferredSender = inferSenderFromPreview(notification);
@@ -224,35 +234,14 @@ function refreshMessages() {
 
   if (!latestMessage || !latestMessage.id) return;
 
-  const lastHandledID = DynamicIsland.store.get("lastHandledWhatsAppMessageID");
+  const lastHandledID = DynamicIsland.store.get(LAST_HANDLED_KEY);
   if (lastHandledID === latestMessage.id) return;
 
-  DynamicIsland.store.set("lastHandledWhatsAppMessageID", latestMessage.id);
-  emitNotificationBarMessage(latestMessage);
-
+  DynamicIsland.store.set(LAST_HANDLED_KEY, latestMessage.id);
   if (readAutoRevealSetting() && shouldAutoReveal(latestMessage)) {
     DynamicIsland.island.activate(false);
     setTimeout(() => DynamicIsland.island.activate(false), 120);
   }
-}
-
-function emitNotificationBarMessage(message) {
-  const displayName = resolveDisplayName(message);
-  const preview = resolvePreview(message);
-  const hasPreview = preview !== PREVIEW_UNAVAILABLE;
-
-  DynamicIsland.notifications.send({
-    id: `whatsapp:${message.id}`,
-    appName: "WhatsApp",
-    bundleIdentifier: message.bundleIdentifier || WHATSAPP_BUNDLE_ID,
-    title: hasPreview ? displayName : "New WhatsApp message",
-    body: hasPreview ? preview : "New WhatsApp message",
-    senderName: displayName !== "WhatsApp" ? displayName : undefined,
-    previewText: hasPreview ? preview : undefined,
-    avatarURL: message.avatarURL || undefined,
-    sound: false,
-    systemNotification: false
-  });
 }
 
 function avatarNode(notification, size) {

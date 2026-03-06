@@ -1,0 +1,15 @@
+{
+  "sections": [
+    {
+      "title": "Behavior",
+      "fields": [
+        {
+          "type": "toggle",
+          "key": "showConnectionHint",
+          "label": "Show connection hint when not logged in",
+          "default": true
+        }
+      ]
+    }
+  ]
+}

@@ -116,6 +116,12 @@ struct ExtensionsSettingsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     extensionHeaderCard(for: manifest)
 
+                    if manifest.id == "com.workview.whatsapp-web" {
+                        SettingsCard(title: "WhatsApp Web Login") {
+                            WhatsAppWebBridgeSettingsView()
+                        }
+                    }
+
                     SettingsCard(title: "Details") {
                         if let author = manifest.author?.name {
                             metadataRow(label: "Author", value: author)
@@ -385,6 +391,123 @@ struct ExtensionsSettingsView: View {
         }
 
         selectedExtensionID = filteredManifests.first?.id
+    }
+}
+
+private struct WhatsAppWebBridgeSettingsView: View {
+    @ObservedObject private var bridge = WhatsAppWebBridge.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(stateColor)
+                    .frame(width: 9, height: 9)
+                Text(stateTitle)
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+            }
+
+            Text(bridge.statusText)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 8) {
+                Button("Start Login") {
+                    bridge.start()
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Refresh QR") {
+                    bridge.refreshQRCode()
+                }
+                .buttonStyle(.bordered)
+
+                Button("Log Out") {
+                    bridge.logout()
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+            }
+
+            if bridge.connectionState == .loggedIn {
+                Text("Connected. New messages will be synced from this login.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            } else if let image = qrImage {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Scan this QR with WhatsApp on your phone")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary)
+
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.none)
+                        .scaledToFit()
+                        .frame(maxWidth: 220, maxHeight: 220)
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.white)
+                        )
+                }
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Preparing secure login session...")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if let error = bridge.lastError, !error.isEmpty {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+            }
+        }
+        .onAppear {
+            bridge.start()
+        }
+    }
+
+    private var stateTitle: String {
+        switch bridge.connectionState {
+        case .idle:
+            return "Idle"
+        case .loading:
+            return "Loading"
+        case .qrReady:
+            return "QR Ready"
+        case .loggedIn:
+            return "Connected"
+        case .error:
+            return "Error"
+        }
+    }
+
+    private var stateColor: Color {
+        switch bridge.connectionState {
+        case .idle:
+            return .secondary
+        case .loading:
+            return .orange
+        case .qrReady:
+            return .blue
+        case .loggedIn:
+            return .green
+        case .error:
+            return .red
+        }
+    }
+
+    private var qrImage: NSImage? {
+        guard let dataURL = bridge.qrCodeDataURL else { return nil }
+        guard let commaIndex = dataURL.firstIndex(of: ",") else { return nil }
+        let encoded = String(dataURL[dataURL.index(after: commaIndex)...])
+        guard let data = Data(base64Encoded: encoded) else { return nil }
+        return NSImage(data: data)
     }
 }
 

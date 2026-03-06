@@ -443,6 +443,41 @@ declare namespace DynamicIsland {
       avatarURL: string | null;
       timestamp: number;
     }>;
+
+    /**
+     * Read WhatsApp Web bridge state (requires "network" permission).
+     * Starts the bridge lazily on first call.
+     */
+    function getWhatsAppWeb(limit?: number): {
+      state: "idle" | "loading" | "qrReady" | "loggedIn" | "error";
+      statusText: string;
+      loggedIn: boolean;
+      qrCodeDataURL: string | null;
+      lastError: string | null;
+      messages: Array<{
+        id: string;
+        sender: string;
+        preview: string;
+        avatarURL: string | null;
+        timestamp: number;
+      }>;
+    } | null;
+
+    /** Start WhatsApp Web bridge (requires "network" permission). */
+    function startWhatsAppWeb(): void;
+
+    /** Force WhatsApp Web QR refresh (requires "network" permission). */
+    function refreshWhatsAppWebQR(): void;
+
+    /**
+     * Queue a WhatsApp Web message send using the active logged-in session
+     * (requires "network" permission).
+     */
+    function sendWhatsAppWebMessage(recipient: string, message: string): {
+      ok: boolean;
+      queued: boolean;
+      error?: "permission_denied" | "main_thread_required" | "invalid_arguments" | "not_logged_in" | "bridge_not_ready";
+    } | null;
   }
 }
 

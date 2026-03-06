@@ -1,5 +1,9 @@
 import Foundation
 import Combine
+import WebKit
+import AppKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
 
 @MainActor
 final class ExtensionManager: ObservableObject {
@@ -41,6 +45,7 @@ final class ExtensionManager: ObservableObject {
     }
 
     private var refreshTimers: [String: Timer] = [:]
+    private var immediateRefreshWorkItems: [String: DispatchWorkItem] = [:]
     private let fileManager = FileManager.default
 
     private init() {
@@ -146,6 +151,8 @@ final class ExtensionManager: ObservableObject {
 
     func deactivate(extensionID: String) {
         stopRefreshTimer(for: extensionID)
+        immediateRefreshWorkItems[extensionID]?.cancel()
+        immediateRefreshWorkItems.removeValue(forKey: extensionID)
         runtimes[extensionID]?.deactivate()
         runtimes.removeValue(forKey: extensionID)
         extensionStates.removeValue(forKey: extensionID)
@@ -158,6 +165,20 @@ final class ExtensionManager: ObservableObject {
         if let state = runtime.fetchState() {
             extensionStates[extensionID] = state
         }
+    }
+
+    func scheduleImmediateRefresh(extensionID: String, delay: TimeInterval = 0.05) {
+        guard runtimes[extensionID] != nil else { return }
+        guard immediateRefreshWorkItems[extensionID] == nil else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.immediateRefreshWorkItems.removeValue(forKey: extensionID)
+            self.refreshState(extensionID: extensionID)
+        }
+
+        immediateRefreshWorkItems[extensionID] = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay), execute: workItem)
     }
 
     func handleAction(extensionID: String, actionID: String, value: Any? = nil) {
@@ -237,6 +258,11 @@ final class ExtensionManager: ObservableObject {
     private func startRefreshTimer(for manifest: ExtensionManifest) {
         stopRefreshTimer(for: manifest.id)
 
+        guard manifest.capabilities.backgroundRefresh,
+              manifest.activationTriggers.contains(where: { $0.caseInsensitiveCompare("timer") == .orderedSame }) else {
+            return
+        }
+
         let timer = Timer.scheduledTimer(withTimeInterval: max(0.1, manifest.refreshInterval), repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refreshState(extensionID: manifest.id)
@@ -250,5 +276,709 @@ final class ExtensionManager: ObservableObject {
     private func stopRefreshTimer(for extensionID: String) {
         refreshTimers[extensionID]?.invalidate()
         refreshTimers.removeValue(forKey: extensionID)
+    }
+}
+struct WhatsAppWebMessage: Identifiable {
+    let id: String
+    let sender: String
+    let preview: String
+    let avatarURL: String?
+    let timestamp: Date
+}
+
+private struct PendingWhatsAppProviderCommand {
+    let payload: [String: Any]
+    let dedupeKey: String?
+}
+
+@MainActor
+final class WhatsAppWebBridge: ObservableObject {
+    static let shared = WhatsAppWebBridge()
+    private static let managedExtensionID = "com.workview.whatsapp-web"
+
+    enum ConnectionState: String {
+        case idle
+        case loading
+        case qrReady
+        case loggedIn
+        case error
+    }
+
+    @Published private(set) var connectionState: ConnectionState = .idle
+    @Published private(set) var statusText: String = "Not connected"
+    @Published private(set) var qrCodeDataURL: String?
+    @Published private(set) var lastError: String?
+    @Published private(set) var recentMessages: [WhatsAppWebMessage] = []
+
+    private let fileManager = FileManager.default
+    private let qrRenderContext = CIContext(options: nil)
+    private var providerProcess: Process?
+    private var providerInputHandle: FileHandle?
+    private var providerOutputHandle: FileHandle?
+    private var providerErrorHandle: FileHandle?
+    private var providerOutputBuffer = Data()
+    private var providerErrorBuffer = Data()
+    private var pendingCommands: [PendingWhatsAppProviderCommand] = []
+    private var pendingCommandKeys: Set<String> = []
+    private var shouldKeepProviderRunning = false
+    private var providerReady = false
+    private var providerRestartAttempts = 0
+    private var providerRestartWorkItem: DispatchWorkItem?
+    private var sentCommandSequence = 0
+    private var seenMessageIDs: [String] = []
+    private let maxSeenMessageIDs = 600
+    private var cachedNodeExecutableURL: URL?
+
+    private init() {}
+
+    private var appSupportDirectory: URL {
+        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        return base.appendingPathComponent("DynamicIsland", isDirectory: true)
+    }
+
+    private var authDirectory: URL {
+        appSupportDirectory
+            .appendingPathComponent("WhatsAppWebAuth", isDirectory: true)
+            .appendingPathComponent("default", isDirectory: true)
+    }
+
+    private static var providerDirectory: URL {
+        let sourceFileURL = URL(fileURLWithPath: #filePath)
+        let extensionHostDirectory = sourceFileURL.deletingLastPathComponent()
+        let repoRoot = extensionHostDirectory.deletingLastPathComponent()
+        return repoRoot.appendingPathComponent("Extensions/whatsapp-web/provider", isDirectory: true)
+    }
+
+    private var providerScriptURL: URL {
+        Self.providerDirectory.appendingPathComponent("index.mjs", isDirectory: false)
+    }
+
+    private var bridgeRefreshSignature: String {
+        let messageSignature = recentMessages
+            .prefix(8)
+            .map { "\($0.id)|\($0.sender)|\($0.preview)|\(Int($0.timestamp.timeIntervalSince1970))" }
+            .joined(separator: "||")
+
+        return [
+            connectionState.rawValue,
+            statusText,
+            qrCodeDataURL ?? "",
+            lastError ?? "",
+            messageSignature
+        ].joined(separator: "::")
+    }
+
+    private func performBridgeUpdate(_ updates: () -> Void) {
+        let previousSignature = bridgeRefreshSignature
+        updates()
+        guard bridgeRefreshSignature != previousSignature else { return }
+        ExtensionManager.shared.scheduleImmediateRefresh(extensionID: Self.managedExtensionID)
+    }
+
+    func start() {
+        shouldKeepProviderRunning = true
+        startProviderIfNeeded()
+        if providerReady && (connectionState == .idle || connectionState == .error) {
+            sendProviderCommand(["command": "start", "requestId": nextRequestID()])
+        }
+    }
+
+    func refreshQRCode() {
+        shouldKeepProviderRunning = true
+        performBridgeUpdate {
+            connectionState = .loading
+            statusText = "Refreshing QR code..."
+            qrCodeDataURL = nil
+            lastError = nil
+            recentMessages.removeAll()
+            seenMessageIDs.removeAll()
+        }
+        startProviderIfNeeded()
+        sendProviderCommand(
+            ["command": "refreshQR", "requestId": nextRequestID()],
+            dedupeKey: "refreshQR"
+        )
+    }
+
+    func logout() {
+        shouldKeepProviderRunning = true
+        performBridgeUpdate {
+            connectionState = .loading
+            statusText = "Logging out..."
+            qrCodeDataURL = nil
+            lastError = nil
+            recentMessages.removeAll()
+            seenMessageIDs.removeAll()
+        }
+        startProviderIfNeeded()
+        sendProviderCommand(
+            ["command": "logout", "requestId": nextRequestID()],
+            dedupeKey: "logout"
+        )
+    }
+
+    func snapshot(limit: Int) -> [String: Any] {
+        let clampedLimit = max(1, min(50, limit))
+        let messagePayload = recentMessages.prefix(clampedLimit).map { message in
+            [
+                "id": message.id,
+                "sender": message.sender,
+                "preview": message.preview,
+                "avatarURL": message.avatarURL as Any,
+                "timestamp": Int(message.timestamp.timeIntervalSince1970)
+            ]
+        }
+
+        return [
+            "state": connectionState.rawValue,
+            "statusText": statusText,
+            "loggedIn": connectionState == .loggedIn,
+            "qrCodeDataURL": qrCodeDataURL as Any,
+            "lastError": lastError as Any,
+            "messages": messagePayload
+        ]
+    }
+
+    func sendMessage(to recipient: String, body: String) -> [String: Any] {
+        start()
+
+        let cleanRecipient = recipient
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanBody = body
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanRecipient.isEmpty, !cleanBody.isEmpty else {
+            return [
+                "ok": false,
+                "queued": false,
+                "error": "invalid_arguments"
+            ]
+        }
+
+        guard connectionState == .loggedIn else {
+            return [
+                "ok": false,
+                "queued": false,
+                "error": "not_logged_in"
+            ]
+        }
+
+        let requestID = nextRequestID()
+        sendProviderCommand([
+            "command": "sendMessage",
+            "requestId": requestID,
+            "to": cleanRecipient,
+            "body": cleanBody
+        ])
+
+        return [
+            "ok": true,
+            "queued": true,
+            "requestId": requestID
+        ]
+    }
+
+    private func nextRequestID() -> String {
+        sentCommandSequence += 1
+        return "wa-provider-\(sentCommandSequence)"
+    }
+
+    private func startProviderIfNeeded() {
+        if providerProcess != nil {
+            return
+        }
+
+        providerRestartWorkItem?.cancel()
+        providerRestartWorkItem = nil
+
+        guard fileManager.fileExists(atPath: providerScriptURL.path) else {
+            performBridgeUpdate {
+                connectionState = .error
+                statusText = "WhatsApp provider unavailable"
+                lastError = "Missing provider script at \(providerScriptURL.path)"
+            }
+            return
+        }
+
+        guard let nodeExecutableURL = resolveNodeExecutableURL() else {
+            performBridgeUpdate {
+                connectionState = .error
+                statusText = "Node.js not found"
+                lastError = "Unable to resolve a Node.js executable for the WhatsApp realtime provider"
+            }
+            return
+        }
+
+        do {
+            try fileManager.createDirectory(at: authDirectory, withIntermediateDirectories: true)
+        } catch {
+            performBridgeUpdate {
+                connectionState = .error
+                statusText = "WhatsApp provider unavailable"
+                lastError = "Failed to prepare auth directory: \(error.localizedDescription)"
+            }
+            return
+        }
+
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        let process = Process()
+        process.executableURL = nodeExecutableURL
+        process.arguments = [
+            providerScriptURL.path,
+            "--auth-dir",
+            authDirectory.path
+        ]
+        process.currentDirectoryURL = Self.providerDirectory
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["NODE_NO_WARNINGS"] = "1"
+        process.environment = environment
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.consumeProviderOutput(data)
+            }
+        }
+
+        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.consumeProviderError(data)
+            }
+        }
+
+        process.terminationHandler = { [weak self] terminatedProcess in
+            Task { @MainActor [weak self] in
+                self?.handleProviderTermination(terminatedProcess)
+            }
+        }
+
+        do {
+            try process.run()
+            providerProcess = process
+            providerInputHandle = stdinPipe.fileHandleForWriting
+            providerOutputHandle = stdoutPipe.fileHandleForReading
+            providerErrorHandle = stderrPipe.fileHandleForReading
+            providerReady = false
+            providerOutputBuffer.removeAll(keepingCapacity: true)
+            providerErrorBuffer.removeAll(keepingCapacity: true)
+            performBridgeUpdate {
+                if connectionState == .idle || connectionState == .error {
+                    connectionState = .loading
+                    statusText = "Starting WhatsApp realtime bridge..."
+                    if lastError == nil {
+                        qrCodeDataURL = nil
+                    }
+                }
+            }
+            if shouldKeepProviderRunning {
+                sendProviderCommand(
+                    ["command": "start", "requestId": nextRequestID()],
+                    dedupeKey: "start"
+                )
+            }
+        } catch {
+            providerProcess = nil
+            providerInputHandle = nil
+            providerOutputHandle = nil
+            providerErrorHandle = nil
+            performBridgeUpdate {
+                connectionState = .error
+                statusText = "Failed to start WhatsApp bridge"
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    private func resolveNodeExecutableURL() -> URL? {
+        if let cachedNodeExecutableURL,
+           fileManager.isExecutableFile(atPath: cachedNodeExecutableURL.path) {
+            return cachedNodeExecutableURL
+        }
+
+        let envPathCandidates = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map(String.init)
+            .map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("node", isDirectory: false) }
+
+        let homeDirectory = fileManager.homeDirectoryForCurrentUser
+        let commonCandidates = [
+            homeDirectory.appendingPathComponent(".nvm/versions/node/current/bin/node", isDirectory: false),
+            URL(fileURLWithPath: "/opt/homebrew/bin/node", isDirectory: false),
+            URL(fileURLWithPath: "/usr/local/bin/node", isDirectory: false),
+            URL(fileURLWithPath: "/usr/bin/node", isDirectory: false)
+        ]
+
+        for candidate in envPathCandidates + commonCandidates {
+            if fileManager.isExecutableFile(atPath: candidate.path) {
+                cachedNodeExecutableURL = candidate
+                return candidate
+            }
+        }
+
+        let shellTask = Process()
+        let stdoutPipe = Pipe()
+        shellTask.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        shellTask.arguments = [
+            "-lc",
+            "if [ -f \"$HOME/.zprofile\" ]; then source \"$HOME/.zprofile\" >/dev/null 2>&1; fi; if [ -f \"$HOME/.zshrc\" ]; then source \"$HOME/.zshrc\" >/dev/null 2>&1; fi; command -v node"
+        ]
+        shellTask.standardOutput = stdoutPipe
+        shellTask.standardError = Pipe()
+
+        do {
+            try shellTask.run()
+            shellTask.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        guard shellTask.terminationStatus == 0 else {
+            return nil
+        }
+
+        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let path = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty,
+              fileManager.isExecutableFile(atPath: path) else {
+            return nil
+        }
+
+        let resolvedURL = URL(fileURLWithPath: path, isDirectory: false)
+        cachedNodeExecutableURL = resolvedURL
+        return resolvedURL
+    }
+
+    private func sendProviderCommand(_ payload: [String: Any], dedupeKey: String? = nil) {
+        if providerReady, let inputHandle = providerInputHandle {
+            writeProviderCommand(payload, to: inputHandle)
+            return
+        }
+
+        if let dedupeKey {
+            guard !pendingCommandKeys.contains(dedupeKey) else { return }
+            pendingCommandKeys.insert(dedupeKey)
+        }
+        pendingCommands.append(PendingWhatsAppProviderCommand(payload: payload, dedupeKey: dedupeKey))
+        startProviderIfNeeded()
+    }
+
+    private func flushPendingCommands() {
+        guard providerReady, let inputHandle = providerInputHandle else { return }
+        let commands = pendingCommands
+        pendingCommands.removeAll()
+        pendingCommandKeys.removeAll()
+        for pendingCommand in commands {
+            writeProviderCommand(pendingCommand.payload, to: inputHandle)
+        }
+    }
+
+    private func writeProviderCommand(_ payload: [String: Any], to inputHandle: FileHandle) {
+        guard JSONSerialization.isValidJSONObject(payload) else { return }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []),
+              let newline = "\n".data(using: .utf8) else {
+            return
+        }
+        inputHandle.write(data)
+        inputHandle.write(newline)
+    }
+
+    private func consumeProviderOutput(_ data: Data) {
+        providerOutputBuffer.append(data)
+        consumeProviderBuffer(&providerOutputBuffer, isError: false)
+    }
+
+    private func consumeProviderError(_ data: Data) {
+        providerErrorBuffer.append(data)
+        consumeProviderBuffer(&providerErrorBuffer, isError: true)
+    }
+
+    private func consumeProviderBuffer(_ buffer: inout Data, isError: Bool) {
+        let newline = Data([0x0A])
+        while let range = buffer.range(of: newline) {
+            let lineData = buffer.subdata(in: 0 ..< range.lowerBound)
+            buffer.removeSubrange(0 ..< range.upperBound)
+            guard let line = String(data: lineData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !line.isEmpty else {
+                continue
+            }
+            if isError {
+                ExtensionLogger.shared.log(Self.managedExtensionID, .warning, line)
+            } else {
+                handleProviderLine(line)
+            }
+        }
+    }
+
+    private func handleProviderLine(_ line: String) {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []),
+              let payload = object as? [String: Any] else {
+            ExtensionLogger.shared.log(Self.managedExtensionID, .warning, "Unparseable provider event: \(line)")
+            return
+        }
+        handleProviderEvent(payload)
+    }
+
+    private func handleProviderEvent(_ payload: [String: Any]) {
+        guard let type = payload["type"] as? String else { return }
+
+        switch type {
+        case "ready":
+            providerReady = true
+            providerRestartAttempts = 0
+            flushPendingCommands()
+        case "state":
+            applyProviderState(payload)
+        case "message":
+            handleProviderMessage(payload)
+        case "sendResult":
+            handleSendResult(payload)
+        case "error":
+            let message = normalizedString(payload["message"]) ?? "WhatsApp provider error"
+            let details = normalizedString(payload["details"])
+            ExtensionLogger.shared.log(Self.managedExtensionID, .error, details == nil ? message : "\(message): \(details!)")
+            performBridgeUpdate {
+                lastError = details == nil ? message : "\(message): \(details!)"
+                if connectionState != .loggedIn {
+                    connectionState = .error
+                    statusText = "WhatsApp provider error"
+                }
+            }
+        default:
+            ExtensionLogger.shared.log(Self.managedExtensionID, .info, "WhatsApp provider event: \(type)")
+        }
+    }
+
+    private func applyProviderState(_ payload: [String: Any]) {
+        let rawState = normalizedString(payload["state"]) ?? ConnectionState.loading.rawValue
+        let resolvedState = ConnectionState(rawValue: rawState) ?? .loading
+        let status = normalizedString(payload["statusText"]) ?? defaultStatusText(for: resolvedState)
+        let qrToken = normalizedString(payload["qr"])
+        let qrImageDataURL = qrToken.flatMap(makeQRCodeDataURL(from:))
+
+        performBridgeUpdate {
+            connectionState = resolvedState
+            statusText = status
+            qrCodeDataURL = qrImageDataURL
+            if resolvedState == .loggedIn {
+                lastError = nil
+            } else if resolvedState == .idle,
+                      payload["loggedOut"] as? Bool == true {
+                lastError = nil
+            }
+            if resolvedState == .idle,
+               payload["loggedOut"] as? Bool == true {
+                recentMessages.removeAll()
+                seenMessageIDs.removeAll()
+            }
+        }
+    }
+
+    private func handleProviderMessage(_ payload: [String: Any]) {
+        guard let identifier = normalizedString(payload["id"]),
+              !seenMessageIDs.contains(identifier) else {
+            return
+        }
+        let sender = normalizedString(payload["sender"]) ?? "WhatsApp"
+        let preview = normalizedString(payload["preview"]) ?? "New message"
+        let timestampValue = payload["timestamp"]
+        let timestamp = timestamp(from: timestampValue)
+
+        seenMessageIDs.append(identifier)
+        if seenMessageIDs.count > maxSeenMessageIDs {
+            seenMessageIDs.removeFirst(seenMessageIDs.count - maxSeenMessageIDs)
+        }
+
+        ingestNewMessage(
+            id: identifier,
+            sender: sender,
+            preview: preview,
+            avatarURL: nil,
+            timestamp: timestamp
+        )
+    }
+
+    private func handleSendResult(_ payload: [String: Any]) {
+        guard let ok = payload["ok"] as? Bool else { return }
+        let requestID = normalizedString(payload["requestId"]) ?? "unknown"
+        if ok {
+            let messageID = normalizedString(payload["messageId"]) ?? "unknown"
+            ExtensionLogger.shared.log(Self.managedExtensionID, .info, "Sent WhatsApp message \(messageID) (request \(requestID))")
+            return
+        }
+
+        let errorMessage = normalizedString(payload["error"]) ?? "Failed to send WhatsApp message"
+        ExtensionLogger.shared.log(Self.managedExtensionID, .warning, "WhatsApp send failed (request \(requestID)): \(errorMessage)")
+    }
+
+    private func ingestNewMessage(
+        id: String,
+        sender: String,
+        preview: String,
+        avatarURL: String?,
+        timestamp: Date
+    ) {
+        performBridgeUpdate {
+            let message = WhatsAppWebMessage(
+                id: id,
+                sender: sender,
+                preview: preview,
+                avatarURL: avatarURL,
+                timestamp: timestamp
+            )
+
+            recentMessages.removeAll { $0.id == id }
+            recentMessages.removeAll { $0.preview == preview && $0.sender == sender }
+            recentMessages.insert(message, at: 0)
+            if recentMessages.count > 50 {
+                recentMessages.removeLast(recentMessages.count - 50)
+            }
+            lastError = nil
+            if connectionState != .loggedIn {
+                connectionState = .loggedIn
+                statusText = "Connected"
+                qrCodeDataURL = nil
+            }
+        }
+
+        let notification = IslandNotification(
+            sourceID: "whatsapp-web:\(id)",
+            appName: "WhatsApp",
+            bundleIdentifier: "net.whatsapp.WhatsApp",
+            appIcon: "message.fill",
+            appIconURL: nil,
+            title: sender,
+            body: preview,
+            senderName: sender,
+            previewText: preview,
+            avatarURL: avatarURL,
+            timestamp: timestamp
+        )
+        NotificationManager.shared.addNotification(notification)
+    }
+
+    private func timestamp(from value: Any?) -> Date {
+        if let number = value as? NSNumber {
+            let milliseconds = number.doubleValue
+            return Date(timeIntervalSince1970: milliseconds > 1_000_000_000_000 ? milliseconds / 1000 : milliseconds)
+        }
+        if let string = normalizedString(value),
+           let milliseconds = Double(string) {
+            return Date(timeIntervalSince1970: milliseconds > 1_000_000_000_000 ? milliseconds / 1000 : milliseconds)
+        }
+        return Date()
+    }
+
+    private func defaultStatusText(for state: ConnectionState) -> String {
+        switch state {
+        case .idle:
+            return "Not connected"
+        case .loading:
+            return "Connecting to WhatsApp..."
+        case .qrReady:
+            return "Scan QR code with WhatsApp"
+        case .loggedIn:
+            return "Connected"
+        case .error:
+            return "WhatsApp provider error"
+        }
+    }
+
+    private func normalizedString(_ value: Any?) -> String? {
+        guard let raw = value as? String else { return nil }
+        let collapsed = raw
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !collapsed.isEmpty else { return nil }
+        return collapsed
+    }
+
+    private func handleProviderTermination(_ terminatedProcess: Process) {
+        providerOutputHandle?.readabilityHandler = nil
+        providerErrorHandle?.readabilityHandler = nil
+        providerInputHandle = nil
+        providerOutputHandle = nil
+        providerErrorHandle = nil
+        providerProcess = nil
+        providerReady = false
+        providerOutputBuffer.removeAll(keepingCapacity: false)
+        providerErrorBuffer.removeAll(keepingCapacity: false)
+
+        let shouldRestart = shouldKeepProviderRunning
+        let exitCode = terminatedProcess.terminationStatus
+        let terminationReason = terminatedProcess.terminationReason == .exit ? "exit" : "uncaught signal"
+        ExtensionLogger.shared.log(
+            Self.managedExtensionID,
+            exitCode == 0 ? .info : .warning,
+            "WhatsApp provider terminated (\(terminationReason), code \(exitCode))"
+        )
+
+        if shouldRestart {
+            scheduleProviderRestart()
+        }
+    }
+
+    private func scheduleProviderRestart() {
+        providerRestartWorkItem?.cancel()
+        let delay = min(30.0, pow(1.8, Double(providerRestartAttempts)) * 2.0)
+        providerRestartAttempts += 1
+
+        performBridgeUpdate {
+            if connectionState != .loggedIn {
+                connectionState = .loading
+                statusText = delay < 1 ? "Restarting WhatsApp provider..." : "Restarting WhatsApp provider in \(Int(ceil(delay)))s..."
+            }
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.providerRestartWorkItem = nil
+            self.startProviderIfNeeded()
+        }
+        providerRestartWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func makeQRCodeDataURL(from token: String) -> String? {
+        guard let data = token.data(using: .utf8) else { return nil }
+        let filter = CIFilter.qrCodeGenerator()
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("Q", forKey: "inputCorrectionLevel")
+        guard let outputImage = filter.outputImage else { return nil }
+
+        let scaledImage = outputImage.transformed(by: CGAffineTransform(scaleX: 8, y: 8))
+        guard let cgImage = qrRenderContext.createCGImage(scaledImage, from: scaledImage.extent) else {
+            return nil
+        }
+
+        let rep = NSBitmapImageRep(cgImage: cgImage)
+        guard let pngData = rep.representation(using: .png, properties: [:]) else {
+            return nil
+        }
+
+        return "data:image/png;base64,\(pngData.base64EncodedString())"
     }
 }

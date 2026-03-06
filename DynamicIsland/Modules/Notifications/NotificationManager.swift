@@ -252,7 +252,7 @@ final class NotificationManager: ObservableObject {
 
     private func startWhatsAppLogMonitor() {
         let timer = DispatchSource.makeTimerSource(queue: logMonitorQueue)
-        timer.schedule(deadline: .now() + .seconds(1), repeating: .seconds(2))
+        timer.schedule(deadline: .now() + .milliseconds(300), repeating: .seconds(1))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
 
@@ -274,7 +274,7 @@ final class NotificationManager: ObservableObject {
         process.arguments = [
             "show",
             "--style", "compact",
-            "--last", "8s",
+            "--last", "3s",
             "--predicate",
             "process == \"NotificationCenter\" AND eventMessage CONTAINS[c] \"whatsapp\""
         ]
@@ -359,11 +359,16 @@ final class NotificationManager: ObservableObject {
             }
 
             let bannerSnapshot = captureWhatsAppBannerSnapshot()
-            let notif = buildWhatsAppNotification(event: event, snapshot: bannerSnapshot)
-            addNotification(notif)
-
-            if bannerSnapshot.senderName == nil || bannerSnapshot.previewText == nil {
-                scheduleWhatsAppEnrichment(for: event)
+            if snapshotHasSignal(bannerSnapshot) {
+                let notif = buildWhatsAppNotification(event: event, snapshot: bannerSnapshot)
+                addNotification(notif)
+                if !snapshotIsComplete(bannerSnapshot) {
+                    scheduleWhatsAppEnrichment(for: event, emitFallbackIfNeeded: false)
+                }
+            } else {
+                // Delay the generic fallback slightly so we can capture sender/preview
+                // from the live banner before it disappears.
+                scheduleWhatsAppEnrichment(for: event, emitFallbackIfNeeded: true)
             }
         }
     }
@@ -391,30 +396,64 @@ final class NotificationManager: ObservableObject {
         )
     }
 
-    private func scheduleWhatsAppEnrichment(for event: WhatsAppLogEvent) {
-        let delaysMS: [UInt64] = [250, 600, 1200, 2200]
+    private func scheduleWhatsAppEnrichment(for event: WhatsAppLogEvent, emitFallbackIfNeeded: Bool) {
+        let delaysMS: [UInt64] = [80, 180, 320, 520, 850, 1300, 2000, 2900, 4000]
         Task { @MainActor [weak self] in
             guard let self else { return }
+            var bestSnapshot: (senderName: String?, previewText: String?) = (nil, nil)
             for delayMS in delaysMS {
                 try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
-                let completed = self.attemptWhatsAppEnrichment(for: event)
-                if completed {
+                let snapshot = self.captureWhatsAppBannerSnapshot()
+                if self.snapshotScore(snapshot) > self.snapshotScore(bestSnapshot) {
+                    bestSnapshot = snapshot
+                }
+
+                guard self.snapshotHasSignal(snapshot) else { continue }
+
+                let notif = self.buildWhatsAppNotification(event: event, snapshot: snapshot)
+                self.addNotification(notif)
+
+                if self.snapshotIsComplete(snapshot) {
                     return
                 }
+            }
+
+            if self.snapshotHasSignal(bestSnapshot) {
+                let notif = self.buildWhatsAppNotification(event: event, snapshot: bestSnapshot)
+                self.addNotification(notif)
+                return
+            }
+
+            if emitFallbackIfNeeded {
+                let notif = self.buildWhatsAppNotification(
+                    event: event,
+                    snapshot: (senderName: nil, previewText: nil)
+                )
+                self.addNotification(notif)
             }
         }
     }
 
-    @MainActor
-    private func attemptWhatsAppEnrichment(for event: WhatsAppLogEvent) -> Bool {
-        let snapshot = captureWhatsAppBannerSnapshot()
-        guard snapshot.senderName != nil || snapshot.previewText != nil else {
-            return false
-        }
+    private func snapshotHasSignal(_ snapshot: (senderName: String?, previewText: String?)) -> Bool {
+        snapshot.senderName != nil || snapshot.previewText != nil
+    }
 
-        let notif = buildWhatsAppNotification(event: event, snapshot: snapshot)
-        addNotification(notif)
-        return snapshot.senderName != nil && snapshot.previewText != nil
+    private func snapshotIsComplete(_ snapshot: (senderName: String?, previewText: String?)) -> Bool {
+        snapshot.senderName != nil && snapshot.previewText != nil
+    }
+
+    private func snapshotScore(_ snapshot: (senderName: String?, previewText: String?)) -> Int {
+        var score = 0
+        if let senderName = snapshot.senderName, !looksLikeAppLabel(senderName) {
+            score += 2
+        }
+        if let previewText = snapshot.previewText, !looksLikeAppLabel(previewText) {
+            score += 3
+            if previewText.count >= 8 {
+                score += 1
+            }
+        }
+        return score
     }
 
     private func captureWhatsAppBannerSnapshot() -> (senderName: String?, previewText: String?) {
@@ -422,20 +461,71 @@ final class NotificationManager: ObservableObject {
             return (nil, nil)
         }
 
-        let candidateApps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.notificationcenterui")
-            + NSWorkspace.shared.runningApplications.filter { ($0.localizedName ?? "").localizedCaseInsensitiveContains("NotificationCenter") }
+        let allCandidates =
+            NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.notificationcenterui")
+            + NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.controlcenter")
+            + NSWorkspace.shared.runningApplications.filter { app in
+                let name = (app.localizedName ?? "").lowercased()
+                let bundleIdentifier = (app.bundleIdentifier ?? "").lowercased()
+                return name.contains("notificationcenter")
+                    || name.contains("notification center")
+                    || name.contains("usernotificationcenter")
+                    || name.contains("controlcenter")
+                    || bundleIdentifier.contains("notificationcenter")
+                    || bundleIdentifier.contains("controlcenter")
+            }
 
-        guard let app = candidateApps.first(where: { $0.processIdentifier > 0 }) else {
+        var seenProcessIDs = Set<pid_t>()
+        let candidateApps = allCandidates
+            .filter { app in
+                guard app.processIdentifier > 0 else { return false }
+                return seenProcessIDs.insert(app.processIdentifier).inserted
+            }
+            .sorted(by: { lhs, rhs in
+                notificationUIProcessPriority(lhs) < notificationUIProcessPriority(rhs)
+            })
+
+        guard !candidateApps.isEmpty else {
             return (nil, nil)
         }
 
-        let root = AXUIElementCreateApplication(app.processIdentifier)
-        let texts = collectAXText(from: root, maxDepth: 8, maxNodes: 600)
-        guard !texts.isEmpty else {
-            return (nil, nil)
+        var bestSnapshot: (senderName: String?, previewText: String?) = (nil, nil)
+        var bestScore = snapshotScore(bestSnapshot)
+
+        for app in candidateApps {
+            let root = AXUIElementCreateApplication(app.processIdentifier)
+            let texts = collectAXText(from: root, maxDepth: 10, maxNodes: 1200)
+            guard !texts.isEmpty else { continue }
+
+            let snapshot = parseWhatsAppTextSnapshot(from: texts)
+            let score = snapshotScore(snapshot)
+            if score > bestScore {
+                bestSnapshot = snapshot
+                bestScore = score
+            }
+
+            if snapshotIsComplete(snapshot) {
+                return snapshot
+            }
         }
 
-        return parseWhatsAppTextSnapshot(from: texts)
+        return bestSnapshot
+    }
+
+    private func notificationUIProcessPriority(_ app: NSRunningApplication) -> Int {
+        let bundleIdentifier = (app.bundleIdentifier ?? "").lowercased()
+        let name = (app.localizedName ?? "").lowercased()
+
+        if bundleIdentifier.contains("usernotificationcenter") || name.contains("usernotificationcenter") {
+            return 0
+        }
+        if bundleIdentifier == "com.apple.notificationcenterui" || name == "notificationcenter" || name.contains("notification center") {
+            return 1
+        }
+        if bundleIdentifier == "com.apple.controlcenter" || name.contains("controlcenter") {
+            return 2
+        }
+        return 3
     }
 
     private func collectAXText(from root: AXUIElement, maxDepth: Int, maxNodes: Int) -> [String] {
@@ -450,6 +540,8 @@ final class NotificationManager: ObservableObject {
             appendStringAttribute(kAXTitleAttribute as CFString, from: element, into: &results)
             appendStringAttribute(kAXValueAttribute as CFString, from: element, into: &results)
             appendStringAttribute(kAXDescriptionAttribute as CFString, from: element, into: &results)
+            appendStringAttribute("AXLabel" as CFString, from: element, into: &results)
+            appendStringAttribute("AXHelp" as CFString, from: element, into: &results)
 
             guard depth < maxDepth else { continue }
             let childAttributes: [CFString] = [
@@ -513,9 +605,8 @@ final class NotificationManager: ObservableObject {
     private func parseWhatsAppTextSnapshot(from rawTexts: [String]) -> (senderName: String?, previewText: String?) {
         var cleaned: [String] = []
         for text in rawTexts {
-            let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalized.isEmpty else { continue }
-            if cleaned.last != normalized {
+            guard let normalized = sanitizeSnapshotToken(text) else { continue }
+            if cleaned.last?.localizedCaseInsensitiveCompare(normalized) != .orderedSame {
                 cleaned.append(normalized)
             }
         }
@@ -525,67 +616,227 @@ final class NotificationManager: ObservableObject {
         }
 
         let filtered = cleaned.filter { text in
-            let lowered = text.lowercased()
-            if lowered == "open" || lowered == "close" || lowered == "clear all" {
-                return false
-            }
-            if lowered == "just now" || lowered.hasSuffix(" ago") || lowered.hasSuffix("m ago") || lowered.hasSuffix("h ago") {
-                return false
-            }
-            return true
+            !isActionLabel(text) && !isTimeLikeLabel(text)
         }
 
         guard !filtered.isEmpty else {
             return (nil, nil)
         }
 
-        var startIndex = 0
-        if let whatsappIndex = filtered.lastIndex(where: { $0.lowercased() == "whatsapp" || $0.lowercased().contains("whatsapp") }) {
-            startIndex = min(filtered.count - 1, whatsappIndex + 1)
+        for token in filtered {
+            if let inline = parseInlineSenderPreview(from: token) {
+                return inline
+            }
         }
 
-        let tailCandidates = Array(filtered[startIndex...])
-        let candidates = Array(tailCandidates.prefix(6))
-
-        let sender = candidates.first { candidate in
-            !looksLikeAppLabel(candidate) && !isTimeLikeLabel(candidate)
+        struct SnapshotCandidate {
+            let senderName: String?
+            let previewText: String?
+            let score: Int
         }
 
-        var preview: String?
-        if let sender, let senderIndex = candidates.firstIndex(of: sender) {
-            if senderIndex + 1 < candidates.count {
-                let possiblePreview = candidates[senderIndex + 1]
-                if !looksLikeAppLabel(possiblePreview)
-                    && !isTimeLikeLabel(possiblePreview)
-                    && possiblePreview.localizedCaseInsensitiveCompare(sender) != .orderedSame {
-                    preview = possiblePreview
+        func buildCandidate(senderName: String?, previewText: String?) -> SnapshotCandidate? {
+            let normalizedSender = cleanedSenderLabel(senderName)
+            let normalizedPreview = cleanedPreviewLabel(previewText, senderName: normalizedSender)
+
+            guard normalizedSender != nil || normalizedPreview != nil else {
+                return nil
+            }
+
+            var score = 0
+            if let sender = normalizedSender {
+                score += 4
+                if sender.count <= 28 {
+                    score += 1
                 }
             }
-        }
-
-        if sender == nil, let inline = candidates.first(where: { $0.contains(":") && !looksLikeAppLabel($0) }) {
-            let components = inline.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: true)
-            if components.count == 2 {
-                let inlineSender = String(components[0]).trimmingCharacters(in: .whitespacesAndNewlines)
-                let inlinePreview = String(components[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !inlineSender.isEmpty && !looksLikeAppLabel(inlineSender) {
-                    return (inlineSender, inlinePreview.isEmpty ? nil : inlinePreview)
+            if let preview = normalizedPreview {
+                score += 5
+                if preview.count >= 10 {
+                    score += 1
+                }
+                if preview.split(whereSeparator: \.isWhitespace).count >= 2 {
+                    score += 1
                 }
             }
+            if normalizedSender != nil && normalizedPreview != nil {
+                score += 3
+            }
+
+            return SnapshotCandidate(
+                senderName: normalizedSender,
+                previewText: normalizedPreview,
+                score: score
+            )
         }
 
-        if preview == nil {
-            preview = candidates.first { candidate in
-                !looksLikeAppLabel(candidate)
-                    && !isTimeLikeLabel(candidate)
-                    && candidate.localizedCaseInsensitiveCompare(sender ?? "") != .orderedSame
+        var bestCandidate: SnapshotCandidate?
+        func consider(senderName: String?, previewText: String?) {
+            guard let candidate = buildCandidate(senderName: senderName, previewText: previewText) else {
+                return
             }
+            if bestCandidate == nil || candidate.score > bestCandidate?.score ?? 0 {
+                bestCandidate = candidate
+            }
+        }
+
+        let lookAhead = 6
+        for (index, token) in filtered.enumerated() where looksLikeAppLabel(token) {
+            guard index + 1 < filtered.count else { continue }
+            let endIndex = min(filtered.count, index + 1 + lookAhead)
+            let window = Array(filtered[(index + 1)..<endIndex])
+            guard !window.isEmpty else { continue }
+
+            let sender = window.first(where: { isLikelySenderLabel($0) })
+            var preview: String?
+
+            if let sender,
+               let senderIndex = window.firstIndex(of: sender),
+               senderIndex + 1 < window.count {
+                preview = window[(senderIndex + 1)...].first {
+                    isLikelyPreviewLabel($0, excluding: sender)
+                }
+            }
+
+            if preview == nil {
+                preview = window.first { isLikelyPreviewLabel($0, excluding: sender) }
+            }
+
+            consider(senderName: sender, previewText: preview)
+        }
+
+        for index in filtered.indices {
+            let first = filtered[index]
+            let second = index + 1 < filtered.count ? filtered[index + 1] : nil
+            let third = index + 2 < filtered.count ? filtered[index + 2] : nil
+
+            if isLikelySenderLabel(first) {
+                consider(senderName: first, previewText: second)
+                consider(senderName: first, previewText: third)
+            }
+
+            if let second, isLikelySenderLabel(second) {
+                consider(senderName: second, previewText: third)
+            }
+
+            if isLikelyPreviewLabel(first, excluding: nil) {
+                consider(senderName: nil, previewText: first)
+            }
+        }
+
+        if let bestCandidate {
+            return (
+                senderName: bestCandidate.senderName,
+                previewText: bestCandidate.previewText
+            )
+        }
+
+        if let preview = filtered.first(where: { isLikelyPreviewLabel($0, excluding: nil) }) {
+            return (
+                senderName: nil,
+                previewText: cleanedPreviewLabel(preview, senderName: nil)
+            )
+        }
+
+        return (nil, nil)
+    }
+
+    private func sanitizeSnapshotToken(_ value: String) -> String? {
+        guard let raw = sanitizedString(value) else { return nil }
+        let collapsed = raw
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !collapsed.isEmpty else { return nil }
+        return collapsed
+    }
+
+    private func isActionLabel(_ value: String) -> Bool {
+        let lowered = value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        switch lowered {
+        case "open", "close", "clear all", "notifications", "notification center", "options", "reply", "mark as read":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func parseInlineSenderPreview(from value: String) -> (senderName: String?, previewText: String?)? {
+        guard let text = sanitizedString(value), text.contains(":") else { return nil }
+
+        let parts = text.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: true)
+        guard parts.count == 2 else { return nil }
+
+        let sender = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let preview = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isLikelySenderLabel(sender) else { return nil }
+
+        let normalizedSender = cleanedSenderLabel(sender)
+        let normalizedPreview = cleanedPreviewLabel(preview, senderName: normalizedSender)
+
+        guard normalizedSender != nil || normalizedPreview != nil else {
+            return nil
         }
 
         return (
-            senderName: sender,
-            previewText: preview
+            senderName: normalizedSender,
+            previewText: normalizedPreview
         )
+    }
+
+    private func isLikelySenderLabel(_ value: String) -> Bool {
+        guard let token = cleanedSenderLabel(value) else { return false }
+        guard token.count >= 2, token.count <= 64 else { return false }
+        guard !token.contains(":"), !token.contains("http://"), !token.contains("https://") else { return false }
+
+        let wordCount = token.split(whereSeparator: \.isWhitespace).count
+        guard wordCount >= 1, wordCount <= 8 else { return false }
+
+        if token.rangeOfCharacter(from: CharacterSet(charactersIn: ".!?")) != nil && token.count > 24 {
+            return false
+        }
+
+        return true
+    }
+
+    private func isLikelyPreviewLabel(_ value: String, excluding sender: String?) -> Bool {
+        guard let preview = cleanedPreviewLabel(value, senderName: sender) else {
+            return false
+        }
+        guard preview.count >= 2 else { return false }
+        let lowered = preview.lowercased()
+        if lowered == "preview unavailable" {
+            return false
+        }
+        return true
+    }
+
+    private func cleanedSenderLabel(_ value: String?) -> String? {
+        guard let token = sanitizedString(value) else { return nil }
+        guard !looksLikeAppLabel(token), !isTimeLikeLabel(token), !isActionLabel(token) else {
+            return nil
+        }
+        return token
+    }
+
+    private func cleanedPreviewLabel(_ value: String?, senderName: String?) -> String? {
+        guard var preview = sanitizedString(value) else { return nil }
+        guard !looksLikeAppLabel(preview), !isTimeLikeLabel(preview), !isActionLabel(preview) else {
+            return nil
+        }
+
+        if let senderName {
+            let senderPrefix = "\(senderName):"
+            if preview.lowercased().hasPrefix(senderPrefix.lowercased()) {
+                preview = String(preview.dropFirst(senderPrefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if preview.localizedCaseInsensitiveCompare(senderName) == .orderedSame {
+                return nil
+            }
+        }
+
+        return preview.isEmpty ? nil : preview
     }
 
     private func isTimeLikeLabel(_ value: String) -> Bool {
@@ -736,11 +987,28 @@ final class NotificationManager: ObservableObject {
     // MARK: - Public API
 
     func addNotification(_ notification: IslandNotification) {
+        let normalized = normalizedNotification(notification)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.latestNotification = notification
-            self.recentNotifications.removeAll { $0.sourceID == notification.sourceID }
-            self.recentNotifications.insert(notification, at: 0)
+            self.recentNotifications = self.recentNotifications.map { self.normalizedNotification($0) }
+            if let latest = self.latestNotification {
+                self.latestNotification = self.normalizedNotification(latest)
+            }
+
+            // Merge near-identical WhatsApp notifications coming from different
+            // ingestion paths (web bridge, delivered center, log observer).
+            if let duplicateIndex = self.recentNotifications.firstIndex(where: { existing in
+                existing.appName.localizedCaseInsensitiveCompare(normalized.appName) == .orderedSame &&
+                existing.title == normalized.title &&
+                existing.body == normalized.body &&
+                abs(existing.timestamp.timeIntervalSince(normalized.timestamp)) <= 15
+            }) {
+                self.recentNotifications.remove(at: duplicateIndex)
+            }
+
+            self.latestNotification = normalized
+            self.recentNotifications.removeAll { $0.sourceID == normalized.sourceID }
+            self.recentNotifications.insert(normalized, at: 0)
             if self.recentNotifications.count > self.maxNotifications {
                 self.recentNotifications.removeLast()
             }
@@ -758,6 +1026,42 @@ final class NotificationManager: ObservableObject {
     func clearAll() {
         recentNotifications.removeAll()
         latestNotification = nil
+    }
+
+    private func normalizedNotification(_ notification: IslandNotification) -> IslandNotification {
+        let title = cleanText(notification.title)
+        let body = cleanText(notification.body)
+        let senderName = cleanText(notification.senderName)
+        let previewText = cleanText(notification.previewText)
+        let appName = cleanText(notification.appName) ?? "Notification"
+
+        let resolvedTitle = senderName ?? title ?? appName
+        let resolvedPreview = previewText ?? body
+
+        return IslandNotification(
+            sourceID: notification.sourceID,
+            appName: appName,
+            bundleIdentifier: notification.bundleIdentifier,
+            appIcon: notification.appIcon,
+            appIconURL: cleanText(notification.appIconURL),
+            title: resolvedTitle,
+            body: resolvedPreview ?? "",
+            senderName: senderName,
+            previewText: resolvedPreview,
+            avatarURL: cleanText(notification.avatarURL),
+            timestamp: notification.timestamp
+        )
+    }
+
+    private func cleanText(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let lowered = trimmed.lowercased()
+        if lowered == "undefined" || lowered == "null" || lowered == "(null)" {
+            return nil
+        }
+        return trimmed
     }
 
     deinit {

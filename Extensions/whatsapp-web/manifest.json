@@ -1,0 +1,26 @@
+{
+  "id": "com.workview.whatsapp-web",
+  "name": "WhatsApp Web",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "main": "index.js",
+  "author": {
+    "name": "Workview"
+  },
+  "description": "Pairs with WhatsApp Web via QR and routes incoming messages to the DynamicIsland notification feed.",
+  "icon": "icon.svg",
+  "license": "MIT",
+  "categories": ["communication", "productivity"],
+  "permissions": ["network", "notifications"],
+  "capabilities": {
+    "compact": true,
+    "expanded": true,
+    "fullExpanded": true,
+    "minimalCompact": true,
+    "backgroundRefresh": false,
+    "settings": true,
+    "notificationFeed": true
+  },
+  "refreshInterval": 60.0,
+  "activationTriggers": ["manual"]
+}
