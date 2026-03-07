@@ -34,6 +34,8 @@ struct IslandNotification: Identifiable {
 
 @MainActor
 final class NotificationManager: ObservableObject {
+    private static let accessibilityPromptedDefaultsKey = "notifications.accessibilityPrompted"
+
     private struct WhatsAppLogEvent {
         let eventID: String
         let timestamp: Date
@@ -69,7 +71,9 @@ final class NotificationManager: ObservableObject {
     private let dismissedNotificationRetention: TimeInterval = 300
     private let lowInformationSuppressionWindow: TimeInterval = 10
     private var dismissedNotifications: [DismissedNotificationRecord] = []
-    private var hasRequestedAccessibilityPrompt = false
+    private var hasRequestedAccessibilityPrompt = UserDefaults.standard.bool(
+        forKey: NotificationManager.accessibilityPromptedDefaultsKey
+    )
 
     private init() {
         checkPermission()
@@ -121,6 +125,7 @@ final class NotificationManager: ObservableObject {
     private func ensureAccessibilityPromptIfNeeded() {
         guard !AXIsProcessTrusted(), !hasRequestedAccessibilityPrompt else { return }
         hasRequestedAccessibilityPrompt = true
+        UserDefaults.standard.set(true, forKey: Self.accessibilityPromptedDefaultsKey)
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
     }

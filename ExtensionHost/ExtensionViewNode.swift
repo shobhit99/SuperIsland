@@ -56,6 +56,7 @@ enum ColorValue: Equatable {
 enum TextStyle: String {
     case largeTitle
     case title
+    case headline
     case body
     case caption
     case footnote
@@ -68,6 +69,8 @@ enum TextStyle: String {
             return .system(size: 26, weight: .semibold)
         case .title:
             return .system(size: 16, weight: .semibold)
+        case .headline:
+            return .system(size: 14, weight: .semibold)
         case .body:
             return .system(size: 13)
         case .caption:
@@ -102,7 +105,7 @@ indirect enum ViewNode: Equatable {
     case slider(value: Double, min: Double, max: Double, actionID: String)
 
     case padding(child: ViewNode, edges: String, amount: Double)
-    case frame(child: ViewNode, width: Double?, height: Double?, maxWidth: Double?, maxHeight: Double?)
+    case frame(child: ViewNode, width: Double?, height: Double?, maxWidth: Double?, maxHeight: Double?, alignment: String)
     case opacity(child: ViewNode, value: Double)
     case background(child: ViewNode, color: ColorValue)
     case cornerRadius(child: ViewNode, radius: Double)
@@ -250,7 +253,8 @@ indirect enum ViewNode: Equatable {
                 width: propertyDouble(value, key: "width"),
                 height: propertyDouble(value, key: "height"),
                 maxWidth: propertyDouble(value, key: "maxWidth"),
-                maxHeight: propertyDouble(value, key: "maxHeight")
+                maxHeight: propertyDouble(value, key: "maxHeight"),
+                alignment: value.forProperty("alignment")?.toString() ?? "center"
             )
 
         case "opacity":

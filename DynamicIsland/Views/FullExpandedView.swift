@@ -38,9 +38,9 @@ struct FullExpandedView: View {
             }
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, 6)
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var defaultFullView: some View {

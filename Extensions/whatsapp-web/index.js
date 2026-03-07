@@ -142,6 +142,7 @@ function openReplyComposer(payload) {
 
   replyComposer = {
     inputID: messageID || recipient,
+    notificationSourceID: normalizeText(replyPayload.notificationSourceID),
     recipient,
     sender,
     preview,
@@ -157,6 +158,45 @@ function openReplyComposer(payload) {
 
 function closeReplyComposer() {
   replyComposer = null;
+}
+
+function shortcutBadge(label) {
+  return View.cornerRadius(
+    View.background(
+      View.padding(
+        View.text(label, {
+          style: "footnote",
+          color: { r: 1, g: 1, b: 1, a: 0.8 },
+          lineLimit: 1
+        }),
+        { edges: "all", amount: 3 }
+      ),
+      { r: 1, g: 1, b: 1, a: 0.085 }
+    ),
+    5
+  );
+}
+
+function shortcutHint() {
+  return View.hstack([
+    shortcutBadge("Enter"),
+    View.text("Send", {
+      style: "footnote",
+      color: { r: 1, g: 1, b: 1, a: 0.52 },
+      lineLimit: 1
+    }),
+    View.text("|", {
+      style: "footnote",
+      color: { r: 1, g: 1, b: 1, a: 0.32 },
+      lineLimit: 1
+    }),
+    shortcutBadge("Shift + Enter"),
+    View.text("New line", {
+      style: "footnote",
+      color: { r: 1, g: 1, b: 1, a: 0.52 },
+      lineLimit: 1
+    })
+  ], { spacing: 6, align: "center" });
 }
 
 function replyComposerView() {
@@ -175,14 +215,17 @@ function replyComposerView() {
   }
 
   headerChildren.push(
-    View.vstack([
-      View.text(`Reply to ${replyComposer.sender}`, { style: "title", lineLimit: 1 }),
-      View.text(replyComposer.preview || "Send a quick reply from Dynamic Island.", {
-        style: "caption",
-        color: "gray",
-        lineLimit: 2
-      })
-    ], { spacing: 3, align: "leading" })
+    View.frame(
+      View.vstack([
+        View.text(`Reply to ${replyComposer.sender}`, { style: "headline", lineLimit: 1 }),
+        View.text(replyComposer.preview || "Send a quick reply from Dynamic Island.", {
+          style: "caption",
+          color: "gray",
+          lineLimit: 2
+        })
+      ], { spacing: 3, align: "leading" }),
+      { maxWidth: 1000, alignment: "leading" }
+    )
   );
 
   const content = [
@@ -190,30 +233,24 @@ function replyComposerView() {
       ...headerChildren,
       View.spacer(),
       View.button(View.text("Close", { style: "caption", color: "gray", lineLimit: 1 }), "close-reply")
-    ], { spacing: 8, align: "center" }),
+    ], { spacing: 8, align: "top" }),
     View.spacer(),
     View.vstack([
       View.inputBox(
         `Message ${replyComposer.sender}`,
         "",
         "submit-reply",
-        { id: replyComposer.inputID, autoFocus: true, minHeight: 76 }
+        { id: replyComposer.inputID, autoFocus: true, minHeight: 68 }
       ),
-      View.text("Press Enter to send. Shift+Enter adds a new line.", {
-        style: "footnote",
-        color: replyComposer.error ? "red" : "gray",
-        lineLimit: 2
-      })
+      replyComposer.error
+        ? View.text(replyComposer.error, {
+            style: "footnote",
+            color: "red",
+            lineLimit: 2
+          })
+        : shortcutHint()
     ], { spacing: 6, align: "leading" })
   ];
-
-  if (replyComposer.error) {
-    content.splice(2, 0, View.text(replyComposer.error, {
-      style: "footnote",
-      color: "red",
-      lineLimit: 2
-    }));
-  }
 
   return View.vstack(content, { spacing: 8, align: "leading" });
 }
@@ -365,28 +402,26 @@ DynamicIsland.registerModule({
       if (!replyComposer || !body) {
         return;
       }
-      if (typeof DynamicIsland.system.sendWhatsAppWebMessage !== "function") {
+      if (typeof DynamicIsland.system.sendWhatsAppWebMessageAsync !== "function") {
         replyComposer.error = "Reply API unavailable.";
         refreshState(true);
         return;
       }
 
-      const result = asObject(DynamicIsland.system.sendWhatsAppWebMessage(replyComposer.recipient, body));
-      if (result && result.ok) {
-        DynamicIsland.playFeedback("success");
-        closeReplyComposer();
-        const closed = typeof DynamicIsland.system.closePresentedInteraction === "function"
-          ? !!DynamicIsland.system.closePresentedInteraction()
-          : false;
-        if (!closed) {
-          refreshState(true);
-        }
-        return;
+      const recipient = replyComposer.recipient;
+      const notificationSourceID = replyComposer.notificationSourceID;
+      DynamicIsland.system.sendWhatsAppWebMessageAsync(recipient, body);
+      if (notificationSourceID && typeof DynamicIsland.system.dismissNotification === "function") {
+        DynamicIsland.system.dismissNotification(notificationSourceID);
       }
-
-      replyComposer.error = normalizeText(result && result.error) || "Failed to send reply.";
-      DynamicIsland.playFeedback("error");
-      refreshState(true);
+      closeReplyComposer();
+      const closed = typeof DynamicIsland.system.closePresentedInteraction === "function"
+        ? !!DynamicIsland.system.closePresentedInteraction()
+        : false;
+      if (!closed) {
+        refreshState(true);
+      }
+      DynamicIsland.playFeedback("success");
       return;
     }
   }

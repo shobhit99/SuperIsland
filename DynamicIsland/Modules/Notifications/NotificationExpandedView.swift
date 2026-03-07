@@ -15,7 +15,11 @@ struct NotificationExpandedView: View {
                 expandedNotificationContent
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: .infinity,
+            alignment: appState.currentState == .fullExpanded ? .top : .center
+        )
     }
 
     private var emptyState: some View {
@@ -123,21 +127,21 @@ struct NotificationExpandedView: View {
         ) {
             manager.clearNotification(notification.id)
         } content: {
-            HStack(alignment: .top, spacing: featured ? 10 : 8) {
-                notificationLeadingView(notification, size: featured ? 30 : 18, showsRing: chrome == .card)
+            HStack(alignment: .top, spacing: featured ? 8 : 8) {
+                notificationLeadingView(notification, size: featured ? 24 : 18, showsRing: chrome == .card)
 
-                VStack(alignment: .leading, spacing: featured ? 2 : 1) {
+                VStack(alignment: .leading, spacing: 1) {
                     HStack(alignment: .top, spacing: 8) {
-                        VStack(alignment: .leading, spacing: featured ? 2 : 1) {
+                        VStack(alignment: .leading, spacing: 1) {
                             if featured {
                                 Text(notification.appName)
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.white.opacity(0.5))
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.white.opacity(0.46))
                                     .lineLimit(1)
                             }
 
                             Text(headline(for: notification))
-                                .font(.system(size: featured ? 13 : 11, weight: .semibold))
+                                .font(.system(size: featured ? 11.5 : 11, weight: .semibold))
                                 .foregroundColor(.white.opacity(featured ? 1 : 0.9))
                                 .lineLimit(1)
                         }
@@ -145,7 +149,7 @@ struct NotificationExpandedView: View {
                         Spacer(minLength: 0)
 
                         Text(timeAgo(notification.timestamp))
-                            .font(.system(size: featured ? 10 : 9))
+                            .font(.system(size: featured ? 9 : 9))
                             .foregroundColor(.white.opacity(featured ? 0.4 : 0.3))
                             .lineLimit(1)
                             .fixedSize()
@@ -153,9 +157,9 @@ struct NotificationExpandedView: View {
 
                     if let message = message(for: notification) {
                         Text(message)
-                            .font(.system(size: featured ? 10 : 10))
+                            .font(.system(size: 9.5))
                             .foregroundColor(.white.opacity(0.72))
-                            .lineLimit(2)
+                            .lineLimit(1)
                             .multilineTextAlignment(.leading)
                     }
                 }
@@ -299,7 +303,7 @@ private struct SwipeToDismissNotificationRow<Content: View>: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .leading) {
             swipeBackground
 
             content
@@ -309,6 +313,8 @@ private struct SwipeToDismissNotificationRow<Content: View>: View {
                 .background(backgroundView)
                 .offset(x: dragOffset)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
         .opacity(isRemoving ? 0 : 1)
         .contentShape(Rectangle())
         .simultaneousGesture(rowDragGesture)
@@ -339,7 +345,7 @@ private struct SwipeToDismissNotificationRow<Content: View>: View {
         case .plain:
             return 0
         case .card:
-            return featured ? 12 : 10
+            return featured ? 10 : 10
         }
     }
 
@@ -348,7 +354,7 @@ private struct SwipeToDismissNotificationRow<Content: View>: View {
         case .plain:
             return 0
         case .card:
-            return featured ? 10 : 9
+            return featured ? 8 : 9
         }
     }
 

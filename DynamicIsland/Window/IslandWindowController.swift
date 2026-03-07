@@ -2,6 +2,10 @@ import AppKit
 import SwiftUI
 import Combine
 
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 @MainActor
 final class IslandWindowController {
     private var panel: IslandPanel?
@@ -14,7 +18,7 @@ final class IslandWindowController {
         let panel = IslandPanel()
         self.panel = panel
 
-        let hostingView = NSHostingView(
+        let hostingView = FirstMouseHostingView(
             rootView: IslandContainerView()
                 .environmentObject(appState)
         )

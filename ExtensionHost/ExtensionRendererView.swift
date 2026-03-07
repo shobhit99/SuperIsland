@@ -175,15 +175,17 @@ struct ViewNodeRenderer: View {
             ViewNodeRenderer(node: child, extensionID: extensionID)
                 .padding(edgeSet(from: edges), amount)
 
-        case .frame(let child, let width, let height, let maxWidth, let maxHeight):
+        case .frame(let child, let width, let height, let maxWidth, let maxHeight, let alignment):
             ViewNodeRenderer(node: child, extensionID: extensionID)
                 .frame(
                     width: width.map { CGFloat($0) },
-                    height: height.map { CGFloat($0) }
+                    height: height.map { CGFloat($0) },
+                    alignment: frameAlignment(from: alignment)
                 )
                 .frame(
                     maxWidth: maxWidth.map { CGFloat($0) },
-                    maxHeight: maxHeight.map { CGFloat($0) }
+                    maxHeight: maxHeight.map { CGFloat($0) },
+                    alignment: frameAlignment(from: alignment)
                 )
 
         case .opacity(let child, let value):
@@ -229,6 +231,20 @@ struct ViewNodeRenderer: View {
         case "horizontal": return .horizontal
         case "vertical": return .vertical
         default: return .all
+        }
+    }
+
+    private func frameAlignment(from value: String) -> Alignment {
+        switch value {
+        case "leading": return .leading
+        case "trailing": return .trailing
+        case "top": return .top
+        case "bottom": return .bottom
+        case "topLeading": return .topLeading
+        case "topTrailing": return .topTrailing
+        case "bottomLeading": return .bottomLeading
+        case "bottomTrailing": return .bottomTrailing
+        default: return .center
         }
     }
 }
@@ -309,6 +325,10 @@ private struct ExtensionInputBoxNode: View {
     let autoFocus: Bool
     let minHeight: Double
 
+    private var boxHeight: CGFloat {
+        CGFloat(max(64, minHeight))
+    }
+
     @ObservedObject private var manager = ExtensionManager.shared
     @State private var localText: String
     @State private var shouldFocus: Bool = false
@@ -337,7 +357,7 @@ private struct ExtensionInputBoxNode: View {
             ExtensionInputTextView(
                 text: $localText,
                 shouldFocus: $shouldFocus,
-                minHeight: max(54, minHeight)
+                fixedHeight: boxHeight
             ) {
                 submit()
             }
@@ -345,12 +365,13 @@ private struct ExtensionInputBoxNode: View {
                 Text(placeholder)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.34))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
                     .allowsHitTesting(false)
             }
         }
-            .frame(maxWidth: .infinity, minHeight: max(54, minHeight), alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(height: boxHeight, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(.white.opacity(0.08))
@@ -385,7 +406,7 @@ private struct ExtensionInputTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var shouldFocus: Bool
 
-    let minHeight: Double
+    let fixedHeight: CGFloat
     let onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -396,9 +417,11 @@ private struct ExtensionInputTextView: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = false
+        scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.verticalScrollElasticity = .none
 
         let textView = SubmitAwareTextView()
         textView.delegate = context.coordinator
@@ -418,7 +441,8 @@ private struct ExtensionInputTextView: NSViewRepresentable {
         textView.font = .systemFont(ofSize: 12, weight: .medium)
         textView.textColor = .white
         textView.insertionPointColor = .white
-        textView.textContainerInset = NSSize(width: 8, height: 10)
+        textView.caretWidth = 1
+        textView.textContainerInset = NSSize(width: 6, height: 8)
         textView.onSubmit = {
             context.coordinator.handleSubmit()
         }
@@ -432,11 +456,12 @@ private struct ExtensionInputTextView: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.minSize = NSSize(width: 0, height: CGFloat(minHeight))
+        textView.minSize = NSSize(width: 0, height: fixedHeight)
         textView.translatesAutoresizingMaskIntoConstraints = true
         textView.autoresizingMask = [.width]
         scrollView.documentView = textView
         scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollView.contentView.automaticallyAdjustsContentInsets = false
 
         context.coordinator.textView = textView
         return scrollView
@@ -453,7 +478,7 @@ private struct ExtensionInputTextView: NSViewRepresentable {
             textContainer.containerSize = NSSize(width: scrollView.contentSize.width, height: .greatestFiniteMagnitude)
         }
 
-        textView.minSize = NSSize(width: 0, height: CGFloat(minHeight))
+        textView.minSize = NSSize(width: 0, height: fixedHeight)
 
         if shouldFocus, textView.window?.firstResponder !== textView {
             textView.window?.makeKeyAndOrderFront(nil)
@@ -491,6 +516,7 @@ private struct ExtensionInputTextView: NSViewRepresentable {
 
 private final class SubmitAwareTextView: NSTextView {
     var onSubmit: (() -> Void)?
+    var caretWidth: CGFloat = 1
 
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -500,6 +526,17 @@ private final class SubmitAwareTextView: NSTextView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
+        let width = max(1, min(caretWidth, rect.width))
+        let adjustedRect = NSRect(
+            x: rect.midX - (width / 2),
+            y: rect.minY,
+            width: width,
+            height: rect.height
+        )
+        super.drawInsertionPoint(in: adjustedRect, color: color, turnedOn: flag)
     }
 }
 

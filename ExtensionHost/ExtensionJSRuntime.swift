@@ -385,6 +385,25 @@ final class ExtensionJSRuntime {
             return JSValue(object: payload, in: self.context)
         }
 
+        let sendWhatsAppWebMessageAsync: @convention(block) (String, String) -> Bool = { [weak self] recipient, message in
+            guard let self else { return false }
+            guard self.manifest.permissions.contains("network") else { return false }
+
+            Task { @MainActor in
+                _ = WhatsAppWebBridge.shared.sendMessage(to: recipient, body: message)
+            }
+            return true
+        }
+
+        let dismissNotification: @convention(block) (String) -> Bool = { sourceID in
+            let normalizedSourceID = sourceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedSourceID.isEmpty else { return false }
+            return MainActor.assumeIsolated {
+                NotificationManager.shared.clearNotification(normalizedSourceID)
+                return true
+            }
+        }
+
         let closePresentedInteraction: @convention(block) () -> Bool = { [weak self] in
             guard let self, let manager = self.manager else { return false }
             return MainActor.assumeIsolated {
@@ -399,6 +418,8 @@ final class ExtensionJSRuntime {
         system.setObject(startWhatsAppWeb, forKeyedSubscript: "startWhatsAppWeb" as NSString)
         system.setObject(refreshWhatsAppWebQR, forKeyedSubscript: "refreshWhatsAppWebQR" as NSString)
         system.setObject(sendWhatsAppWebMessage, forKeyedSubscript: "sendWhatsAppWebMessage" as NSString)
+        system.setObject(sendWhatsAppWebMessageAsync, forKeyedSubscript: "sendWhatsAppWebMessageAsync" as NSString)
+        system.setObject(dismissNotification, forKeyedSubscript: "dismissNotification" as NSString)
         system.setObject(closePresentedInteraction, forKeyedSubscript: "closePresentedInteraction" as NSString)
         dynamicIsland.setObject(system, forKeyedSubscript: "system" as NSString)
     }
@@ -500,7 +521,7 @@ final class ExtensionJSRuntime {
               toggle: function(isOn, label, action) { return { type: 'toggle', isOn: !!isOn, label: label, action: action }; },
               slider: function(value, min, max, action) { return { type: 'slider', value: value, min: min, max: max, action: action }; },
               padding: function(child, opts) { return { type: 'padding', child: child, edges: (opts && opts.edges) ?? 'all', amount: (opts && opts.amount) ?? 8 }; },
-              frame: function(child, opts) { return { type: 'frame', child: child, width: opts && opts.width, height: opts && opts.height, maxWidth: opts && opts.maxWidth, maxHeight: opts && opts.maxHeight }; },
+              frame: function(child, opts) { return { type: 'frame', child: child, width: opts && opts.width, height: opts && opts.height, maxWidth: opts && opts.maxWidth, maxHeight: opts && opts.maxHeight, alignment: opts && opts.alignment }; },
               opacity: function(child, value) { return { type: 'opacity', child: child, value: value }; },
               background: function(child, color) { return { type: 'background', child: child, color: color }; },
               cornerRadius: function(child, radius) { return { type: 'cornerRadius', child: child, radius: radius }; },

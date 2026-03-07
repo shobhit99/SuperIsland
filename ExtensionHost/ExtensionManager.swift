@@ -849,10 +849,10 @@ final class WhatsAppWebBridge: ObservableObject {
         }
         let sender = normalizedString(payload["sender"]) ?? "WhatsApp"
         let preview = normalizedString(payload["preview"]) ?? "New message"
-        let replyTarget = normalizedString(payload["chatJid"])
-            ?? normalizedString(payload["chatJidAlt"])
-            ?? normalizedString(payload["participant"])
+        let replyTarget = normalizedString(payload["chatJidAlt"])
             ?? normalizedString(payload["participantAlt"])
+            ?? normalizedString(payload["chatJid"])
+            ?? normalizedString(payload["participant"])
         let avatarURL = resolvedAvatarURLString(
             from: normalizedString(payload["avatarURL"]),
             messageID: identifier
@@ -988,6 +988,7 @@ final class WhatsAppWebBridge: ObservableObject {
             tapAction: replyTarget.flatMap { target in
                 var payload: [String: String] = [
                     "messageID": id,
+                    "notificationSourceID": "whatsapp-web:\(id)",
                     "recipient": target,
                     "sender": sender,
                     "preview": preview

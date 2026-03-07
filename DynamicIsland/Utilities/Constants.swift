@@ -4,7 +4,7 @@ enum Constants {
     // MARK: - Island Sizes
     static let compactSize = CGSize(width: 188, height: 34)
     static let expandedSize = CGSize(width: 360, height: 80)
-    static let fullExpandedSize = CGSize(width: 400, height: 200)
+    static let fullExpandedSize = CGSize(width: 400, height: 232)
 
     // MARK: - Window
     static let windowMaxWidth: CGFloat = 420

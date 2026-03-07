@@ -36,6 +36,7 @@ enum PermissionType: CaseIterable {
 
 final class PermissionsManager {
     static let shared = PermissionsManager()
+    private static let accessibilityPromptedDefaultsKey = "permissions.accessibilityPrompted"
 
     private init() {}
 
@@ -46,7 +47,9 @@ final class PermissionsManager {
     }
 
     func requestAccessibility() {
-        let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
+        guard !AXIsProcessTrusted() else { return }
+        UserDefaults.standard.set(true, forKey: Self.accessibilityPromptedDefaultsKey)
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
     }
 
