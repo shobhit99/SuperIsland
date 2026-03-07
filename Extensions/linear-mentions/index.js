@@ -609,36 +609,44 @@ function shortcutBadge(label) {
   );
 }
 
+function issueHeadlineBadge(text) {
+  return View.cornerRadius(
+    View.background(
+      View.padding(
+        View.text(text, {
+          style: "footnote",
+          color: { r: 1, g: 1, b: 1, a: 0.9 },
+          lineLimit: 1
+        }),
+        { edges: "all", amount: 5 }
+      ),
+      { r: 0.12, g: 0.2, b: 0.42, a: 0.36 }
+    ),
+    7
+  );
+}
+
 function replyComposerView() {
   const header = [];
   if (replyComposer.actorAvatarURL) {
     header.push(
       View.image(replyComposer.actorAvatarURL, {
-        width: 24,
-        height: 24,
-        cornerRadius: 12
+        width: 18,
+        height: 18,
+        cornerRadius: 9
       })
     );
   } else {
-    header.push(View.icon("at", { size: 18, color: "blue" }));
+    header.push(View.icon("person.crop.circle", { size: 15, color: "gray" }));
   }
 
   header.push(
     View.frame(
-      View.vstack([
-        View.text(`Reply to ${replyComposer.actorName}`, { style: "headline", lineLimit: 1 }),
-        View.text(
-          truncate(
-            replyComposer.preview || `${mentionTypeLabel(replyComposer.type)} in ${replyComposer.issueTitle}`,
-            PREVIEW_LIMIT_EXPANDED
-          ),
-          {
-            style: "caption",
-            color: "gray",
-            lineLimit: 2
-          }
-        )
-      ], { spacing: 3, align: "leading" }),
+      View.text(replyComposer.actorName, {
+        style: "caption",
+        color: "gray",
+        lineLimit: 1
+      }),
       { maxWidth: 1000, alignment: "leading" }
     )
   );
@@ -666,20 +674,24 @@ function replyComposerView() {
       ...controls
     ], { spacing: 8, align: "top" }),
     View.text(
-      mentionHeadline(replyComposer),
+      truncate(
+        replyComposer.preview || `${mentionTypeLabel(replyComposer.type)} in ${replyComposer.issueTitle}`,
+        PREVIEW_LIMIT_EXPANDED * 2
+      ),
       {
         style: "caption",
-        color: "white",
-        lineLimit: 1
+        color: { r: 1, g: 1, b: 1, a: 0.92 },
+        lineLimit: 3
       }
     ),
+    issueHeadlineBadge(mentionHeadline(replyComposer)),
     View.spacer(),
     View.vstack([
       View.inputBox(
         `Reply in ${replyComposer.issueIdentifier || "Linear"}`,
         "",
         "submit-reply",
-        { id: replyComposer.commentId || replyComposer.issueId, autoFocus: true, minHeight: 72 }
+        { id: replyComposer.commentId || replyComposer.issueId, autoFocus: true, minHeight: 64 }
       ),
       replyComposer.error
         ? View.text(replyComposer.error, {
