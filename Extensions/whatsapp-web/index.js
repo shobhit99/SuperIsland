@@ -20,6 +20,23 @@ const LEGACY_MEDIA_PREVIEW_LABELS = {
   "<media:document>": "Document",
   "<media:sticker>": "Sticker"
 };
+function renderInputComposer(options) {
+  if (DynamicIsland.components && typeof DynamicIsland.components.inputComposer === "function") {
+    return DynamicIsland.components.inputComposer(options);
+  }
+
+  return View.inputBox(
+    options.placeholder || "",
+    options.text || "",
+    options.action || "",
+    {
+      id: options.id || "",
+      autoFocus: options.autoFocus !== false,
+      minHeight: options.minHeight || 46,
+      showsEmojiButton: options.showsEmojiButton === true
+    }
+  );
+}
 
 function asObject(value) {
   return value && typeof value === "object" ? value : null;
@@ -177,45 +194,6 @@ function closeReplyComposer() {
   replyComposer = null;
 }
 
-function shortcutBadge(label) {
-  return View.cornerRadius(
-    View.background(
-      View.padding(
-        View.text(label, {
-          style: "footnote",
-          color: { r: 1, g: 1, b: 1, a: 0.8 },
-          lineLimit: 1
-        }),
-        { edges: "all", amount: 3 }
-      ),
-      { r: 1, g: 1, b: 1, a: 0.085 }
-    ),
-    5
-  );
-}
-
-function shortcutHint() {
-  return View.hstack([
-    shortcutBadge("Enter"),
-    View.text("Send", {
-      style: "footnote",
-      color: { r: 1, g: 1, b: 1, a: 0.52 },
-      lineLimit: 1
-    }),
-    View.text("|", {
-      style: "footnote",
-      color: { r: 1, g: 1, b: 1, a: 0.32 },
-      lineLimit: 1
-    }),
-    shortcutBadge("Shift + Enter"),
-    View.text("New line", {
-      style: "footnote",
-      color: { r: 1, g: 1, b: 1, a: 0.52 },
-      lineLimit: 1
-    })
-  ], { spacing: 4, align: "center" });
-}
-
 function mediaPreviewSection() {
   const previewText = replyComposer.preview || "Send a quick reply from Dynamic Island.";
   const messageScroller = View.frame(
@@ -287,30 +265,16 @@ function replyComposerView() {
       ], { spacing: 8, align: "top" }),
       mediaPreviewSection(),
       View.spacer(),
-      View.cornerRadius(
-        View.background(
-          View.padding(
-            View.vstack([
-              View.inputBox(
-                `Message ${replyComposer.sender}`,
-                "",
-                "submit-reply",
-                { id: replyComposer.inputID, autoFocus: true, minHeight: 46, showsEmojiButton: true }
-              ),
-              replyComposer.error
-                ? View.text(replyComposer.error, {
-                    style: "footnote",
-                    color: "red",
-                    lineLimit: 2
-                  })
-                : shortcutHint()
-            ], { spacing: 4, align: "leading" }),
-            { edges: "all", amount: 6 }
-          ),
-          { r: 0, g: 0, b: 0, a: 0.28 }
-        ),
-        12
-      )
+      renderInputComposer({
+        placeholder: `Message ${replyComposer.sender}`,
+        text: "",
+        action: "submit-reply",
+        id: replyComposer.inputID,
+        autoFocus: true,
+        minHeight: 46,
+        showsEmojiButton: true,
+        error: replyComposer.error
+      })
     ], { spacing: 6, align: "leading" }),
     { maxHeight: 1000, alignment: "topLeading" }
   );

@@ -139,6 +139,7 @@ final class ExtensionJSRuntime {
         injectConsole(into: dynamicIsland)
         injectTimers()
         injectViewHelpers()
+        injectComponents()
     }
 
     private func injectModuleRegistration(into dynamicIsland: JSValue) {
@@ -539,6 +540,100 @@ final class ExtensionJSRuntime {
                 };
               }
             };
+            """
+        )
+    }
+
+    private func injectComponents() {
+        context.evaluateScript(
+            """
+            (function() {
+              function shortcutBadge(label) {
+                return View.cornerRadius(
+                  View.background(
+                    View.padding(
+                      View.text(String(label ?? ''), {
+                        style: 'footnote',
+                        color: { r: 1, g: 1, b: 1, a: 0.8 },
+                        lineLimit: 1
+                      }),
+                      { edges: 'all', amount: 3 }
+                    ),
+                    { r: 1, g: 1, b: 1, a: 0.085 }
+                  ),
+                  5
+                );
+              }
+
+              function shortcutHint() {
+                return View.hstack([
+                  shortcutBadge('Enter'),
+                  View.text('Send', {
+                    style: 'footnote',
+                    color: { r: 1, g: 1, b: 1, a: 0.52 },
+                    lineLimit: 1
+                  }),
+                  View.text('|', {
+                    style: 'footnote',
+                    color: { r: 1, g: 1, b: 1, a: 0.32 },
+                    lineLimit: 1
+                  }),
+                  shortcutBadge('Shift + Enter'),
+                  View.text('New line', {
+                    style: 'footnote',
+                    color: { r: 1, g: 1, b: 1, a: 0.52 },
+                    lineLimit: 1
+                  })
+                ], { spacing: 4, align: 'center' });
+              }
+
+              const existing = DynamicIsland.components || {};
+              DynamicIsland.components = {
+                ...existing,
+                shortcutHint,
+                inputComposer: function(opts) {
+                  const options = opts || {};
+                  const content = View.vstack([
+                    View.inputBox(
+                      String(options.placeholder ?? ''),
+                      String(options.text ?? ''),
+                      String(options.action ?? ''),
+                      {
+                        id: options.id ? String(options.id) : '',
+                        autoFocus: options.autoFocus !== undefined ? !!options.autoFocus : true,
+                        minHeight: options.minHeight !== undefined ? Number(options.minHeight) : 46,
+                        showsEmojiButton: options.showsEmojiButton !== undefined ? !!options.showsEmojiButton : false
+                      }
+                    ),
+                    options.error
+                      ? View.text(String(options.error), {
+                          style: 'footnote',
+                          color: 'red',
+                          lineLimit: 2
+                        })
+                      : shortcutHint()
+                  ], {
+                    spacing: options.spacing !== undefined ? Number(options.spacing) : 4,
+                    align: 'leading'
+                  });
+
+                  if (options.chrome === false) {
+                    return content;
+                  }
+
+                  return View.cornerRadius(
+                    View.background(
+                      View.padding(
+                        content,
+                        { edges: 'all', amount: options.padding !== undefined ? Number(options.padding) : 6 }
+                      ),
+                      options.backgroundColor || { r: 0, g: 0, b: 0, a: 0.28 }
+                    ),
+                    options.cornerRadius !== undefined ? Number(options.cornerRadius) : 12
+                  );
+                }
+              };
+            })();
             """
         )
     }

@@ -312,6 +312,11 @@ Action payloads:
 
 Returning `null` from child positions is supported (treated as empty).
 
+### Shared Components
+
+- `DynamicIsland.components.inputComposer({ placeholder, text?, action, id?, autoFocus?, minHeight?, showsEmojiButton?, error?, spacing?, padding?, cornerRadius?, chrome?, backgroundColor? })`
+- Returns a reusable reply/input tray with the shared input box styling, shortcut hint, optional error text, and optional emoji button.
+
 ## 8. `settings.json` Schema
 
 Supported field types:

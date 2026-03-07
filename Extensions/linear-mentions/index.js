@@ -11,6 +11,23 @@ const PREVIEW_LIMIT_COMPACT = 34;
 const PREVIEW_LIMIT_EXPANDED = 84;
 const PREVIEW_LIMIT_NOTIFICATION = 160;
 const MIN_POLL_GAP_MS = 4 * 1000;
+function renderInputComposer(options) {
+  if (DynamicIsland.components && typeof DynamicIsland.components.inputComposer === "function") {
+    return DynamicIsland.components.inputComposer(options);
+  }
+
+  return View.inputBox(
+    options.placeholder || "",
+    options.text || "",
+    options.action || "",
+    {
+      id: options.id || "",
+      autoFocus: options.autoFocus !== false,
+      minHeight: options.minHeight || 64,
+      showsEmojiButton: options.showsEmojiButton === true
+    }
+  );
+}
 
 const LIST_MENTIONS_QUERY = `
 query DynamicIslandLinearMentions($first: Int!) {
@@ -592,23 +609,6 @@ function mentionRow(mention, expanded) {
   ], { spacing: 3, align: "leading" });
 }
 
-function shortcutBadge(label) {
-  return View.cornerRadius(
-    View.background(
-      View.padding(
-        View.text(label, {
-          style: "footnote",
-          color: { r: 1, g: 1, b: 1, a: 0.82 },
-          lineLimit: 1
-        }),
-        { edges: "all", amount: 3 }
-      ),
-      { r: 1, g: 1, b: 1, a: 0.085 }
-    ),
-    5
-  );
-}
-
 function issueHeadlineBadge(text) {
   return View.cornerRadius(
     View.background(
@@ -686,27 +686,16 @@ function replyComposerView() {
     ),
     issueHeadlineBadge(mentionHeadline(replyComposer)),
     View.spacer(),
-    View.vstack([
-      View.inputBox(
-        `Reply in ${replyComposer.issueIdentifier || "Linear"}`,
-        "",
-        "submit-reply",
-        { id: replyComposer.commentId || replyComposer.issueId, autoFocus: true, minHeight: 64 }
-      ),
-      replyComposer.error
-        ? View.text(replyComposer.error, {
-            style: "footnote",
-            color: "red",
-            lineLimit: 2
-          })
-        : View.hstack([
-            shortcutBadge("Enter"),
-            View.text("Send", { style: "footnote", color: "gray", lineLimit: 1 }),
-            View.text("|", { style: "footnote", color: "gray", lineLimit: 1 }),
-            shortcutBadge("Shift + Enter"),
-            View.text("New line", { style: "footnote", color: "gray", lineLimit: 1 })
-          ], { spacing: 6, align: "center" })
-    ], { spacing: 6, align: "leading" })
+    renderInputComposer({
+      placeholder: `Reply in ${replyComposer.issueIdentifier || "Linear"}`,
+      text: "",
+      action: "submit-reply",
+      id: replyComposer.commentId || replyComposer.issueId,
+      autoFocus: true,
+      minHeight: 64,
+      showsEmojiButton: true,
+      error: replyComposer.error
+    })
   ], { spacing: 8, align: "leading" });
 }
 

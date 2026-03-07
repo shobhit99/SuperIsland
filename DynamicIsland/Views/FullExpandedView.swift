@@ -56,6 +56,13 @@ struct FullExpandedView: View {
     }
 
     private var horizontalPadding: CGFloat {
-        appState.activeBuiltInModule == .nowPlaying ? 6 : 10
+        switch appState.activeModule {
+        case .extension_:
+            return 4
+        case .builtIn(.nowPlaying):
+            return 6
+        default:
+            return 10
+        }
     }
 }

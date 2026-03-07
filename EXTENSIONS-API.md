@@ -615,6 +615,19 @@ const View = {
 };
 ```
 
+Shared components are also injected on `DynamicIsland.components`. The reusable reply/input tray is available as:
+
+```typescript
+DynamicIsland.components.inputComposer({
+  placeholder: "Reply",
+  action: "submit",
+  id: "reply-box",
+  minHeight: 46,
+  showsEmojiButton: true,
+  error: ""
+});
+```
+
 `distribution` controls how direct stack children consume space:
 - `"natural"`: children use intrinsic size
 - `"fillEqually"`: children share equal space along the stack axis
