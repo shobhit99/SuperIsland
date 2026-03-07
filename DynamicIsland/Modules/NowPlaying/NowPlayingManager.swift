@@ -52,6 +52,9 @@ final class NowPlayingManager: ObservableObject {
     private var mediaRemoteActive = false
     // Track last detected title to avoid re-activating the module on every poll
     private var lastDetectedTitle: String = ""
+    // Track the most recent Chrome media tab and the last one paused by our controls.
+    private var currentChromeTabURL: String = ""
+    private var lastPausedChromeTabURL: String = ""
 
     private init() {
         loadMediaRemote()
@@ -62,7 +65,7 @@ final class NowPlayingManager: ObservableObject {
         // Trigger first AppleScript check on main thread to ensure
         // the macOS automation permission dialog appears
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.fetchViaAppleScript()
+            self?.refreshPreferredSource()
             self?.startPolling()
         }
     }
@@ -72,11 +75,7 @@ final class NowPlayingManager: ObservableObject {
     private func startPolling() {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             guard let self else { return }
-            self.fetchNowPlayingInfo()
-            // If MediaRemote returns nothing, try AppleScript fallbacks
-            if !self.mediaRemoteActive {
-                self.fetchViaAppleScript()
-            }
+            self.refreshPreferredSource()
         }
     }
 
@@ -145,21 +144,21 @@ final class NowPlayingManager: ObservableObject {
     }
 
     @objc private func spotifyStateChanged(_ notification: Notification) {
-        fetchNowPlayingInfo()
+        refreshPreferredSource()
     }
 
     // MARK: - Notification Handlers
 
     @objc private func nowPlayingInfoDidChange() {
-        fetchNowPlayingInfo()
+        refreshPreferredSource()
     }
 
     @objc private func nowPlayingApplicationIsPlayingDidChange() {
-        fetchPlaybackState()
+        refreshPreferredSource()
     }
 
     @objc private func nowPlayingApplicationDidChange() {
-        fetchNowPlayingInfo()
+        refreshPreferredSource()
     }
 
     // MARK: - MediaRemote Data Fetching
@@ -169,16 +168,19 @@ final class NowPlayingManager: ObservableObject {
             guard let self else { return }
 
             let newTitle = info[kMRMediaRemoteNowPlayingInfoTitle] as? String ?? ""
+            let newPlaybackRate = info[kMRMediaRemoteNowPlayingInfoPlaybackRate] as? Double ?? 0
 
-            if !newTitle.isEmpty {
+            if !newTitle.isEmpty, newPlaybackRate > 0 {
                 self.mediaRemoteActive = true
+                self.currentChromeTabURL = ""
                 self.title = newTitle
                 self.artist = info[kMRMediaRemoteNowPlayingInfoArtist] as? String ?? ""
                 self.album = info[kMRMediaRemoteNowPlayingInfoAlbum] as? String ?? ""
                 self.duration = info[kMRMediaRemoteNowPlayingInfoDuration] as? TimeInterval ?? 0
                 self.elapsedTime = info[kMRMediaRemoteNowPlayingInfoElapsedTime] as? TimeInterval ?? 0
-                self.playbackRate = info[kMRMediaRemoteNowPlayingInfoPlaybackRate] as? Double ?? 0
-                self.isPlaying = self.playbackRate > 0
+                self.playbackRate = newPlaybackRate
+                self.isPlaying = true
+                self.sourceName = "System Media"
 
                 if let artworkData = info[kMRMediaRemoteNowPlayingInfoArtworkData] as? Data {
                     self.albumArt = NSImage(data: artworkData)
@@ -205,20 +207,47 @@ final class NowPlayingManager: ObservableObject {
 
     // MARK: - AppleScript Fallback
 
-    private func fetchViaAppleScript() {
-        // Must run on main thread for permission dialogs to appear
+    private func refreshPreferredSource() {
         let work = { [weak self] in
-            // Try Spotify first
-            if self?.fetchSpotifyViaAppleScript() == true { return }
-            // Try Apple Music
-            if self?.fetchMusicViaAppleScript() == true { return }
-            // Try Chrome (YouTube / YouTube Music / any playing tab)
-            if self?.fetchChromeViaAppleScript() == true { return }
+            guard let self else { return }
+
+            if self.refreshCurrentSourceIfNeeded() { return }
+
+            if self.fetchSpotifyViaAppleScript() == true {
+                self.mediaRemoteActive = false
+                return
+            }
+
+            if self.fetchMusicViaAppleScript() == true {
+                self.mediaRemoteActive = false
+                return
+            }
+
+            if self.fetchChromeViaAppleScript(allowPausedFallback: false) == true {
+                self.mediaRemoteActive = false
+                return
+            }
+
+            self.fetchNowPlayingInfo()
         }
+
         if Thread.isMainThread {
             work()
         } else {
             DispatchQueue.main.async { work() }
+        }
+    }
+
+    private func refreshCurrentSourceIfNeeded() -> Bool {
+        switch sourceName {
+        case "Spotify":
+            return fetchSpotifyViaAppleScript()
+        case "Apple Music":
+            return fetchMusicViaAppleScript()
+        case "YouTube", "YouTube Music", "SoundCloud", "Spotify Web", "Google Chrome":
+            return fetchChromeViaAppleScript(allowPausedFallback: false)
+        default:
+            return false
         }
     }
 
@@ -250,6 +279,7 @@ final class NowPlayingManager: ObservableObject {
 
         let trackTitle = parts[0]
         DispatchQueue.main.async { [weak self] in
+            self?.currentChromeTabURL = ""
             self?.title = trackTitle
             self?.artist = parts[1]
             self?.album = parts[2]
@@ -310,6 +340,7 @@ final class NowPlayingManager: ObservableObject {
 
         let trackTitle = parts[0]
         DispatchQueue.main.async { [weak self] in
+            self?.currentChromeTabURL = ""
             self?.title = trackTitle
             self?.artist = parts[1]
             self?.album = parts[2]
@@ -325,43 +356,55 @@ final class NowPlayingManager: ObservableObject {
         return true
     }
 
-    private func fetchChromeViaAppleScript() -> Bool {
-        // Get the title, URL, and video playback state from Chrome tabs
+    private func fetchChromeViaAppleScript(allowPausedFallback: Bool = true) -> Bool {
+        let pausedReturn = allowPausedFallback
+            ? "if pausedURL is not \"\" then return \"PAUSED_TAB||\" & pausedTitle & \"||\" & pausedURL & \"||\" & pausedInfo"
+            : ""
         let script = """
         tell application "System Events"
             if not (exists process "Google Chrome") then return "NOT_RUNNING"
         end tell
         tell application "Google Chrome"
-            set tabTitle to ""
-            set tabURL to ""
-            set targetTab to missing value
-            set targetWindow to missing value
+            set playingTitle to ""
+            set playingURL to ""
+            set playingInfo to ""
+            set pausedTitle to ""
+            set pausedURL to ""
+            set pausedInfo to ""
             repeat with w in windows
                 repeat with t in tabs of w
-                    set tURL to URL of t
-                    if tURL contains "youtube.com/watch" or tURL contains "music.youtube.com" or tURL contains "soundcloud.com" or tURL contains "spotify.com/track" then
-                        set tabTitle to title of t
-                        set tabURL to tURL
-                        set targetTab to t
-                        set targetWindow to w
-                        exit repeat
-                    end if
+                    try
+                        set mediaInfo to execute t javascript "
+                            (function() {
+                                var media = Array.from(document.querySelectorAll('video,audio'));
+                                if (!media.length) return 'NO_MEDIA';
+                                var active = media.find(function(item) { return !item.paused && !item.ended; });
+                                var candidate = active || media.find(function(item) { return !item.ended; }) || media[0];
+                                if (!candidate) return 'NO_MEDIA';
+                                var metaImage = document.querySelector('meta[property=\"og:image\"], meta[name=\"twitter:image\"], link[rel=\"image_src\"]');
+                                var thumbnail = candidate.poster || (metaImage ? (metaImage.content || metaImage.href || '') : '');
+                                return (active ? 'PLAYING' : 'PAUSED') + '||' + candidate.currentTime + '||' + candidate.duration + '||' + thumbnail;
+                            })();
+                        "
+                        if mediaInfo starts with "PLAYING||" then
+                            set playingTitle to title of t
+                            set playingURL to URL of t
+                            set playingInfo to mediaInfo
+                            exit repeat
+                        else if mediaInfo starts with "PAUSED||" then
+                            if pausedURL is "" then
+                                set pausedTitle to title of t
+                                set pausedURL to URL of t
+                                set pausedInfo to mediaInfo
+                            end if
+                        end if
+                    end try
                 end repeat
-                if tabTitle is not "" then exit repeat
+                if playingURL is not "" then exit repeat
             end repeat
-            if tabTitle is "" then return "NOT_FOUND"
-            -- Get video playback info via JavaScript
-            set videoInfo to "NO_VIDEO"
-            try
-                set videoInfo to execute targetTab javascript "
-                    (function() {
-                        var v = document.querySelector('video');
-                        if (!v) return 'NO_VIDEO';
-                        return v.currentTime + '||' + v.duration + '||' + !v.paused;
-                    })();
-                "
-            end try
-            return tabTitle & "||" & tabURL & "||" & videoInfo
+            if playingURL is not "" then return "PLAYING_TAB||" & playingTitle & "||" & playingURL & "||" & playingInfo
+            \(pausedReturn)
+            return "NOT_FOUND"
         end tell
         """
 
@@ -370,33 +413,35 @@ final class NowPlayingManager: ObservableObject {
         }
 
         let parts = result.components(separatedBy: "||")
-        guard parts.count >= 1 else { return false }
+        guard parts.count >= 5 else { return false }
 
-        let rawTitle = parts[0]
-        let url = parts.count >= 2 ? parts[1] : ""
+        let rawTitle = parts[1]
+        let url = parts[2]
+        let playbackState = parts[3]
+        let artworkURL = parts.count >= 7 ? parts[6] : ""
 
-        // Parse video playback info if available
-        var videoCurrentTime: TimeInterval = 0
-        var videoDuration: TimeInterval = 0
-        var videoIsPlaying = true
+        var mediaCurrentTime: TimeInterval = 0
+        var mediaDuration: TimeInterval = 0
+        let mediaIsPlaying = playbackState == "PLAYING"
 
-        if parts.count >= 5, parts[2] != "NO_VIDEO" {
-            videoCurrentTime = TimeInterval(parts[2]) ?? 0
-            videoDuration = TimeInterval(parts[3]) ?? 0
-            videoIsPlaying = parts[4] == "true"
+        mediaCurrentTime = TimeInterval(parts[4]) ?? 0
+        if parts.count >= 6 {
+            mediaDuration = TimeInterval(parts[5]) ?? 0
         }
 
         // Parse YouTube title format: "Song Name - Artist - YouTube"
         let parsed = parseYouTubeTitle(rawTitle)
+        let chromeSourceName = chromeSourceName(for: url)
 
         DispatchQueue.main.async { [weak self] in
             self?.title = parsed.title
             self?.artist = parsed.artist
             self?.album = ""
-            self?.isPlaying = videoIsPlaying
-            self?.elapsedTime = videoCurrentTime
-            self?.duration = videoDuration
-            self?.sourceName = url.contains("music.youtube.com") ? "YouTube Music" : "YouTube"
+            self?.isPlaying = mediaIsPlaying
+            self?.elapsedTime = mediaCurrentTime
+            self?.duration = mediaDuration
+            self?.currentChromeTabURL = url
+            self?.sourceName = chromeSourceName
             if parsed.title != self?.lastDetectedTitle {
                 self?.lastDetectedTitle = parsed.title
                 self?.albumArt = nil
@@ -404,8 +449,9 @@ final class NowPlayingManager: ObservableObject {
             }
         }
 
-        // Try to get the video thumbnail
-        if url.contains("youtube.com") {
+        if !artworkURL.isEmpty {
+            fetchRemoteArtwork(from: artworkURL)
+        } else if url.contains("youtube.com") {
             fetchYouTubeThumbnail(from: url)
         }
 
@@ -417,7 +463,7 @@ final class NowPlayingManager: ObservableObject {
     private func parseYouTubeTitle(_ rawTitle: String) -> (title: String, artist: String) {
         // YouTube titles are typically: "Song Name - Artist - YouTube"
         // or "Song Name - YouTube"
-        var cleaned = rawTitle
+        let cleaned = rawTitle
             .replacingOccurrences(of: " - YouTube Music", with: "")
             .replacingOccurrences(of: " - YouTube", with: "")
             .trimmingCharacters(in: .whitespaces)
@@ -439,7 +485,11 @@ final class NowPlayingManager: ObservableObject {
         guard let videoID = extractYouTubeVideoID(from: urlString) else { return }
 
         let thumbnailURL = "https://img.youtube.com/vi/\(videoID)/mqdefault.jpg"
-        guard let url = URL(string: thumbnailURL) else { return }
+        fetchRemoteArtwork(from: thumbnailURL)
+    }
+
+    private func fetchRemoteArtwork(from urlString: String) {
+        guard let url = URL(string: urlString) else { return }
 
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data, let image = NSImage(data: data) else { return }
@@ -495,11 +545,27 @@ final class NowPlayingManager: ObservableObject {
     // MARK: - Playback Controls
 
     func togglePlayPause() {
+        if sourceName == "Spotify", !isApplicationRunning("Spotify") {
+            refreshPreferredSource()
+            return
+        }
+
+        if sourceName == "Apple Music", !isApplicationRunning("Music") {
+            refreshPreferredSource()
+            return
+        }
+
         let shouldPlay = !isPlaying
 
         // Immediately toggle local state for responsive UI
         isPlaying = shouldPlay
         updatePlaybackTimer()
+
+        if isChromePlaybackSource {
+            _ = controlChromePlayback(shouldPlay: shouldPlay)
+            refreshPlaybackStateAfterControlAction(preferChromeRefresh: true)
+            return
+        }
 
         // Try MediaRemote first
         if mediaRemoteActive {
@@ -514,16 +580,6 @@ final class NowPlayingManager: ObservableObject {
             _ = runAppleScript("tell application \"Spotify\" to \(shouldPlay ? "play" : "pause")")
         case "Apple Music":
             _ = runAppleScript("tell application \"Music\" to \(shouldPlay ? "play" : "pause")")
-        case "YouTube", "YouTube Music":
-            // Execute JS to toggle play/pause instead of sending keystrokes
-            _ = runAppleScript("""
-                tell application "Google Chrome"
-                    execute active tab of front window javascript "
-                        var v = document.querySelector('video');
-                        if (v) { \(shouldPlay ? "v.play();" : "v.pause();") }
-                    "
-                end tell
-            """)
         default:
             _ = sendCommandFunc?(shouldPlay ? kMRPlay : kMRPause, nil)
         }
@@ -586,10 +642,129 @@ final class NowPlayingManager: ObservableObject {
         return String(format: "%d:%02d", minutes, seconds)
     }
 
-    private func refreshPlaybackStateAfterControlAction() {
+    private var isChromePlaybackSource: Bool {
+        switch sourceName {
+        case "YouTube", "YouTube Music", "SoundCloud", "Spotify Web", "Google Chrome":
+            return true
+        default:
+            return !currentChromeTabURL.isEmpty && !lastPausedChromeTabURL.isEmpty
+        }
+    }
+
+    private func refreshPlaybackStateAfterControlAction(preferChromeRefresh: Bool = false) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.fetchPlaybackState()
-            self?.fetchNowPlayingInfo()
+            if preferChromeRefresh {
+                _ = self?.fetchChromeViaAppleScript()
+                return
+            }
+            self?.refreshPreferredSource()
+        }
+    }
+
+    private func controlChromePlayback(shouldPlay: Bool) -> Bool {
+        let preferredURL = shouldPlay ? lastPausedChromeTabURL : currentChromeTabURL
+        let js = chromeControlJavaScript(shouldPlay: shouldPlay)
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedPreferredURL = escapeAppleScriptString(preferredURL)
+
+        let script = """
+        tell application "System Events"
+            if not (exists process "Google Chrome") then return "NOT_RUNNING"
+        end tell
+        tell application "Google Chrome"
+            set preferredURL to "\(escapedPreferredURL)"
+            if preferredURL is not "" then
+                repeat with w in windows
+                    repeat with t in tabs of w
+                        if (URL of t) is preferredURL then
+                            try
+                                set actionResult to execute t javascript "\(js)"
+                                if actionResult is "OK" then return "OK||" & (URL of t)
+                            end try
+                        end if
+                    end repeat
+                end repeat
+            end if
+            repeat with w in windows
+                repeat with t in tabs of w
+                    try
+                        set actionResult to execute t javascript "\(js)"
+                        if actionResult is "OK" then return "OK||" & (URL of t)
+                    end try
+                end repeat
+            end repeat
+            return "NO_MEDIA"
+        end tell
+        """
+
+        guard let result = runAppleScript(script), result.hasPrefix("OK||") else {
+            return false
+        }
+
+        let actedURL = String(result.dropFirst(4))
+        currentChromeTabURL = actedURL
+        if shouldPlay {
+            if lastPausedChromeTabURL == actedURL {
+                lastPausedChromeTabURL = ""
+            }
+        } else {
+            lastPausedChromeTabURL = actedURL
+        }
+        return true
+    }
+
+    private func chromeControlJavaScript(shouldPlay: Bool) -> String {
+        if shouldPlay {
+            return """
+            (function() {
+                var media = Array.from(document.querySelectorAll('video,audio'));
+                if (!media.length) return 'NO_MEDIA';
+                var target = media.find(function(item) { return item.paused && !item.ended; }) || media.find(function(item) { return !item.ended; }) || media[0];
+                if (!target) return 'NO_MEDIA';
+                try {
+                    target.play();
+                    return 'OK';
+                } catch (error) {
+                    return 'ERROR';
+                }
+            })();
+            """
+        }
+
+        return """
+        (function() {
+            var media = Array.from(document.querySelectorAll('video,audio'));
+            if (!media.length) return 'NO_MEDIA';
+            var handled = false;
+            media.forEach(function(item) {
+                if (!item.paused && !item.ended) {
+                    item.pause();
+                    handled = true;
+                }
+            });
+            return handled ? 'OK' : 'NO_MATCH';
+        })();
+        """
+    }
+
+    private func chromeSourceName(for url: String) -> String {
+        if url.contains("music.youtube.com") { return "YouTube Music" }
+        if url.contains("youtube.com") { return "YouTube" }
+        if url.contains("soundcloud.com") { return "SoundCloud" }
+        if url.contains("spotify.com") { return "Spotify Web" }
+        return "Google Chrome"
+    }
+
+    private func escapeAppleScriptString(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    private func isApplicationRunning(_ name: String) -> Bool {
+        NSWorkspace.shared.runningApplications.contains { app in
+            app.localizedName == name && !app.isTerminated
         }
     }
 

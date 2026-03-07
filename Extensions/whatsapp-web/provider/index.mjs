@@ -180,35 +180,98 @@ function extractText(message) {
   return undefined;
 }
 
-function extractMediaPlaceholder(message) {
+function mediaLabelForContentType(contentType) {
+  switch (contentType) {
+    case "imageMessage":
+      return "Photo";
+    case "videoMessage":
+      return "Video";
+    case "audioMessage":
+      return "Audio";
+    case "documentMessage":
+      return "Document";
+    case "stickerMessage":
+      return "Sticker";
+    default:
+      return "";
+  }
+}
+
+function mediaThumbnailDataURL(bytes) {
+  if (!bytes) {
+    return undefined;
+  }
+
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  if (buffer.length === 0) {
+    return undefined;
+  }
+
+  return `data:image/jpeg;base64,${buffer.toString("base64")}`;
+}
+
+function extractMediaMetadata(message) {
   const normalized = unwrapMessage(message);
   if (!normalized) {
     return undefined;
   }
-  if (normalized.imageMessage) {
-    return "<media:image>";
+
+  const extracted = extractMessageContent(normalized);
+  const candidates = [normalized, extracted && extracted !== normalized ? extracted : undefined];
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    if (candidate.imageMessage) {
+      return {
+        label: "Photo",
+        previewURL: mediaThumbnailDataURL(candidate.imageMessage.jpegThumbnail),
+      };
+    }
+    if (candidate.videoMessage) {
+      return {
+        label: "Video",
+        previewURL: mediaThumbnailDataURL(candidate.videoMessage.jpegThumbnail),
+      };
+    }
+    if (candidate.audioMessage) {
+      return {
+        label: "Audio",
+        previewURL: undefined,
+      };
+    }
+    if (candidate.documentMessage) {
+      return {
+        label: sanitizeText(candidate.documentMessage.fileName) || "Document",
+        previewURL: mediaThumbnailDataURL(candidate.documentMessage.jpegThumbnail),
+      };
+    }
+    if (candidate.stickerMessage) {
+      return {
+        label: "Sticker",
+        previewURL: undefined,
+      };
+    }
   }
-  if (normalized.videoMessage) {
-    return "<media:video>";
-  }
-  if (normalized.audioMessage) {
-    return "<media:audio>";
-  }
-  if (normalized.documentMessage) {
-    return "<media:document>";
-  }
-  if (normalized.stickerMessage) {
-    return "<media:sticker>";
-  }
+
   const contentType = getContentType(normalized);
-  if (contentType) {
-    return `<${contentType}>`;
+  const label = mediaLabelForContentType(contentType);
+  if (label) {
+    return {
+      label,
+      previewURL: undefined,
+    };
   }
   return undefined;
 }
 
 function extractPreview(message) {
-  return extractText(message) ?? extractMediaPlaceholder(message) ?? undefined;
+  return extractText(message) ?? extractMediaMetadata(message)?.label ?? undefined;
+}
+
+function extractMediaPreviewURL(message) {
+  return extractMediaMetadata(message)?.previewURL ?? undefined;
 }
 
 function truncatePreviewText(value, limit = 48) {
@@ -725,6 +788,7 @@ class WhatsAppSocketProvider {
         id: [message.key?.remoteJid ?? "", message.key?.participant ?? "", message.key?.id ?? ""].join(":"),
         sender: extractSender(message),
         preview,
+        mediaPreviewURL: extractMediaPreviewURL(message.message),
         isReaction,
         avatarURL: this.getCachedAvatarURL(avatarJids),
         timestamp: coerceTimestampMs(message.messageTimestamp),

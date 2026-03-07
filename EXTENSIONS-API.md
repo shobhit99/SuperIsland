@@ -509,6 +509,7 @@ type ViewNode =
   | { type: "vstack"; spacing?: number; align?: "leading" | "center" | "trailing"; distribution?: "natural" | "fillEqually"; children: ViewNode[] }
   | { type: "zstack"; children: ViewNode[] }
   | { type: "spacer"; minLength?: number }
+  | { type: "scroll"; child: ViewNode; axes?: "vertical" | "horizontal" | "both"; showsIndicators?: boolean }
 
   // Content
   | { type: "text"; value: string; style?: TextStyle; color?: Color; lineLimit?: number }
@@ -560,6 +561,8 @@ const View = {
     ({ type: "zstack", children }),
   spacer: (minLength?: number) =>
     ({ type: "spacer", minLength }),
+  scroll: (child: ViewNode, opts?: { axes?: "vertical" | "horizontal" | "both"; showsIndicators?: boolean }) =>
+    ({ type: "scroll", child, axes: opts?.axes ?? "vertical", showsIndicators: opts?.showsIndicators ?? true }),
 
   // Content
   text: (value: string, opts?: { style?: TextStyle; color?: Color; lineLimit?: number }) =>
@@ -755,6 +758,7 @@ indirect enum ViewNode: Codable {
     case vstack(spacing: CGFloat, alignment: HorizontalAlignment, distribution: StackDistribution, children: [ViewNode])
     case zstack(children: [ViewNode])
     case spacer(minLength: CGFloat?)
+    case scroll(child: ViewNode, axes: Axis.Set, showsIndicators: Bool)
 
     // Content
     case text(String, style: TextStyle, color: ColorValue)

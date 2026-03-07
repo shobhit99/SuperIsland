@@ -90,6 +90,7 @@ indirect enum ViewNode: Equatable {
     case vstack(spacing: Double, align: String, distribution: String, children: [ViewNode])
     case zstack(children: [ViewNode])
     case spacer(minLength: Double?)
+    case scroll(child: ViewNode, axes: String, showsIndicators: Bool)
 
     case text(String, style: TextStyle, color: ColorValue, lineLimit: Int?)
     case icon(name: String, size: Double, color: ColorValue)
@@ -100,7 +101,7 @@ indirect enum ViewNode: Equatable {
     case divider
 
     case button(label: ViewNode, actionID: String)
-    case inputBox(id: String, placeholder: String, text: String, actionID: String, autoFocus: Bool, minHeight: Double)
+    case inputBox(id: String, placeholder: String, text: String, actionID: String, autoFocus: Bool, minHeight: Double, showsEmojiButton: Bool)
     case toggle(isOn: Bool, label: String, actionID: String)
     case slider(value: Double, min: Double, max: Double, actionID: String)
 
@@ -150,6 +151,15 @@ indirect enum ViewNode: Equatable {
                 ? value.forProperty("minLength")?.toDouble()
                 : nil
             return .spacer(minLength: minLength)
+
+        case "scroll":
+            return .scroll(
+                child: ViewNode.from(value.forProperty("child")) ?? .empty,
+                axes: value.forProperty("axes")?.toString() ?? "vertical",
+                showsIndicators: value.forProperty("showsIndicators")?.isBoolean == true
+                    ? (value.forProperty("showsIndicators")?.toBool() ?? true)
+                    : true
+            )
 
         case "text":
             let style = TextStyle(rawValue: value.forProperty("style")?.toString() ?? "body") ?? .body
@@ -216,13 +226,17 @@ indirect enum ViewNode: Equatable {
                 ? (value.forProperty("autoFocus")?.toBool() ?? true)
                 : true
             let minHeight = value.forProperty("minHeight")?.toDouble() ?? 72
+            let showsEmojiButton = value.forProperty("showsEmojiButton")?.isBoolean == true
+                ? (value.forProperty("showsEmojiButton")?.toBool() ?? false)
+                : false
             return .inputBox(
                 id: inputID,
                 placeholder: placeholder,
                 text: text,
                 actionID: actionID,
                 autoFocus: autoFocus,
-                minHeight: minHeight
+                minHeight: minHeight,
+                showsEmojiButton: showsEmojiButton
             )
 
         case "toggle":

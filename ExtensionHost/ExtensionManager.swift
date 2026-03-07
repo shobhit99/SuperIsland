@@ -321,6 +321,7 @@ struct WhatsAppWebMessage: Identifiable {
     let id: String
     let sender: String
     let preview: String
+    let mediaPreviewURL: String?
     let avatarURL: String?
     let replyTarget: String?
     let timestamp: Date
@@ -403,7 +404,9 @@ final class WhatsAppWebBridge: ObservableObject {
     private var bridgeRefreshSignature: String {
         let messageSignature = recentMessages
             .prefix(8)
-            .map { "\($0.id)|\($0.sender)|\($0.preview)|\($0.replyTarget ?? "")|\(Int($0.timestamp.timeIntervalSince1970))" }
+            .map {
+                "\($0.id)|\($0.sender)|\($0.preview)|\($0.mediaPreviewURL ?? "")|\($0.replyTarget ?? "")|\(Int($0.timestamp.timeIntervalSince1970))"
+            }
             .joined(separator: "||")
 
         return [
@@ -471,6 +474,7 @@ final class WhatsAppWebBridge: ObservableObject {
                 "id": message.id,
                 "sender": message.sender,
                 "preview": message.preview,
+                "mediaPreviewURL": message.mediaPreviewURL as Any,
                 "avatarURL": message.avatarURL as Any,
                 "replyTarget": message.replyTarget as Any,
                 "timestamp": Int(message.timestamp.timeIntervalSince1970)
@@ -849,6 +853,7 @@ final class WhatsAppWebBridge: ObservableObject {
         }
         let sender = normalizedString(payload["sender"]) ?? "WhatsApp"
         let preview = normalizedString(payload["preview"]) ?? "New message"
+        let mediaPreviewURL = normalizedString(payload["mediaPreviewURL"])
         let isReaction = payload["isReaction"] as? Bool ?? false
         let replyTarget = isReaction
             ? nil
@@ -870,6 +875,7 @@ final class WhatsAppWebBridge: ObservableObject {
                 id: identifier,
                 sender: sender,
                 preview: preview,
+                mediaPreviewURL: mediaPreviewURL,
                 avatarURL: avatarURL,
                 replyTarget: replyTarget,
                 timestamp: timestamp
@@ -886,6 +892,7 @@ final class WhatsAppWebBridge: ObservableObject {
             id: identifier,
             sender: sender,
             preview: preview,
+            mediaPreviewURL: mediaPreviewURL,
             avatarURL: avatarURL,
             replyTarget: replyTarget,
             timestamp: timestamp
@@ -896,6 +903,7 @@ final class WhatsAppWebBridge: ObservableObject {
         id: String,
         sender: String,
         preview: String,
+        mediaPreviewURL: String?,
         avatarURL: String?,
         replyTarget: String?,
         timestamp: Date
@@ -905,10 +913,12 @@ final class WhatsAppWebBridge: ObservableObject {
         }
 
         let existing = recentMessages[existingIndex]
+        let resolvedMediaPreviewURL = mediaPreviewURL ?? existing.mediaPreviewURL
         let resolvedAvatarURL = avatarURL ?? existing.avatarURL
         let resolvedReplyTarget = replyTarget ?? existing.replyTarget
         guard existing.sender != sender ||
               existing.preview != preview ||
+              existing.mediaPreviewURL != resolvedMediaPreviewURL ||
               existing.avatarURL != resolvedAvatarURL ||
               existing.replyTarget != resolvedReplyTarget else {
             return
@@ -919,6 +929,7 @@ final class WhatsAppWebBridge: ObservableObject {
                 id: id,
                 sender: sender,
                 preview: preview,
+                mediaPreviewURL: resolvedMediaPreviewURL,
                 avatarURL: resolvedAvatarURL,
                 replyTarget: resolvedReplyTarget,
                 timestamp: timestamp
@@ -950,6 +961,7 @@ final class WhatsAppWebBridge: ObservableObject {
         id: String,
         sender: String,
         preview: String,
+        mediaPreviewURL: String?,
         avatarURL: String?,
         replyTarget: String?,
         timestamp: Date
@@ -959,6 +971,7 @@ final class WhatsAppWebBridge: ObservableObject {
                 id: id,
                 sender: sender,
                 preview: preview,
+                mediaPreviewURL: mediaPreviewURL,
                 avatarURL: avatarURL,
                 replyTarget: replyTarget,
                 timestamp: timestamp
@@ -998,6 +1011,9 @@ final class WhatsAppWebBridge: ObservableObject {
                     "sender": sender,
                     "preview": preview
                 ]
+                if let mediaPreviewURL {
+                    payload["mediaPreviewURL"] = mediaPreviewURL
+                }
                 if let avatarURL {
                     payload["avatarURL"] = avatarURL
                 }
@@ -1217,6 +1233,7 @@ final class WhatsAppWebBridge: ObservableObject {
                     id: messageID,
                     sender: existingMessage.sender,
                     preview: existingMessage.preview,
+                    mediaPreviewURL: existingMessage.mediaPreviewURL,
                     avatarURL: localURLString,
                     replyTarget: existingMessage.replyTarget,
                     timestamp: existingMessage.timestamp

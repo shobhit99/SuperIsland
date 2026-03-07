@@ -13,6 +13,14 @@ let state = {
 let lastRefreshAt = 0;
 let replyComposer = null;
 
+const LEGACY_MEDIA_PREVIEW_LABELS = {
+  "<media:image>": "Photo",
+  "<media:video>": "Video",
+  "<media:audio>": "Audio",
+  "<media:document>": "Document",
+  "<media:sticker>": "Sticker"
+};
+
 function asObject(value) {
   return value && typeof value === "object" ? value : null;
 }
@@ -35,6 +43,12 @@ function truncate(text, limit) {
   if (!value) return "";
   if (value.length <= limit) return value;
   return `${value.slice(0, limit).trimEnd()}...`;
+}
+
+function displayPreview(text) {
+  const value = normalizeText(text);
+  if (!value) return "";
+  return LEGACY_MEDIA_PREVIEW_LABELS[value] || value;
 }
 
 function shouldShowConnectionHint() {
@@ -62,7 +76,7 @@ function refreshState(force) {
       if (!row) return null;
 
       const sender = normalizeText(row.sender);
-      const preview = normalizeText(row.preview);
+      const preview = displayPreview(row.preview);
       if (!sender || !preview) return null;
 
       const rawTimestamp = Number(row.timestamp);
@@ -74,6 +88,7 @@ function refreshState(force) {
         id: normalizeText(row.id) || `${sender}:${preview}:${timestamp}`,
         sender,
         preview,
+        mediaPreviewURL: normalizeText(row.mediaPreviewURL),
         avatarURL: normalizeText(row.avatarURL),
         replyTarget: normalizeText(row.replyTarget),
         timestamp
@@ -138,7 +153,8 @@ function openReplyComposer(payload) {
   );
   const avatarURL = normalizeText(replyPayload.avatarURL) || (matchedMessage && matchedMessage.avatarURL) || "";
   const sender = normalizeText(replyPayload.sender) || (matchedMessage && matchedMessage.sender) || "WhatsApp";
-  const preview = normalizeText(replyPayload.preview) || (matchedMessage && matchedMessage.preview) || "";
+  const preview = displayPreview(replyPayload.preview) || (matchedMessage && matchedMessage.preview) || "";
+  const mediaPreviewURL = normalizeText(replyPayload.mediaPreviewURL) || (matchedMessage && matchedMessage.mediaPreviewURL) || "";
 
   replyComposer = {
     inputID: messageID || recipient,
@@ -146,6 +162,7 @@ function openReplyComposer(payload) {
     recipient,
     sender,
     preview,
+    mediaPreviewURL,
     avatarURL,
     error: ""
   };
@@ -196,7 +213,47 @@ function shortcutHint() {
       color: { r: 1, g: 1, b: 1, a: 0.52 },
       lineLimit: 1
     })
-  ], { spacing: 6, align: "center" });
+  ], { spacing: 4, align: "center" });
+}
+
+function mediaPreviewSection() {
+  const previewText = replyComposer.preview || "Send a quick reply from Dynamic Island.";
+  const messageScroller = View.frame(
+    View.scroll(
+      View.frame(
+        View.text(previewText, {
+          style: "body",
+          color: { r: 1, g: 1, b: 1, a: 0.7 }
+        }),
+        { maxWidth: 1000, alignment: "leading" }
+      ),
+      { axes: "vertical", showsIndicators: true }
+    ),
+    {
+      maxWidth: 1000,
+      height: replyComposer.mediaPreviewURL ? 52 : 66,
+      alignment: "topLeading"
+    }
+  );
+
+  const previewBody = replyComposer.mediaPreviewURL
+    ? View.hstack([
+        View.image(replyComposer.mediaPreviewURL, {
+          width: 56,
+          height: 56,
+          cornerRadius: 12
+        }),
+        View.frame(messageScroller, { maxWidth: 1000, alignment: "topLeading" })
+      ], { spacing: 10, align: "top" })
+    : messageScroller;
+
+  return View.cornerRadius(
+    View.background(
+      View.padding(previewBody, { edges: "all", amount: 6 }),
+      { r: 1, g: 1, b: 1, a: 0.04 }
+    ),
+    12
+  );
 }
 
 function replyComposerView() {
@@ -216,43 +273,47 @@ function replyComposerView() {
 
   headerChildren.push(
     View.frame(
-      View.vstack([
-        View.text(`Reply to ${replyComposer.sender}`, { style: "headline", lineLimit: 1 }),
-        View.text(replyComposer.preview || "Send a quick reply from Dynamic Island.", {
-          style: "caption",
-          color: "gray",
-          lineLimit: 2
-        })
-      ], { spacing: 3, align: "leading" }),
+      View.text(`Reply to ${replyComposer.sender}`, { style: "headline", lineLimit: 1 }),
       { maxWidth: 1000, alignment: "leading" }
     )
   );
 
-  const content = [
-    View.hstack([
-      ...headerChildren,
-      View.spacer(),
-      View.button(View.text("Close", { style: "caption", color: "gray", lineLimit: 1 }), "close-reply")
-    ], { spacing: 8, align: "top" }),
-    View.spacer(),
+  return View.frame(
     View.vstack([
-      View.inputBox(
-        `Message ${replyComposer.sender}`,
-        "",
-        "submit-reply",
-        { id: replyComposer.inputID, autoFocus: true, minHeight: 68 }
-      ),
-      replyComposer.error
-        ? View.text(replyComposer.error, {
-            style: "footnote",
-            color: "red",
-            lineLimit: 2
-          })
-        : shortcutHint()
-    ], { spacing: 6, align: "leading" })
-  ];
-
-  return View.vstack(content, { spacing: 8, align: "leading" });
+      View.hstack([
+        ...headerChildren,
+        View.spacer(),
+        View.button(View.text("Close", { style: "caption", color: "gray", lineLimit: 1 }), "close-reply")
+      ], { spacing: 8, align: "top" }),
+      mediaPreviewSection(),
+      View.spacer(),
+      View.cornerRadius(
+        View.background(
+          View.padding(
+            View.vstack([
+              View.inputBox(
+                `Message ${replyComposer.sender}`,
+                "",
+                "submit-reply",
+                { id: replyComposer.inputID, autoFocus: true, minHeight: 46, showsEmojiButton: true }
+              ),
+              replyComposer.error
+                ? View.text(replyComposer.error, {
+                    style: "footnote",
+                    color: "red",
+                    lineLimit: 2
+                  })
+                : shortcutHint()
+            ], { spacing: 4, align: "leading" }),
+            { edges: "all", amount: 6 }
+          ),
+          { r: 0, g: 0, b: 0, a: 0.28 }
+        ),
+        12
+      )
+    ], { spacing: 6, align: "leading" }),
+    { maxHeight: 1000, alignment: "topLeading" }
+  );
 }
 
 function expandedView() {

@@ -114,6 +114,12 @@ struct ViewNodeRenderer: View {
         case .spacer(let minLength):
             Spacer(minLength: minLength.map { CGFloat($0) })
 
+        case .scroll(let child, let axes, let showsIndicators):
+            ScrollView(axisSet(from: axes), showsIndicators: showsIndicators) {
+                ViewNodeRenderer(node: child, extensionID: extensionID)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+
         case .progress(let value, let total, let color):
             ProgressView(value: value, total: total)
                 .tint(color.swiftUI)
@@ -142,7 +148,7 @@ struct ViewNodeRenderer: View {
             }
             .buttonStyle(.plain)
 
-        case .inputBox(let inputID, let placeholder, let text, let actionID, let autoFocus, let minHeight):
+        case .inputBox(let inputID, let placeholder, let text, let actionID, let autoFocus, let minHeight, let showsEmojiButton):
             ExtensionInputBoxNode(
                 extensionID: extensionID,
                 inputID: inputID,
@@ -150,7 +156,8 @@ struct ViewNodeRenderer: View {
                 text: text,
                 actionID: actionID,
                 autoFocus: autoFocus,
-                minHeight: minHeight
+                minHeight: minHeight,
+                showsEmojiButton: showsEmojiButton
             )
             .id(inputID.isEmpty ? "\(extensionID)-\(actionID)" : inputID)
 
@@ -231,6 +238,17 @@ struct ViewNodeRenderer: View {
         case "horizontal": return .horizontal
         case "vertical": return .vertical
         default: return .all
+        }
+    }
+
+    private func axisSet(from value: String) -> Axis.Set {
+        switch value {
+        case "horizontal":
+            return .horizontal
+        case "both":
+            return [.horizontal, .vertical]
+        default:
+            return .vertical
         }
     }
 
@@ -324,6 +342,7 @@ private struct ExtensionInputBoxNode: View {
     let actionID: String
     let autoFocus: Bool
     let minHeight: Double
+    let showsEmojiButton: Bool
 
     private var boxHeight: CGFloat {
         CGFloat(max(64, minHeight))
@@ -332,6 +351,7 @@ private struct ExtensionInputBoxNode: View {
     @ObservedObject private var manager = ExtensionManager.shared
     @State private var localText: String
     @State private var shouldFocus: Bool = false
+    @State private var shouldOpenEmojiPicker: Bool = false
 
     init(
         extensionID: String,
@@ -340,7 +360,8 @@ private struct ExtensionInputBoxNode: View {
         text: String,
         actionID: String,
         autoFocus: Bool,
-        minHeight: Double
+        minHeight: Double,
+        showsEmojiButton: Bool
     ) {
         self.extensionID = extensionID
         self.inputID = inputID
@@ -349,6 +370,7 @@ private struct ExtensionInputBoxNode: View {
         self.actionID = actionID
         self.autoFocus = autoFocus
         self.minHeight = minHeight
+        self.showsEmojiButton = showsEmojiButton
         _localText = State(initialValue: text)
     }
 
@@ -357,16 +379,19 @@ private struct ExtensionInputBoxNode: View {
             ExtensionInputTextView(
                 text: $localText,
                 shouldFocus: $shouldFocus,
+                shouldOpenEmojiPicker: $shouldOpenEmojiPicker,
                 fixedHeight: boxHeight
             ) {
                 submit()
             }
+            .padding(.trailing, showsEmojiButton ? 30 : 0)
             if localText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(placeholder)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.34))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
+                    .padding(.trailing, showsEmojiButton ? 30 : 0)
                     .allowsHitTesting(false)
             }
         }
@@ -380,6 +405,22 @@ private struct ExtensionInputBoxNode: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(.white.opacity(0.08), lineWidth: 1)
             )
+            .overlay(alignment: .bottomTrailing) {
+                if showsEmojiButton {
+                    Button {
+                        shouldFocus = true
+                        shouldOpenEmojiPicker = true
+                    } label: {
+                        Image(systemName: "face.smiling")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.72))
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 10)
+                    .padding(.bottom, 8)
+                }
+            }
             .onChange(of: text) { _, newValue in
                 if newValue != localText {
                     localText = newValue
@@ -405,12 +446,18 @@ private struct ExtensionInputBoxNode: View {
 private struct ExtensionInputTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var shouldFocus: Bool
+    @Binding var shouldOpenEmojiPicker: Bool
 
     let fixedHeight: CGFloat
     let onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, shouldFocus: $shouldFocus, onSubmit: onSubmit)
+        Coordinator(
+            text: $text,
+            shouldFocus: $shouldFocus,
+            shouldOpenEmojiPicker: $shouldOpenEmojiPicker,
+            onSubmit: onSubmit
+        )
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -487,18 +534,34 @@ private struct ExtensionInputTextView: NSViewRepresentable {
                 shouldFocus = false
             }
         }
+
+        if shouldOpenEmojiPicker {
+            textView.window?.makeKeyAndOrderFront(nil)
+            textView.window?.makeFirstResponder(textView)
+            DispatchQueue.main.async {
+                NSApp.orderFrontCharacterPalette(nil)
+                shouldOpenEmojiPicker = false
+            }
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding private var text: String
         @Binding private var shouldFocus: Bool
+        @Binding private var shouldOpenEmojiPicker: Bool
         let onSubmit: () -> Void
 
         weak var textView: SubmitAwareTextView?
 
-        init(text: Binding<String>, shouldFocus: Binding<Bool>, onSubmit: @escaping () -> Void) {
+        init(
+            text: Binding<String>,
+            shouldFocus: Binding<Bool>,
+            shouldOpenEmojiPicker: Binding<Bool>,
+            onSubmit: @escaping () -> Void
+        ) {
             _text = text
             _shouldFocus = shouldFocus
+            _shouldOpenEmojiPicker = shouldOpenEmojiPicker
             self.onSubmit = onSubmit
         }
 
@@ -510,6 +573,7 @@ private struct ExtensionInputTextView: NSViewRepresentable {
         func handleSubmit() {
             onSubmit()
             shouldFocus = true
+            shouldOpenEmojiPicker = false
         }
     }
 }
