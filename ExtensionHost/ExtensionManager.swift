@@ -849,10 +849,15 @@ final class WhatsAppWebBridge: ObservableObject {
         }
         let sender = normalizedString(payload["sender"]) ?? "WhatsApp"
         let preview = normalizedString(payload["preview"]) ?? "New message"
-        let replyTarget = normalizedString(payload["chatJidAlt"])
-            ?? normalizedString(payload["participantAlt"])
-            ?? normalizedString(payload["chatJid"])
-            ?? normalizedString(payload["participant"])
+        let isReaction = payload["isReaction"] as? Bool ?? false
+        let replyTarget = isReaction
+            ? nil
+            : (
+                normalizedString(payload["chatJidAlt"])
+                ?? normalizedString(payload["participantAlt"])
+                ?? normalizedString(payload["chatJid"])
+                ?? normalizedString(payload["participant"])
+            )
         let avatarURL = resolvedAvatarURLString(
             from: normalizedString(payload["avatarURL"]),
             messageID: identifier

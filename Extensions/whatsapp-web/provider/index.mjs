@@ -29,6 +29,7 @@ const silentLogger = {
 
 const AVATAR_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const AVATAR_NEGATIVE_CACHE_TTL_MS = 15 * 60 * 1000;
+const MESSAGE_PREVIEW_CACHE_LIMIT = 500;
 
 function parseJid(value) {
   const jid = sanitizeText(value);
@@ -145,11 +146,19 @@ function extractText(message) {
   if (!normalized) {
     return undefined;
   }
+  const reaction = sanitizeText(normalized.reactionMessage?.text);
+  if (reaction) {
+    return reaction;
+  }
   const extracted = extractMessageContent(normalized);
   const candidates = [normalized, extracted && extracted !== normalized ? extracted : undefined];
   for (const candidate of candidates) {
     if (!candidate) {
       continue;
+    }
+    const reaction = sanitizeText(candidate.reactionMessage?.text);
+    if (reaction) {
+      return reaction;
     }
     const conversation = sanitizeText(candidate.conversation);
     if (conversation) {
@@ -202,6 +211,17 @@ function extractPreview(message) {
   return extractText(message) ?? extractMediaPlaceholder(message) ?? undefined;
 }
 
+function truncatePreviewText(value, limit = 48) {
+  const text = sanitizeText(value);
+  if (!text) {
+    return "";
+  }
+  if (text.length <= limit) {
+    return text;
+  }
+  return `${text.slice(0, limit).trimEnd()}...`;
+}
+
 function extractSender(message) {
   return (
     sanitizeText(message.pushName) ||
@@ -227,6 +247,17 @@ function normalizeRecipient(to) {
   return `${digits}@s.whatsapp.net`;
 }
 
+function isReactionMessage(message) {
+  const normalized = unwrapMessage(message);
+  return Boolean(normalized?.reactionMessage);
+}
+
+function isStatusUpdateMessage(message) {
+  const remoteJid = sanitizeText(message?.key?.remoteJid);
+  const remoteJidAlt = sanitizeText(message?.key?.remoteJidAlt);
+  return remoteJid === "status@broadcast" || remoteJidAlt === "status@broadcast";
+}
+
 function getStatusCode(err) {
   return err?.output?.statusCode ?? err?.status ?? undefined;
 }
@@ -242,6 +273,7 @@ class WhatsAppSocketProvider {
     this.saveQueue = Promise.resolve();
     this.avatarCache = new Map();
     this.pendingAvatarLookups = new Map();
+    this.messagePreviewCache = new Map();
   }
 
   emitState(state, statusText, extra = {}) {
@@ -329,6 +361,84 @@ class WhatsAppSocketProvider {
       this.connectingPromise = null;
     });
     return this.connectingPromise;
+  }
+
+  messageCacheKeys(key) {
+    const id = sanitizeText(key?.id);
+    if (!id) {
+      return [];
+    }
+
+    const remoteCandidates = [
+      normalizeJid(key?.remoteJidAlt),
+      normalizeJid(key?.remoteJid),
+    ].filter(Boolean);
+    const participantCandidates = [
+      normalizeJid(key?.participantAlt),
+      normalizeJid(key?.participant),
+    ].filter(Boolean);
+
+    const keys = new Set([id]);
+    for (const remote of remoteCandidates) {
+      keys.add(`${remote}|${id}`);
+      for (const participant of participantCandidates) {
+        keys.add(`${remote}|${participant}|${id}`);
+      }
+    }
+    for (const participant of participantCandidates) {
+      keys.add(`${participant}|${id}`);
+    }
+    return Array.from(keys);
+  }
+
+  cacheMessagePreview(key, preview) {
+    const sanitizedPreview = sanitizeText(preview);
+    if (!sanitizedPreview) {
+      return;
+    }
+
+    for (const cacheKey of this.messageCacheKeys(key)) {
+      if (this.messagePreviewCache.has(cacheKey)) {
+        this.messagePreviewCache.delete(cacheKey);
+      }
+      this.messagePreviewCache.set(cacheKey, sanitizedPreview);
+    }
+
+    while (this.messagePreviewCache.size > MESSAGE_PREVIEW_CACHE_LIMIT) {
+      const oldestKey = this.messagePreviewCache.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      this.messagePreviewCache.delete(oldestKey);
+    }
+  }
+
+  messagePreviewForKey(key) {
+    for (const cacheKey of this.messageCacheKeys(key)) {
+      const preview = this.messagePreviewCache.get(cacheKey);
+      if (preview) {
+        return preview;
+      }
+    }
+    return null;
+  }
+
+  previewForMessage(message) {
+    const normalized = unwrapMessage(message);
+    if (!normalized) {
+      return undefined;
+    }
+
+    const reactionEmoji = sanitizeText(normalized.reactionMessage?.text);
+    if (reactionEmoji) {
+      const reactedPreview = this.messagePreviewForKey(normalized.reactionMessage?.key);
+      if (reactedPreview) {
+        return `${reactionEmoji} reacted to "${truncatePreviewText(reactedPreview)}"`;
+      }
+      return reactionEmoji;
+    }
+
+    return extractPreview(message);
   }
 
   async createSocket() {
@@ -598,9 +708,16 @@ class WhatsAppSocketProvider {
       if (!message || message.key?.fromMe) {
         continue;
       }
-      const preview = extractPreview(message.message);
+      if (isStatusUpdateMessage(message)) {
+        continue;
+      }
+      const isReaction = isReactionMessage(message.message);
+      const preview = this.previewForMessage(message.message);
       if (!preview) {
         continue;
+      }
+      if (!isReaction) {
+        this.cacheMessagePreview(message.key, preview);
       }
       const avatarJids = await this.resolveAvatarCandidateJids(sock, message);
       const payload = {
@@ -608,6 +725,7 @@ class WhatsAppSocketProvider {
         id: [message.key?.remoteJid ?? "", message.key?.participant ?? "", message.key?.id ?? ""].join(":"),
         sender: extractSender(message),
         preview,
+        isReaction,
         avatarURL: this.getCachedAvatarURL(avatarJids),
         timestamp: coerceTimestampMs(message.messageTimestamp),
         chatJid: message.key?.remoteJid ?? null,
@@ -633,6 +751,18 @@ class WhatsAppSocketProvider {
       throw new Error("message_required");
     }
     const result = await sock.sendMessage(jid, { text });
+    if (result?.key) {
+      this.cacheMessagePreview(
+        {
+          remoteJid: result.key.remoteJid ?? jid,
+          remoteJidAlt: result.key.remoteJidAlt ?? null,
+          participant: result.key.participant ?? null,
+          participantAlt: result.key.participantAlt ?? null,
+          id: result.key.id ?? null,
+        },
+        text,
+      );
+    }
     return {
       jid,
       messageId: result?.key?.id ?? null,
