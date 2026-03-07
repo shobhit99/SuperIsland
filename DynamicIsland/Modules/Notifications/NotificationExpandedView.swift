@@ -165,6 +165,7 @@ struct NotificationExpandedView: View {
                 }
             }
         }
+        .id(notification.id)
     }
 
     private func headline(for notification: IslandNotification) -> String {
