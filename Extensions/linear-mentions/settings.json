@@ -1,0 +1,21 @@
+{
+  "sections": [
+    {
+      "title": "Behavior",
+      "fields": [
+        {
+          "type": "toggle",
+          "key": "autoReveal",
+          "label": "Auto reveal Dynamic Island when a new mention arrives",
+          "default": true
+        },
+        {
+          "type": "toggle",
+          "key": "systemNotification",
+          "label": "Also show macOS system notifications",
+          "default": false
+        }
+      ]
+    }
+  ]
+}

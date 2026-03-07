@@ -1,6 +1,8 @@
 import SwiftUI
 import AppKit
 
+private let linearMentionsExtensionID = "com.workview.linear-mentions"
+
 private enum ExtensionListFilter: String, CaseIterable, Identifiable {
     case all
     case installed
@@ -120,6 +122,12 @@ struct ExtensionsSettingsView: View {
                     if manifest.id == "com.workview.whatsapp-web" {
                         SettingsCard(title: "WhatsApp Web Login") {
                             WhatsAppWebBridgeSettingsView()
+                        }
+                    }
+
+                    if manifest.id == linearMentionsExtensionID {
+                        SettingsCard(title: "Linear Login") {
+                            LinearOAuthSettingsView()
                         }
                     }
 
@@ -410,6 +418,183 @@ struct ExtensionsSettingsView: View {
         colorScheme == .light
             ? Color(nsColor: .selectedControlColor).opacity(0.20)
             : Color.accentColor.opacity(0.25)
+    }
+}
+
+private struct LinearOAuthSettingsView: View {
+    private static let authorizeURLString = "https://api.supercmd.sh/auth/linear/authorize?app=superisland"
+    private static let oauthStoreKey = "extensions.\(linearMentionsExtensionID).store.oauth"
+
+    @ObservedObject private var manager = ExtensionManager.shared
+    @State private var session: LinearOAuthSession?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 9, height: 9)
+                Text(statusTitle)
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+            }
+
+            Text(statusMessage)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 8) {
+                Button(primaryButtonTitle) {
+                    openAuthorizeURL()
+                }
+                .buttonStyle(.borderedProminent)
+
+                if session != nil {
+                    Button("Disconnect") {
+                        disconnect()
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+                }
+            }
+
+            if let session {
+                VStack(alignment: .leading, spacing: 4) {
+                    if !session.scope.isEmpty {
+                        Text("Scope: \(session.scope)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let expiresAt = session.expiresAt {
+                        Text(expirationLabel(expiresAt: expiresAt, isExpired: session.isExpired))
+                            .font(.system(size: 11))
+                            .foregroundColor(session.isExpired ? .red : .secondary)
+                    }
+                }
+            }
+        }
+        .onAppear {
+            reloadSession()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            reloadSession()
+        }
+    }
+
+    private var statusTitle: String {
+        if let session {
+            return session.isExpired ? "Expired" : "Logged in"
+        }
+        return "Not logged in"
+    }
+
+    private var statusColor: Color {
+        if let session {
+            return session.isExpired ? .orange : .green
+        }
+        return .secondary
+    }
+
+    private var statusMessage: String {
+        if let session {
+            if session.isExpired {
+                return "Your Linear session has expired. Authenticate again to resume mention syncing."
+            }
+            return "Linear is authenticated. New mentions will appear in the Dynamic Island."
+        }
+        return "Authenticate with Linear to start mention notifications and inline replies."
+    }
+
+    private var primaryButtonTitle: String {
+        if let session {
+            return session.isExpired ? "Log In Again" : "Reconnect"
+        }
+        return "Log In to Linear"
+    }
+
+    private func reloadSession() {
+        session = LinearOAuthSession.load()
+    }
+
+    private func openAuthorizeURL() {
+        guard let url = URL(string: Self.authorizeURLString) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func disconnect() {
+        UserDefaults.standard.removeObject(forKey: Self.oauthStoreKey)
+        UserDefaults.standard.synchronize()
+
+        if manager.runtimes[linearMentionsExtensionID] == nil {
+            manager.activate(extensionID: linearMentionsExtensionID)
+        }
+        manager.scheduleImmediateRefresh(extensionID: linearMentionsExtensionID)
+        reloadSession()
+    }
+
+    private func expirationLabel(expiresAt: Date, isExpired: Bool) -> String {
+        let formatted = expiresAt.formatted(date: .abbreviated, time: .shortened)
+        return isExpired ? "Expired at \(formatted)" : "Expires at \(formatted)"
+    }
+}
+
+private struct LinearOAuthSession {
+    private static let oauthStoreKey = "extensions.\(linearMentionsExtensionID).store.oauth"
+
+    let accessToken: String
+    let tokenType: String
+    let scope: String
+    let receivedAt: Date?
+    let expiresAt: Date?
+    let isExpired: Bool
+
+    static func load(defaults: UserDefaults = .standard) -> LinearOAuthSession? {
+        guard let dictionary = defaults.dictionary(forKey: oauthStoreKey) else {
+            return nil
+        }
+
+        let accessToken = normalizedText(dictionary["accessToken"] ?? dictionary["access_token"])
+        guard !accessToken.isEmpty else {
+            return nil
+        }
+
+        let tokenType = normalizedText(dictionary["tokenType"] ?? dictionary["token_type"])
+        let scope = normalizedText(dictionary["scope"])
+        let receivedAtSeconds = numericValue(dictionary["receivedAt"])
+        let expiresInSeconds = numericValue(dictionary["expiresIn"] ?? dictionary["expires_in"])
+
+        let receivedAt = receivedAtSeconds.flatMap { Date(timeIntervalSince1970: TimeInterval($0)) }
+        let expiresAt: Date? = {
+            guard let receivedAt, let expiresInSeconds, expiresInSeconds > 0 else { return nil }
+            return receivedAt.addingTimeInterval(TimeInterval(expiresInSeconds))
+        }()
+        let isExpired = expiresAt.map { $0 <= Date().addingTimeInterval(60) } ?? false
+
+        return LinearOAuthSession(
+            accessToken: accessToken,
+            tokenType: tokenType.isEmpty ? "Bearer" : tokenType,
+            scope: scope,
+            receivedAt: receivedAt,
+            expiresAt: expiresAt,
+            isExpired: isExpired
+        )
+    }
+
+    private static func normalizedText(_ value: Any?) -> String {
+        guard let string = value as? String else { return "" }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed
+    }
+
+    private static func numericValue(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        if let string = value as? String, let number = Int(string) {
+            return number
+        }
+        return nil
     }
 }
 

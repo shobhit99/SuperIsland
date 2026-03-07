@@ -1,13 +1,17 @@
 import AppKit
 import SwiftUI
+import Carbon.HIToolbox
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let linearExtensionID = "com.workview.linear-mentions"
+    private static let linearOAuthStoreKey = "extensions.\(linearExtensionID).store.oauth"
     private var islandWindowController: IslandWindowController?
     private var statusItem: NSStatusItem?
     private static var fallbackSettingsWindowController: NSWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        registerURLHandler()
         setupIslandWindow()
         setupMenuBar()
         initializeManagers()
@@ -31,6 +35,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let extensions = ExtensionManager.shared
         extensions.discoverExtensions()
         extensions.activateDiscoveredExtensions()
+    }
+
+    private func registerURLHandler() {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleIncomingURL(event:replyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+
+    @objc
+    private func handleIncomingURL(event: NSAppleEventDescriptor, replyEvent: NSAppleEventDescriptor?) {
+        guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let url = URL(string: urlString) else {
+            return
+        }
+
+        handleOAuthCallback(url: url)
+    }
+
+    private func handleOAuthCallback(url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "superisland",
+              components.host?.lowercased() == "auth",
+              components.path.lowercased() == "/callback" else {
+            return
+        }
+
+        var queryItems: [String: String] = [:]
+        for item in components.queryItems ?? [] {
+            queryItems[item.name.lowercased()] = item.value ?? ""
+        }
+
+        guard queryItems["provider"]?.lowercased() == "linear" else {
+            return
+        }
+
+        let accessToken = queryItems["access_token"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !accessToken.isEmpty else {
+            ExtensionLogger.shared.log(Self.linearExtensionID, .warning, "Received Linear OAuth callback without access token")
+            return
+        }
+
+        let expiresIn = Int(queryItems["expires_in"] ?? "") ?? 0
+        let payload: [String: Any] = [
+            "provider": "linear",
+            "accessToken": accessToken,
+            "access_token": accessToken,
+            "tokenType": queryItems["token_type"] ?? "Bearer",
+            "token_type": queryItems["token_type"] ?? "Bearer",
+            "expiresIn": expiresIn,
+            "expires_in": expiresIn,
+            "scope": queryItems["scope"] ?? "",
+            "receivedAt": Int(Date().timeIntervalSince1970),
+            "callbackURL": url.absoluteString
+        ]
+
+        UserDefaults.standard.set(payload as NSDictionary, forKey: Self.linearOAuthStoreKey)
+        UserDefaults.standard.synchronize()
+
+        let extensions = ExtensionManager.shared
+        if extensions.runtimes[Self.linearExtensionID] == nil {
+            extensions.activate(extensionID: Self.linearExtensionID)
+        }
+        extensions.scheduleImmediateRefresh(extensionID: Self.linearExtensionID)
+        ExtensionLogger.shared.log(Self.linearExtensionID, .info, "Stored Linear OAuth token from callback")
     }
 
     // MARK: - Island Window
