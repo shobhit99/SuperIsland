@@ -32,6 +32,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @State private var selectedPane: SettingsPane = .general
 
     var body: some View {
@@ -118,15 +119,27 @@ struct SettingsView: View {
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.accentColor : Color.clear)
+                    .fill(isSelected ? selectedPaneFillColor : Color.clear)
             )
             .foregroundColor(isSelected ? .white : .primary)
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? Color.white.opacity(0.18) : Color.clear, lineWidth: 1)
+                    .stroke(isSelected ? selectedPaneStrokeColor : Color.clear, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private var selectedPaneFillColor: Color {
+        colorScheme == .light
+            ? Color(nsColor: .selectedContentBackgroundColor)
+            : .accentColor
+    }
+
+    private var selectedPaneStrokeColor: Color {
+        colorScheme == .light
+            ? Color(nsColor: .selectedControlColor).opacity(0.42)
+            : Color.white.opacity(0.18)
     }
 
     @ViewBuilder

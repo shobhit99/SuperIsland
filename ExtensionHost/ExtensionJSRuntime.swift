@@ -757,7 +757,7 @@ final class ExtensionJSRuntime {
     private func notificationPayload(from notification: IslandNotification) -> [String: Any] {
         [
             "id": notification.sourceID,
-            "localID": notification.id.uuidString,
+            "localID": notification.id,
             "appName": notification.appName,
             "bundleIdentifier": notification.bundleIdentifier as Any,
             "appIcon": notification.appIcon,

@@ -108,12 +108,8 @@ struct IslandContainerView: View {
         guard velocity > 35 || abs(horizontal) > 14 || abs(vertical) > 18 else { return }
 
         if abs(horizontal) > abs(vertical) {
-            // Horizontal swipe
-            if horizontal > 0 {
-                appState.cycleModule(forward: true)
-            } else {
-                appState.cycleModule(forward: false)
-            }
+            // Horizontal navigation stays on the module arrows.
+            return
         } else {
             // Vertical swipe
             if vertical < 0 {

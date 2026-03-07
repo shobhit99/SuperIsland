@@ -5,7 +5,7 @@ import AppKit
 import ApplicationServices
 
 struct IslandNotification: Identifiable {
-    let id = UUID()
+    var id: String { sourceID }
     let sourceID: String
     let appName: String
     let bundleIdentifier: String?
@@ -27,6 +27,16 @@ final class NotificationManager: ObservableObject {
         let avatarURL: String?
     }
 
+    private struct DismissedNotificationRecord {
+        let sourceID: String
+        let appName: String
+        let senderName: String?
+        let previewText: String?
+        let timestamp: Date
+        let dismissedAt: Date
+        let qualityScore: Int
+    }
+
     static let shared = NotificationManager()
 
     @Published var latestNotification: IslandNotification?
@@ -42,6 +52,10 @@ final class NotificationManager: ObservableObject {
     private var seenDeliveredNotificationIDs: [String] = []
     private let maxSeenWhatsAppEventIDs = 80
     private let maxSeenDeliveredNotificationIDs = 200
+    private let maxDismissedNotifications = 80
+    private let dismissedNotificationRetention: TimeInterval = 300
+    private let lowInformationSuppressionWindow: TimeInterval = 10
+    private var dismissedNotifications: [DismissedNotificationRecord] = []
     private var hasRequestedAccessibilityPrompt = false
 
     private init() {
@@ -995,15 +1009,14 @@ final class NotificationManager: ObservableObject {
                 self.latestNotification = self.normalizedNotification(latest)
             }
 
+            guard !self.shouldSuppressIncomingNotification(normalized) else {
+                return
+            }
+
             // Merge near-identical WhatsApp notifications coming from different
             // ingestion paths (web bridge, delivered center, log observer).
             var mergedNotification = normalized
-            if let duplicateIndex = self.recentNotifications.firstIndex(where: { existing in
-                existing.appName.localizedCaseInsensitiveCompare(normalized.appName) == .orderedSame &&
-                existing.title == normalized.title &&
-                existing.body == normalized.body &&
-                abs(existing.timestamp.timeIntervalSince(normalized.timestamp)) <= 15
-            }) {
+            if let duplicateIndex = self.duplicateNotificationIndex(for: normalized) {
                 mergedNotification = self.mergeDuplicateNotification(
                     existing: self.recentNotifications[duplicateIndex],
                     incoming: normalized
@@ -1048,7 +1061,12 @@ final class NotificationManager: ObservableObject {
         }
     }
 
-    func clearNotification(_ id: UUID) {
+    func clearNotification(_ id: String) {
+        if let dismissedNotification = recentNotifications.first(where: { $0.id == id })
+            ?? (latestNotification?.id == id ? latestNotification : nil) {
+            rememberDismissedNotification(dismissedNotification)
+        }
+
         recentNotifications.removeAll { $0.id == id }
         if latestNotification?.id == id {
             latestNotification = recentNotifications.first
@@ -1056,6 +1074,10 @@ final class NotificationManager: ObservableObject {
     }
 
     func clearAll() {
+        let notificationsToDismiss = Dictionary(
+            uniqueKeysWithValues: (recentNotifications + [latestNotification].compactMap { $0 }).map { ($0.sourceID, $0) }
+        ).map(\.value)
+        notificationsToDismiss.forEach(rememberDismissedNotification)
         recentNotifications.removeAll()
         latestNotification = nil
     }
@@ -1108,22 +1130,244 @@ final class NotificationManager: ObservableObject {
         existing: IslandNotification,
         incoming: IslandNotification
     ) -> IslandNotification {
+        let preferred = preferredNotification(between: existing, and: incoming)
+        let secondary = preferred.sourceID == existing.sourceID ? incoming : existing
         let preserveExistingSourceID = existing.sourceID.hasPrefix("whatsapp-web:") && !incoming.sourceID.hasPrefix("whatsapp-web:")
-        let mergedSourceID = preserveExistingSourceID ? existing.sourceID : incoming.sourceID
+        let mergedSourceID: String
+
+        if preserveExistingSourceID {
+            mergedSourceID = existing.sourceID
+        } else {
+            let preferredPriority = sourcePriority(for: preferred.sourceID)
+            let secondaryPriority = sourcePriority(for: secondary.sourceID)
+            if preferredPriority > secondaryPriority {
+                mergedSourceID = preferred.sourceID
+            } else if secondaryPriority > preferredPriority {
+                mergedSourceID = secondary.sourceID
+            } else {
+                mergedSourceID = preferred.sourceID
+            }
+        }
 
         return IslandNotification(
             sourceID: mergedSourceID,
-            appName: incoming.appName,
-            bundleIdentifier: incoming.bundleIdentifier ?? existing.bundleIdentifier,
-            appIcon: incoming.appIcon,
-            appIconURL: incoming.appIconURL ?? existing.appIconURL,
-            title: incoming.title,
-            body: incoming.body,
-            senderName: incoming.senderName ?? existing.senderName,
-            previewText: incoming.previewText ?? existing.previewText,
-            avatarURL: incoming.avatarURL ?? existing.avatarURL,
+            appName: preferred.appName,
+            bundleIdentifier: preferred.bundleIdentifier ?? secondary.bundleIdentifier,
+            appIcon: preferred.appIcon,
+            appIconURL: preferred.appIconURL ?? secondary.appIconURL,
+            title: preferred.title,
+            body: preferred.body.isEmpty ? secondary.body : preferred.body,
+            senderName: preferred.senderName ?? secondary.senderName,
+            previewText: preferred.previewText ?? secondary.previewText,
+            avatarURL: preferred.avatarURL ?? secondary.avatarURL,
             timestamp: incoming.timestamp >= existing.timestamp ? incoming.timestamp : existing.timestamp
         )
+    }
+
+    private func duplicateNotificationIndex(for incoming: IslandNotification) -> Int? {
+        recentNotifications.firstIndex { existing in
+            notificationsMatch(existing, incoming)
+        }
+    }
+
+    private func notificationsMatch(_ existing: IslandNotification, _ incoming: IslandNotification) -> Bool {
+        if existing.sourceID == incoming.sourceID {
+            return true
+        }
+
+        if existing.appName.localizedCaseInsensitiveCompare(incoming.appName) == .orderedSame &&
+            existing.title == incoming.title &&
+            existing.body == incoming.body &&
+            abs(existing.timestamp.timeIntervalSince(incoming.timestamp)) <= 15 {
+            return true
+        }
+
+        guard isWhatsAppNotification(existing), isWhatsAppNotification(incoming) else {
+            return false
+        }
+
+        let timeDelta = abs(existing.timestamp.timeIntervalSince(incoming.timestamp))
+        guard timeDelta <= 8 else {
+            return false
+        }
+
+        if isLowInformationWhatsApp(existing) && notificationQualityScore(incoming) > notificationQualityScore(existing) {
+            return true
+        }
+
+        if isLowInformationWhatsApp(incoming) && notificationQualityScore(existing) > notificationQualityScore(incoming) {
+            return true
+        }
+
+        return false
+    }
+
+    private func shouldSuppressIncomingNotification(_ notification: IslandNotification) -> Bool {
+        pruneDismissedNotifications()
+
+        if dismissedNotifications.contains(where: { $0.sourceID == notification.sourceID }) {
+            return true
+        }
+
+        if dismissedNotifications.contains(where: { dismissed in
+            notificationsAreSemanticallyEquivalent(notification, dismissed: dismissed)
+        }) {
+            return true
+        }
+
+        guard isLowInformationWhatsApp(notification) else {
+            return false
+        }
+
+        let richerExistingNotification = notificationCandidatesForSuppression.contains { existing in
+            guard isWhatsAppNotification(existing) else { return false }
+            guard notificationQualityScore(existing) > notificationQualityScore(notification) else { return false }
+            return abs(existing.timestamp.timeIntervalSince(notification.timestamp)) <= lowInformationSuppressionWindow
+        }
+        if richerExistingNotification {
+            return true
+        }
+
+        return dismissedNotifications.contains { dismissed in
+            dismissed.appName.localizedCaseInsensitiveCompare("WhatsApp") == .orderedSame &&
+            dismissed.qualityScore > notificationQualityScore(notification) &&
+            abs(dismissed.timestamp.timeIntervalSince(notification.timestamp)) <= lowInformationSuppressionWindow
+        }
+    }
+
+    private var notificationCandidatesForSuppression: [IslandNotification] {
+        if let latestNotification {
+            return [latestNotification] + recentNotifications
+        }
+        return recentNotifications
+    }
+
+    private func notificationsAreSemanticallyEquivalent(
+        _ notification: IslandNotification,
+        dismissed: DismissedNotificationRecord
+    ) -> Bool {
+        guard notification.appName.localizedCaseInsensitiveCompare(dismissed.appName) == .orderedSame else {
+            return false
+        }
+
+        let preview = cleanText(notification.previewText) ?? cleanText(notification.body)
+        let senderName = cleanText(notification.senderName)
+
+        if let dismissedPreview = dismissed.previewText,
+           let preview,
+           dismissedPreview.localizedCaseInsensitiveCompare(preview) == .orderedSame {
+            return true
+        }
+
+        if let dismissedSenderName = dismissed.senderName,
+           let senderName,
+           dismissedSenderName.localizedCaseInsensitiveCompare(senderName) == .orderedSame,
+           abs(dismissed.timestamp.timeIntervalSince(notification.timestamp)) <= lowInformationSuppressionWindow {
+            return true
+        }
+
+        return false
+    }
+
+    private func rememberDismissedNotification(_ notification: IslandNotification) {
+        pruneDismissedNotifications()
+        dismissedNotifications.removeAll { $0.sourceID == notification.sourceID }
+        dismissedNotifications.append(
+            DismissedNotificationRecord(
+                sourceID: notification.sourceID,
+                appName: notification.appName,
+                senderName: cleanText(notification.senderName),
+                previewText: cleanText(notification.previewText) ?? cleanText(notification.body),
+                timestamp: notification.timestamp,
+                dismissedAt: Date(),
+                qualityScore: notificationQualityScore(notification)
+            )
+        )
+
+        if dismissedNotifications.count > maxDismissedNotifications {
+            dismissedNotifications.removeFirst(dismissedNotifications.count - maxDismissedNotifications)
+        }
+    }
+
+    private func pruneDismissedNotifications(now: Date = Date()) {
+        dismissedNotifications.removeAll { now.timeIntervalSince($0.dismissedAt) > dismissedNotificationRetention }
+    }
+
+    private func preferredNotification(
+        between existing: IslandNotification,
+        and incoming: IslandNotification
+    ) -> IslandNotification {
+        let existingScore = notificationQualityScore(existing)
+        let incomingScore = notificationQualityScore(incoming)
+
+        if incomingScore != existingScore {
+            return incomingScore > existingScore ? incoming : existing
+        }
+
+        let existingPriority = sourcePriority(for: existing.sourceID)
+        let incomingPriority = sourcePriority(for: incoming.sourceID)
+        if incomingPriority != existingPriority {
+            return incomingPriority > existingPriority ? incoming : existing
+        }
+
+        return incoming.timestamp >= existing.timestamp ? incoming : existing
+    }
+
+    private func notificationQualityScore(_ notification: IslandNotification) -> Int {
+        var score = 0
+
+        if let senderName = cleanText(notification.senderName), !looksLikeAppLabel(senderName) {
+            score += 4
+        }
+
+        if let previewText = cleanText(notification.previewText) ?? cleanText(notification.body),
+           !looksLikeAppLabel(previewText) {
+            score += 5
+            if previewText.count >= 8 {
+                score += 1
+            }
+        }
+
+        if let title = cleanText(notification.title), !looksLikeAppLabel(title) {
+            score += 2
+        }
+
+        if cleanText(notification.avatarURL) != nil {
+            score += 1
+        }
+
+        score += sourcePriority(for: notification.sourceID)
+        return score
+    }
+
+    private func sourcePriority(for sourceID: String) -> Int {
+        if sourceID.hasPrefix("whatsapp-web:") {
+            return 6
+        }
+        if sourceID.hasPrefix("extension:") {
+            return 5
+        }
+        if sourceID.hasPrefix("delivered:") {
+            return 3
+        }
+        if sourceID.hasPrefix("whatsapp-log:") {
+            return 2
+        }
+        return 1
+    }
+
+    private func isWhatsAppNotification(_ notification: IslandNotification) -> Bool {
+        notification.appName.localizedCaseInsensitiveContains("whatsapp")
+            || (notification.bundleIdentifier?.localizedCaseInsensitiveContains("whatsapp") ?? false)
+            || notification.sourceID.localizedCaseInsensitiveContains("whatsapp")
+    }
+
+    private func isLowInformationWhatsApp(_ notification: IslandNotification) -> Bool {
+        guard isWhatsAppNotification(notification) else { return false }
+        let senderName = cleanText(notification.senderName)
+        let previewText = cleanText(notification.previewText) ?? cleanText(notification.body)
+        let title = cleanText(notification.title)
+        return senderName == nil && previewText == nil && (title == nil || looksLikeAppLabel(title!))
     }
 
     private func cleanText(_ value: String?) -> String? {

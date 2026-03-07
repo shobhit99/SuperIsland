@@ -9,8 +9,10 @@ struct NotificationExpandedView: View {
         Group {
             if manager.latestNotification == nil && manager.recentNotifications.isEmpty {
                 emptyState
+            } else if appState.currentState == .fullExpanded {
+                fullExpandedNotificationContent
             } else {
-                notificationContent
+                expandedNotificationContent
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -36,86 +38,117 @@ struct NotificationExpandedView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
-    private var notificationContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let notif = manager.latestNotification {
-                featuredNotification(notif)
-            }
-
-            if appState.currentState == .fullExpanded && manager.recentNotifications.count > 1 {
-                Divider().background(.white.opacity(0.2))
-
-                ForEach(manager.recentNotifications.prefix(5)) { notif in
-                    HStack(spacing: 8) {
-                        notificationLeadingView(notif, size: 18)
-
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(headline(for: notif))
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.9))
-                                .lineLimit(1)
-
-                            if let message = message(for: notif) {
-                                Text(message)
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.white.opacity(0.7))
-                                    .lineLimit(2)
-                            }
-                        }
-
-                        Spacer()
-
-                        Text(timeAgo(notif.timestamp))
-                            .font(.system(size: 9))
-                            .foregroundColor(.white.opacity(0.3))
-                    }
-                }
-
-                Button(action: { manager.clearAll() }) {
-                    Text("Clear All")
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.5))
-                }
-                .buttonStyle(.plain)
+    private var expandedNotificationContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let latestNotification = manager.latestNotification {
+                featuredNotification(latestNotification, chrome: .plain)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(
-            maxWidth: .infinity,
-            maxHeight: .infinity,
-            alignment: appState.currentState == .fullExpanded && manager.recentNotifications.count > 1 ? .top : .center
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
-    private func featuredNotification(_ notif: IslandNotification) -> some View {
-        HStack(spacing: 10) {
-            notificationLeadingView(notif, size: 32)
+    private var fullExpandedNotificationContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let latestNotification = manager.latestNotification {
+                featuredNotification(latestNotification, chrome: .card)
+            }
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(notif.appName)
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.5))
-                    Spacer()
-                    Text(timeAgo(notif.timestamp))
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.4))
+            if !previousNotifications.isEmpty {
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(previousNotifications) { notification in
+                            notificationRow(notification, featured: false, chrome: .card)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .clipped()
+            } else {
+                Spacer(minLength: 0)
+            }
 
-                Text(headline(for: notif))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
+            if !manager.recentNotifications.isEmpty {
+                footerBar
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
 
-                if let message = message(for: notif) {
-                    Text(message)
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.7))
-                        .lineLimit(2)
+    private var previousNotifications: [IslandNotification] {
+        Array(manager.recentNotifications.dropFirst())
+    }
+
+    private var footerBar: some View {
+        HStack(spacing: 6) {
+            Text("\(manager.recentNotifications.count) notification\(manager.recentNotifications.count == 1 ? "" : "s")")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.white.opacity(0.34))
+
+            Spacer(minLength: 0)
+
+            Button(action: { manager.clearAll() }) {
+                Text("Clear All")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.58))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, minHeight: 18, maxHeight: 18, alignment: .center)
+        .padding(.top, 2)
+        .overlay(alignment: .top) {
+            Capsule()
+                .fill(.white.opacity(0.06))
+                .frame(height: 1)
+        }
+    }
+
+    private func featuredNotification(_ notification: IslandNotification, chrome: NotificationRowChrome) -> some View {
+        notificationRow(notification, featured: true, chrome: chrome)
+    }
+
+    private func notificationRow(_ notification: IslandNotification, featured: Bool, chrome: NotificationRowChrome) -> some View {
+        SwipeToDismissNotificationRow(featured: featured, chrome: chrome) {
+            manager.clearNotification(notification.id)
+        } content: {
+            HStack(alignment: .top, spacing: featured ? 10 : 8) {
+                notificationLeadingView(notification, size: featured ? 30 : 18, showsRing: chrome == .card)
+
+                VStack(alignment: .leading, spacing: featured ? 2 : 1) {
+                    HStack(alignment: .top, spacing: 8) {
+                        VStack(alignment: .leading, spacing: featured ? 2 : 1) {
+                            if featured {
+                                Text(notification.appName)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.white.opacity(0.5))
+                                    .lineLimit(1)
+                            }
+
+                            Text(headline(for: notification))
+                                .font(.system(size: featured ? 13 : 11, weight: .semibold))
+                                .foregroundColor(.white.opacity(featured ? 1 : 0.9))
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        Text(timeAgo(notification.timestamp))
+                            .font(.system(size: featured ? 10 : 9))
+                            .foregroundColor(.white.opacity(featured ? 0.4 : 0.3))
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+
+                    if let message = message(for: notification) {
+                        Text(message)
+                            .font(.system(size: featured ? 10 : 10))
+                            .foregroundColor(.white.opacity(0.72))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func headline(for notification: IslandNotification) -> String {
@@ -153,13 +186,19 @@ struct NotificationExpandedView: View {
     }
 
     @ViewBuilder
-    private func notificationLeadingView(_ notification: IslandNotification, size: CGFloat) -> some View {
+    private func notificationLeadingView(_ notification: IslandNotification, size: CGFloat, showsRing: Bool) -> some View {
         if let avatar = image(from: notification.avatarURL) {
             Image(nsImage: avatar)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: size, height: size)
                 .clipShape(Circle())
+                .overlay {
+                    if showsRing {
+                        Circle()
+                            .stroke(.white.opacity(0.14), lineWidth: 0.8)
+                    }
+                }
         } else if let iconImage = image(from: notification.appIconURL) {
             Image(nsImage: iconImage)
                 .resizable()
@@ -212,5 +251,137 @@ struct NotificationExpandedView: View {
         if interval < 60 { return "just now" }
         if interval < 3600 { return "\(Int(interval / 60))m ago" }
         return "\(Int(interval / 3600))h ago"
+    }
+}
+
+private enum NotificationRowChrome {
+    case plain
+    case card
+}
+
+private struct SwipeToDismissNotificationRow<Content: View>: View {
+    let featured: Bool
+    let chrome: NotificationRowChrome
+    let onDismiss: () -> Void
+    let content: Content
+
+    @State private var dragOffset: CGFloat = 0
+    @State private var isRemoving = false
+
+    private let dismissThreshold: CGFloat = 88
+    private let maxDragDistance: CGFloat = 128
+
+    init(featured: Bool, chrome: NotificationRowChrome, onDismiss: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+        self.featured = featured
+        self.chrome = chrome
+        self.onDismiss = onDismiss
+        self.content = content()
+    }
+
+    var body: some View {
+        ZStack {
+            swipeBackground
+
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.vertical, verticalPadding)
+                .background(backgroundView)
+                .offset(x: dragOffset)
+        }
+        .opacity(isRemoving ? 0 : 1)
+        .contentShape(Rectangle())
+        .simultaneousGesture(rowDragGesture)
+        .animation(.spring(response: 0.24, dampingFraction: 0.84), value: dragOffset)
+        .animation(.easeOut(duration: 0.18), value: isRemoving)
+    }
+
+    @ViewBuilder
+    private var backgroundView: some View {
+        switch chrome {
+        case .plain:
+            Color.clear
+        case .card:
+            RoundedRectangle(cornerRadius: featured ? 16 : 12, style: .continuous)
+                .fill(.white.opacity(featured ? 0.045 : 0.035))
+                .overlay(
+                    RoundedRectangle(cornerRadius: featured ? 16 : 12, style: .continuous)
+                        .stroke(.white.opacity(featured ? 0.09 : 0.06), lineWidth: 1)
+                )
+        }
+    }
+
+    private var horizontalPadding: CGFloat {
+        switch chrome {
+        case .plain:
+            return 0
+        case .card:
+            return featured ? 12 : 10
+        }
+    }
+
+    private var verticalPadding: CGFloat {
+        switch chrome {
+        case .plain:
+            return 0
+        case .card:
+            return featured ? 10 : 9
+        }
+    }
+
+    private var swipeBackground: some View {
+        RoundedRectangle(cornerRadius: chrome == .card ? (featured ? 16 : 12) : 10, style: .continuous)
+            .fill(.white.opacity(chrome == .card ? 0.04 : 0.025))
+            .overlay {
+                HStack {
+                    swipeIndicator(visible: dragOffset > 0)
+                    Spacer(minLength: 0)
+                    swipeIndicator(visible: dragOffset < 0)
+                }
+                .padding(.horizontal, chrome == .card ? 12 : 6)
+            }
+            .opacity(min(1, Double(abs(dragOffset) / dismissThreshold)))
+    }
+
+    private func swipeIndicator(visible: Bool) -> some View {
+        Image(systemName: "xmark")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundColor(.white.opacity(visible ? 0.88 : 0))
+            .frame(width: 22, height: 22)
+            .background(
+                Circle()
+                    .fill(.white.opacity(visible ? 0.12 : 0))
+            )
+    }
+
+    private var rowDragGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                dragOffset = max(-maxDragDistance, min(maxDragDistance, value.translation.width))
+            }
+            .onEnded { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else {
+                    withAnimation(.spring(response: 0.24, dampingFraction: 0.84)) {
+                        dragOffset = 0
+                    }
+                    return
+                }
+
+                if abs(value.translation.width) >= dismissThreshold {
+                    let finalOffset = value.translation.width >= 0 ? maxDragDistance * 1.15 : -maxDragDistance * 1.15
+                    withAnimation(.easeIn(duration: 0.16)) {
+                        dragOffset = finalOffset
+                        isRemoving = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+                        onDismiss()
+                    }
+                } else {
+                    withAnimation(.spring(response: 0.24, dampingFraction: 0.84)) {
+                        dragOffset = 0
+                    }
+                }
+            }
     }
 }

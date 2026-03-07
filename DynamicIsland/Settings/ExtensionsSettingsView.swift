@@ -18,6 +18,7 @@ private enum ExtensionListFilter: String, CaseIterable, Identifiable {
 }
 
 struct ExtensionsSettingsView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var manager = ExtensionManager.shared
     @ObservedObject private var logger = ExtensionLogger.shared
     @State private var selectedExtensionID: String?
@@ -265,15 +266,15 @@ struct ExtensionsSettingsView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(
                     isSelected
-                    ? Color.accentColor
+                    ? selectedRowFillColor
                     : Color(nsColor: .controlBackgroundColor).opacity(0.20)
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(isSelected ? Color.white.opacity(0.15) : Color.primary.opacity(0.06), lineWidth: 1)
+                .stroke(isSelected ? selectedRowStrokeColor : Color.primary.opacity(0.06), lineWidth: 1)
         )
-        .shadow(color: isSelected ? Color.accentColor.opacity(0.25) : .clear, radius: 6, x: 0, y: 2)
+        .shadow(color: isSelected ? selectedRowShadowColor : .clear, radius: 6, x: 0, y: 2)
         .foregroundColor(isSelected ? .white : .primary)
     }
 
@@ -391,6 +392,24 @@ struct ExtensionsSettingsView: View {
         }
 
         selectedExtensionID = filteredManifests.first?.id
+    }
+
+    private var selectedRowFillColor: Color {
+        colorScheme == .light
+            ? Color(nsColor: .selectedContentBackgroundColor)
+            : .accentColor
+    }
+
+    private var selectedRowStrokeColor: Color {
+        colorScheme == .light
+            ? Color(nsColor: .selectedControlColor).opacity(0.42)
+            : Color.white.opacity(0.15)
+    }
+
+    private var selectedRowShadowColor: Color {
+        colorScheme == .light
+            ? Color(nsColor: .selectedControlColor).opacity(0.20)
+            : Color.accentColor.opacity(0.25)
     }
 }
 
