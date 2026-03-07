@@ -237,6 +237,7 @@ final class ExtensionJSRuntime {
             let avatarURL = self.normalizedResourceURLString(options.forProperty("avatarURL")?.toString())
             let appIconURL = self.normalizedResourceURLString(options.forProperty("appIconURL")?.toString())
             let sourceID = self.normalizedText(options.forProperty("id")?.toString())
+            let tapAction = self.notificationTapAction(from: options.forProperty("tapAction"))
             let shouldShowSystemNotification = options.forProperty("systemNotification")?.isBoolean == true
                 ? (options.forProperty("systemNotification")?.toBool() ?? true)
                 : true
@@ -251,6 +252,7 @@ final class ExtensionJSRuntime {
                 avatarURL: avatarURL,
                 appIconURL: appIconURL,
                 sourceID: sourceID,
+                tapAction: tapAction,
                 shouldShowSystemNotification: shouldShowSystemNotification
             )
         }
@@ -383,6 +385,13 @@ final class ExtensionJSRuntime {
             return JSValue(object: payload, in: self.context)
         }
 
+        let closePresentedInteraction: @convention(block) () -> Bool = { [weak self] in
+            guard let self, let manager = self.manager else { return false }
+            return MainActor.assumeIsolated {
+                manager.closePresentedInteraction(extensionID: self.extensionID)
+            }
+        }
+
         system.setObject(getAIUsage, forKeyedSubscript: "getAIUsage" as NSString)
         system.setObject(getLatestNotification, forKeyedSubscript: "getLatestNotification" as NSString)
         system.setObject(getRecentNotifications, forKeyedSubscript: "getRecentNotifications" as NSString)
@@ -390,6 +399,7 @@ final class ExtensionJSRuntime {
         system.setObject(startWhatsAppWeb, forKeyedSubscript: "startWhatsAppWeb" as NSString)
         system.setObject(refreshWhatsAppWebQR, forKeyedSubscript: "refreshWhatsAppWebQR" as NSString)
         system.setObject(sendWhatsAppWebMessage, forKeyedSubscript: "sendWhatsAppWebMessage" as NSString)
+        system.setObject(closePresentedInteraction, forKeyedSubscript: "closePresentedInteraction" as NSString)
         dynamicIsland.setObject(system, forKeyedSubscript: "system" as NSString)
     }
 
@@ -486,6 +496,7 @@ final class ExtensionJSRuntime {
               gauge: function(value, opts) { return { type: 'gauge', value: value, min: (opts && opts.min) ?? 0, max: (opts && opts.max) ?? 1, label: opts && opts.label }; },
               divider: function() { return { type: 'divider' }; },
               button: function(label, action) { return { type: 'button', label: label, action: action }; },
+              inputBox: function(placeholder, text, action, opts) { return { type: 'input-box', id: (opts && opts.id) ? String(opts.id) : '', placeholder: String(placeholder ?? ''), text: String(text ?? ''), action: action, autoFocus: opts && opts.autoFocus !== undefined ? !!opts.autoFocus : true, minHeight: (opts && opts.minHeight) ? Number(opts.minHeight) : 72 }; },
               toggle: function(isOn, label, action) { return { type: 'toggle', isOn: !!isOn, label: label, action: action }; },
               slider: function(value, min, max, action) { return { type: 'slider', value: value, min: min, max: max, action: action }; },
               padding: function(child, opts) { return { type: 'padding', child: child, edges: (opts && opts.edges) ?? 'all', amount: (opts && opts.amount) ?? 8 }; },
@@ -691,6 +702,7 @@ final class ExtensionJSRuntime {
         avatarURL: String?,
         appIconURL: String?,
         sourceID: String?,
+        tapAction: NotificationTapAction?,
         shouldShowSystemNotification: Bool
     ) {
         let center = UNUserNotificationCenter.current()
@@ -718,7 +730,8 @@ final class ExtensionJSRuntime {
                     senderName: resolvedSenderName,
                     previewText: resolvedPreviewText,
                     avatarURL: avatarURL,
-                    timestamp: Date()
+                    timestamp: Date(),
+                    tapAction: tapAction
                 )
                 NotificationManager.shared.addNotification(notification)
             }
@@ -782,6 +795,38 @@ final class ExtensionJSRuntime {
         }
 
         return trimmed
+    }
+
+    private func notificationTapAction(from value: JSValue?) -> NotificationTapAction? {
+        guard let value, !value.isUndefined, !value.isNull else {
+            return nil
+        }
+
+        guard let actionID = normalizedText(value.forProperty("action")?.toString()) else {
+            return nil
+        }
+
+        let resolvedExtensionID = normalizedText(value.forProperty("extensionID")?.toString()) ?? extensionID
+        let presentationRaw = normalizedText(value.forProperty("presentation")?.toString())
+            ?? NotificationActionPresentation.fullExpanded.rawValue
+        let presentation = NotificationActionPresentation(rawValue: presentationRaw) ?? .fullExpanded
+
+        var payload: [String: String] = [:]
+        if let rawPayload = value.forProperty("payload")?.toDictionary() {
+            for (key, rawValue) in rawPayload {
+                let payloadKey = String(describing: key).trimmingCharacters(in: .whitespacesAndNewlines)
+                let payloadValue = normalizedText(String(describing: rawValue))
+                guard !payloadKey.isEmpty, let payloadValue else { continue }
+                payload[payloadKey] = payloadValue
+            }
+        }
+
+        return NotificationTapAction(
+            extensionID: resolvedExtensionID,
+            actionID: actionID,
+            payload: payload,
+            presentation: presentation
+        )
     }
 
     private func normalizedResourceURLString(_ value: String?) -> String? {

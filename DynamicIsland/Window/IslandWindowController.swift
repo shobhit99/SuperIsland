@@ -27,7 +27,7 @@ final class IslandWindowController {
         panel.contentView = hostingView
         positionIsland(on: panel)
         panel.setVisibleInScreenRecordings(appState.showInScreenRecordings)
-        panel.orderFrontRegardless()
+        panel.makeKeyAndOrderFront(nil)
 
         observeScreenChanges()
         observeSettingsChanges()

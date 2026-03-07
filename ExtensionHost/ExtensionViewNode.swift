@@ -97,6 +97,7 @@ indirect enum ViewNode: Equatable {
     case divider
 
     case button(label: ViewNode, actionID: String)
+    case inputBox(id: String, placeholder: String, text: String, actionID: String, autoFocus: Bool, minHeight: Double)
     case toggle(isOn: Bool, label: String, actionID: String)
     case slider(value: Double, min: Double, max: Double, actionID: String)
 
@@ -201,6 +202,24 @@ indirect enum ViewNode: Equatable {
             return .button(
                 label: ViewNode.from(value.forProperty("label")) ?? .empty,
                 actionID: value.forProperty("action")?.toString() ?? ""
+            )
+
+        case "input-box":
+            let inputID = value.forProperty("id")?.toString() ?? ""
+            let placeholder = value.forProperty("placeholder")?.toString() ?? ""
+            let text = value.forProperty("text")?.toString() ?? ""
+            let actionID = value.forProperty("action")?.toString() ?? ""
+            let autoFocus = value.forProperty("autoFocus")?.isBoolean == true
+                ? (value.forProperty("autoFocus")?.toBool() ?? true)
+                : true
+            let minHeight = value.forProperty("minHeight")?.toDouble() ?? 72
+            return .inputBox(
+                id: inputID,
+                placeholder: placeholder,
+                text: text,
+                actionID: actionID,
+                autoFocus: autoFocus,
+                minHeight: minHeight
             )
 
         case "toggle":

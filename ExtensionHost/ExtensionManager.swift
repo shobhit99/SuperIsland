@@ -8,6 +8,10 @@ import CryptoKit
 
 @MainActor
 final class ExtensionManager: ObservableObject {
+    private struct PresentedInteractionContext {
+        let returnModule: ActiveModule?
+    }
+
     static let shared = ExtensionManager()
 
     @Published private(set) var installed: [ExtensionManifest] = []
@@ -47,6 +51,7 @@ final class ExtensionManager: ObservableObject {
 
     private var refreshTimers: [String: Timer] = [:]
     private var immediateRefreshWorkItems: [String: DispatchWorkItem] = [:]
+    private var presentedInteractionContexts: [String: PresentedInteractionContext] = [:]
     private let fileManager = FileManager.default
 
     private init() {
@@ -154,6 +159,7 @@ final class ExtensionManager: ObservableObject {
         stopRefreshTimer(for: extensionID)
         immediateRefreshWorkItems[extensionID]?.cancel()
         immediateRefreshWorkItems.removeValue(forKey: extensionID)
+        presentedInteractionContexts.removeValue(forKey: extensionID)
         runtimes[extensionID]?.deactivate()
         runtimes.removeValue(forKey: extensionID)
         extensionStates.removeValue(forKey: extensionID)
@@ -185,6 +191,38 @@ final class ExtensionManager: ObservableObject {
     func handleAction(extensionID: String, actionID: String, value: Any? = nil) {
         runtimes[extensionID]?.handleAction(actionID: actionID, value: value)
         refreshState(extensionID: extensionID)
+    }
+
+    func presentExtensionInteraction(
+        extensionID: String,
+        actionID: String,
+        value: Any? = nil,
+        presentation: NotificationActionPresentation = .fullExpanded,
+        returnModule: ActiveModule? = nil
+    ) {
+        if runtimes[extensionID] == nil {
+            activate(extensionID: extensionID)
+        }
+
+        presentedInteractionContexts[extensionID] = PresentedInteractionContext(returnModule: returnModule)
+        AppState.shared.showHUD(module: .extension_(extensionID), autoDismiss: false)
+        if presentation == .fullExpanded {
+            AppState.shared.fullyExpand()
+            AppState.shared.cancelFullExpandedCollapse()
+        }
+
+        handleAction(extensionID: extensionID, actionID: actionID, value: value)
+    }
+
+    func closePresentedInteraction(extensionID: String) -> Bool {
+        guard let context = presentedInteractionContexts.removeValue(forKey: extensionID),
+              let returnModule = context.returnModule else {
+            return false
+        }
+
+        AppState.shared.setActiveModule(returnModule)
+        AppState.shared.cancelFullExpandedCollapse()
+        return true
     }
 
     func install(from source: URL) throws -> ExtensionManifest {
@@ -284,6 +322,7 @@ struct WhatsAppWebMessage: Identifiable {
     let sender: String
     let preview: String
     let avatarURL: String?
+    let replyTarget: String?
     let timestamp: Date
 }
 
@@ -364,7 +403,7 @@ final class WhatsAppWebBridge: ObservableObject {
     private var bridgeRefreshSignature: String {
         let messageSignature = recentMessages
             .prefix(8)
-            .map { "\($0.id)|\($0.sender)|\($0.preview)|\(Int($0.timestamp.timeIntervalSince1970))" }
+            .map { "\($0.id)|\($0.sender)|\($0.preview)|\($0.replyTarget ?? "")|\(Int($0.timestamp.timeIntervalSince1970))" }
             .joined(separator: "||")
 
         return [
@@ -433,6 +472,7 @@ final class WhatsAppWebBridge: ObservableObject {
                 "sender": message.sender,
                 "preview": message.preview,
                 "avatarURL": message.avatarURL as Any,
+                "replyTarget": message.replyTarget as Any,
                 "timestamp": Int(message.timestamp.timeIntervalSince1970)
             ]
         }
@@ -809,6 +849,10 @@ final class WhatsAppWebBridge: ObservableObject {
         }
         let sender = normalizedString(payload["sender"]) ?? "WhatsApp"
         let preview = normalizedString(payload["preview"]) ?? "New message"
+        let replyTarget = normalizedString(payload["chatJid"])
+            ?? normalizedString(payload["chatJidAlt"])
+            ?? normalizedString(payload["participant"])
+            ?? normalizedString(payload["participantAlt"])
         let avatarURL = resolvedAvatarURLString(
             from: normalizedString(payload["avatarURL"]),
             messageID: identifier
@@ -822,6 +866,7 @@ final class WhatsAppWebBridge: ObservableObject {
                 sender: sender,
                 preview: preview,
                 avatarURL: avatarURL,
+                replyTarget: replyTarget,
                 timestamp: timestamp
             )
             return
@@ -837,6 +882,7 @@ final class WhatsAppWebBridge: ObservableObject {
             sender: sender,
             preview: preview,
             avatarURL: avatarURL,
+            replyTarget: replyTarget,
             timestamp: timestamp
         )
     }
@@ -846,6 +892,7 @@ final class WhatsAppWebBridge: ObservableObject {
         sender: String,
         preview: String,
         avatarURL: String?,
+        replyTarget: String?,
         timestamp: Date
     ) {
         guard let existingIndex = recentMessages.firstIndex(where: { $0.id == id }) else {
@@ -854,9 +901,11 @@ final class WhatsAppWebBridge: ObservableObject {
 
         let existing = recentMessages[existingIndex]
         let resolvedAvatarURL = avatarURL ?? existing.avatarURL
+        let resolvedReplyTarget = replyTarget ?? existing.replyTarget
         guard existing.sender != sender ||
               existing.preview != preview ||
-              existing.avatarURL != resolvedAvatarURL else {
+              existing.avatarURL != resolvedAvatarURL ||
+              existing.replyTarget != resolvedReplyTarget else {
             return
         }
 
@@ -866,6 +915,7 @@ final class WhatsAppWebBridge: ObservableObject {
                 sender: sender,
                 preview: preview,
                 avatarURL: resolvedAvatarURL,
+                replyTarget: resolvedReplyTarget,
                 timestamp: timestamp
             )
         }
@@ -896,6 +946,7 @@ final class WhatsAppWebBridge: ObservableObject {
         sender: String,
         preview: String,
         avatarURL: String?,
+        replyTarget: String?,
         timestamp: Date
     ) {
         performBridgeUpdate {
@@ -904,6 +955,7 @@ final class WhatsAppWebBridge: ObservableObject {
                 sender: sender,
                 preview: preview,
                 avatarURL: avatarURL,
+                replyTarget: replyTarget,
                 timestamp: timestamp
             )
 
@@ -932,7 +984,24 @@ final class WhatsAppWebBridge: ObservableObject {
             senderName: sender,
             previewText: preview,
             avatarURL: avatarURL,
-            timestamp: timestamp
+            timestamp: timestamp,
+            tapAction: replyTarget.flatMap { target in
+                var payload: [String: String] = [
+                    "messageID": id,
+                    "recipient": target,
+                    "sender": sender,
+                    "preview": preview
+                ]
+                if let avatarURL {
+                    payload["avatarURL"] = avatarURL
+                }
+                return NotificationTapAction(
+                    extensionID: Self.managedExtensionID,
+                    actionID: "open-reply",
+                    payload: payload,
+                    presentation: .fullExpanded
+                )
+            }
         )
         NotificationManager.shared.addNotification(notification)
     }
@@ -1143,6 +1212,7 @@ final class WhatsAppWebBridge: ObservableObject {
                     sender: existingMessage.sender,
                     preview: existingMessage.preview,
                     avatarURL: localURLString,
+                    replyTarget: existingMessage.replyTarget,
                     timestamp: existingMessage.timestamp
                 )
             }

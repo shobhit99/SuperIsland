@@ -108,7 +108,19 @@ struct NotificationExpandedView: View {
     }
 
     private func notificationRow(_ notification: IslandNotification, featured: Bool, chrome: NotificationRowChrome) -> some View {
-        SwipeToDismissNotificationRow(featured: featured, chrome: chrome) {
+        let shouldHandleTap = appState.currentState == .expanded || notification.tapAction != nil
+        return SwipeToDismissNotificationRow(
+            featured: featured,
+            chrome: chrome,
+            onTap: shouldHandleTap ? {
+                if appState.currentState == .expanded {
+                    appState.fullyExpand()
+                    appState.cancelFullExpandedCollapse()
+                } else if notification.tapAction != nil {
+                    manager.activateNotification(notification)
+                }
+            } : nil
+        ) {
             manager.clearNotification(notification.id)
         } content: {
             HStack(alignment: .top, spacing: featured ? 10 : 8) {
@@ -262,6 +274,7 @@ private enum NotificationRowChrome {
 private struct SwipeToDismissNotificationRow<Content: View>: View {
     let featured: Bool
     let chrome: NotificationRowChrome
+    let onTap: (() -> Void)?
     let onDismiss: () -> Void
     let content: Content
 
@@ -271,9 +284,16 @@ private struct SwipeToDismissNotificationRow<Content: View>: View {
     private let dismissThreshold: CGFloat = 88
     private let maxDragDistance: CGFloat = 128
 
-    init(featured: Bool, chrome: NotificationRowChrome, onDismiss: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+    init(
+        featured: Bool,
+        chrome: NotificationRowChrome,
+        onTap: (() -> Void)? = nil,
+        onDismiss: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
+    ) {
         self.featured = featured
         self.chrome = chrome
+        self.onTap = onTap
         self.onDismiss = onDismiss
         self.content = content()
     }
@@ -292,6 +312,9 @@ private struct SwipeToDismissNotificationRow<Content: View>: View {
         .opacity(isRemoving ? 0 : 1)
         .contentShape(Rectangle())
         .simultaneousGesture(rowDragGesture)
+        .onTapGesture {
+            onTap?()
+        }
         .animation(.spring(response: 0.24, dampingFraction: 0.84), value: dragOffset)
         .animation(.easeOut(duration: 0.18), value: isRemoving)
     }

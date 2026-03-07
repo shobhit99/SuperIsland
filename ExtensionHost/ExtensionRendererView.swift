@@ -13,6 +13,11 @@ struct ExtensionRendererView: View {
                     node: node(from: state),
                     extensionID: extensionID
                 )
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: displayMode == .fullExpanded ? .infinity : nil,
+                    alignment: .topLeading
+                )
             } else {
                 ProgressView()
                     .controlSize(.small)
@@ -136,6 +141,18 @@ struct ViewNodeRenderer: View {
                 ViewNodeRenderer(node: label, extensionID: extensionID)
             }
             .buttonStyle(.plain)
+
+        case .inputBox(let inputID, let placeholder, let text, let actionID, let autoFocus, let minHeight):
+            ExtensionInputBoxNode(
+                extensionID: extensionID,
+                inputID: inputID,
+                placeholder: placeholder,
+                text: text,
+                actionID: actionID,
+                autoFocus: autoFocus,
+                minHeight: minHeight
+            )
+            .id(inputID.isEmpty ? "\(extensionID)-\(actionID)" : inputID)
 
         case .toggle(let isOn, let label, let actionID):
             ExtensionToggleNode(
@@ -280,6 +297,209 @@ private struct ExtensionToggleNode: View {
             }
         ))
         .toggleStyle(.switch)
+    }
+}
+
+private struct ExtensionInputBoxNode: View {
+    let extensionID: String
+    let inputID: String
+    let placeholder: String
+    let text: String
+    let actionID: String
+    let autoFocus: Bool
+    let minHeight: Double
+
+    @ObservedObject private var manager = ExtensionManager.shared
+    @State private var localText: String
+    @State private var shouldFocus: Bool = false
+
+    init(
+        extensionID: String,
+        inputID: String,
+        placeholder: String,
+        text: String,
+        actionID: String,
+        autoFocus: Bool,
+        minHeight: Double
+    ) {
+        self.extensionID = extensionID
+        self.inputID = inputID
+        self.placeholder = placeholder
+        self.text = text
+        self.actionID = actionID
+        self.autoFocus = autoFocus
+        self.minHeight = minHeight
+        _localText = State(initialValue: text)
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            ExtensionInputTextView(
+                text: $localText,
+                shouldFocus: $shouldFocus,
+                minHeight: max(54, minHeight)
+            ) {
+                submit()
+            }
+            if localText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(placeholder)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.34))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .allowsHitTesting(false)
+            }
+        }
+            .frame(maxWidth: .infinity, minHeight: max(54, minHeight), alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.white.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+            )
+            .onChange(of: text) { _, newValue in
+                if newValue != localText {
+                    localText = newValue
+                }
+            }
+            .onAppear {
+                guard autoFocus else { return }
+                DispatchQueue.main.async {
+                    shouldFocus = true
+                }
+            }
+    }
+
+    private func submit() {
+        let trimmed = localText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        manager.handleAction(extensionID: extensionID, actionID: actionID, value: trimmed)
+        localText = ""
+        shouldFocus = true
+    }
+}
+
+private struct ExtensionInputTextView: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var shouldFocus: Bool
+
+    let minHeight: Double
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, shouldFocus: $shouldFocus, onSubmit: onSubmit)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+
+        let textView = SubmitAwareTextView()
+        textView.delegate = context.coordinator
+        textView.string = text
+        textView.drawsBackground = false
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.usesFindBar = false
+        textView.usesFontPanel = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticDataDetectionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.font = .systemFont(ofSize: 12, weight: .medium)
+        textView.textColor = .white
+        textView.insertionPointColor = .white
+        textView.textContainerInset = NSSize(width: 8, height: 10)
+        textView.onSubmit = {
+            context.coordinator.handleSubmit()
+        }
+
+        if let textContainer = textView.textContainer {
+            textContainer.widthTracksTextView = true
+            textContainer.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+            textContainer.lineFragmentPadding = 0
+        }
+
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.minSize = NSSize(width: 0, height: CGFloat(minHeight))
+        textView.translatesAutoresizingMaskIntoConstraints = true
+        textView.autoresizingMask = [.width]
+        scrollView.documentView = textView
+        scrollView.contentView.postsBoundsChangedNotifications = true
+
+        context.coordinator.textView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = context.coordinator.textView else { return }
+
+        if textView.string != text {
+            textView.string = text
+        }
+
+        if let textContainer = textView.textContainer {
+            textContainer.containerSize = NSSize(width: scrollView.contentSize.width, height: .greatestFiniteMagnitude)
+        }
+
+        textView.minSize = NSSize(width: 0, height: CGFloat(minHeight))
+
+        if shouldFocus, textView.window?.firstResponder !== textView {
+            textView.window?.makeKeyAndOrderFront(nil)
+            textView.window?.makeFirstResponder(textView)
+            DispatchQueue.main.async {
+                shouldFocus = false
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding private var text: String
+        @Binding private var shouldFocus: Bool
+        let onSubmit: () -> Void
+
+        weak var textView: SubmitAwareTextView?
+
+        init(text: Binding<String>, shouldFocus: Binding<Bool>, onSubmit: @escaping () -> Void) {
+            _text = text
+            _shouldFocus = shouldFocus
+            self.onSubmit = onSubmit
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView else { return }
+            text = textView.string
+        }
+
+        func handleSubmit() {
+            onSubmit()
+            shouldFocus = true
+        }
+    }
+}
+
+private final class SubmitAwareTextView: NSTextView {
+    var onSubmit: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let isReturn = event.keyCode == 36 || event.keyCode == 76
+        if isReturn && !modifiers.contains(.shift) {
+            onSubmit?()
+            return
+        }
+        super.keyDown(with: event)
     }
 }
 

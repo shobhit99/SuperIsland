@@ -48,8 +48,9 @@ struct IslandContainerView: View {
         )
     }
 
+    @ViewBuilder
     private var islandSurface: some View {
-        ZStack {
+        let surface = ZStack {
             islandShape
                 .fill(.black)
                 .shadow(color: .black.opacity(0.3), radius: appState.currentState == .compact ? 0 : 10, y: 5)
@@ -76,15 +77,19 @@ struct IslandContainerView: View {
         }
         .frame(width: appState.currentSize.width, height: appState.currentSize.height)
         .contentShape(islandShape)
-        .onTapGesture {
-            switch appState.currentState {
-            case .compact:
-                appState.expand()
-            case .expanded:
-                appState.fullyExpand()
-            case .fullExpanded:
-                // Do not dismiss on blank-area taps in full mode.
-                break
+
+        if appState.currentState == .fullExpanded {
+            surface
+        } else {
+            surface.onTapGesture {
+                switch appState.currentState {
+                case .compact:
+                    appState.expand()
+                case .expanded:
+                    appState.fullyExpand()
+                case .fullExpanded:
+                    break
+                }
             }
         }
     }

@@ -4,6 +4,18 @@ import Combine
 import AppKit
 import ApplicationServices
 
+enum NotificationActionPresentation: String, Equatable {
+    case expanded
+    case fullExpanded
+}
+
+struct NotificationTapAction: Equatable {
+    let extensionID: String
+    let actionID: String
+    let payload: [String: String]
+    let presentation: NotificationActionPresentation
+}
+
 struct IslandNotification: Identifiable {
     var id: String { sourceID }
     let sourceID: String
@@ -17,6 +29,7 @@ struct IslandNotification: Identifiable {
     let previewText: String?
     let avatarURL: String?
     let timestamp: Date
+    let tapAction: NotificationTapAction?
 }
 
 @MainActor
@@ -130,7 +143,8 @@ final class NotificationManager: ObservableObject {
             senderName: extracted.senderName,
             previewText: extracted.body.isEmpty ? nil : extracted.body,
             avatarURL: extracted.avatarURL,
-            timestamp: Date()
+            timestamp: Date(),
+            tapAction: nil
         )
 
         addNotification(notif)
@@ -406,7 +420,8 @@ final class NotificationManager: ObservableObject {
             senderName: senderName,
             previewText: previewText,
             avatarURL: event.avatarURL,
-            timestamp: event.timestamp
+            timestamp: event.timestamp,
+            tapAction: nil
         )
     }
 
@@ -976,7 +991,8 @@ final class NotificationManager: ObservableObject {
                     senderName: senderName,
                     previewText: previewText,
                     avatarURL: avatarURL,
-                    timestamp: notification.date
+                    timestamp: notification.date,
+                    tapAction: nil
                 )
             )
         }
@@ -1074,12 +1090,27 @@ final class NotificationManager: ObservableObject {
     }
 
     func clearAll() {
-        let notificationsToDismiss = Dictionary(
-            uniqueKeysWithValues: (recentNotifications + [latestNotification].compactMap { $0 }).map { ($0.sourceID, $0) }
-        ).map(\.value)
+        var seenSourceIDs: Set<String> = []
+        let notificationsToDismiss = (recentNotifications + [latestNotification].compactMap { $0 }).filter { notification in
+            seenSourceIDs.insert(notification.sourceID).inserted
+        }
         notificationsToDismiss.forEach(rememberDismissedNotification)
         recentNotifications.removeAll()
         latestNotification = nil
+    }
+
+    func activateNotification(_ notification: IslandNotification) {
+        guard let tapAction = notification.tapAction else {
+            return
+        }
+
+        ExtensionManager.shared.presentExtensionInteraction(
+            extensionID: tapAction.extensionID,
+            actionID: tapAction.actionID,
+            value: tapAction.payload,
+            presentation: tapAction.presentation,
+            returnModule: .builtIn(.notifications)
+        )
     }
 
     private func normalizedNotification(_ notification: IslandNotification) -> IslandNotification {
@@ -1103,7 +1134,8 @@ final class NotificationManager: ObservableObject {
             senderName: senderName,
             previewText: resolvedPreview,
             avatarURL: cleanText(notification.avatarURL),
-            timestamp: notification.timestamp
+            timestamp: notification.timestamp,
+            tapAction: tapAction(from: notification.tapAction, replacingAvatarURL: cleanText(notification.avatarURL))
         )
     }
 
@@ -1122,7 +1154,8 @@ final class NotificationManager: ObservableObject {
             senderName: notification.senderName,
             previewText: notification.previewText,
             avatarURL: avatarURL,
-            timestamp: notification.timestamp
+            timestamp: notification.timestamp,
+            tapAction: tapAction(from: notification.tapAction, replacingAvatarURL: avatarURL)
         )
     }
 
@@ -1160,7 +1193,32 @@ final class NotificationManager: ObservableObject {
             senderName: preferred.senderName ?? secondary.senderName,
             previewText: preferred.previewText ?? secondary.previewText,
             avatarURL: preferred.avatarURL ?? secondary.avatarURL,
-            timestamp: incoming.timestamp >= existing.timestamp ? incoming.timestamp : existing.timestamp
+            timestamp: incoming.timestamp >= existing.timestamp ? incoming.timestamp : existing.timestamp,
+            tapAction: tapAction(
+                from: preferred.tapAction ?? secondary.tapAction,
+                replacingAvatarURL: preferred.avatarURL ?? secondary.avatarURL
+            )
+        )
+    }
+
+    private func tapAction(
+        from tapAction: NotificationTapAction?,
+        replacingAvatarURL avatarURL: String?
+    ) -> NotificationTapAction? {
+        guard let tapAction else { return nil }
+
+        var payload = tapAction.payload
+        if let avatarURL = cleanText(avatarURL) {
+            payload["avatarURL"] = avatarURL
+        } else {
+            payload.removeValue(forKey: "avatarURL")
+        }
+
+        return NotificationTapAction(
+            extensionID: tapAction.extensionID,
+            actionID: tapAction.actionID,
+            payload: payload,
+            presentation: tapAction.presentation
         )
     }
 

@@ -11,6 +11,7 @@ let state = {
   messages: []
 };
 let lastRefreshAt = 0;
+let replyComposer = null;
 
 function asObject(value) {
   return value && typeof value === "object" ? value : null;
@@ -74,6 +75,7 @@ function refreshState(force) {
         sender,
         preview,
         avatarURL: normalizeText(row.avatarURL),
+        replyTarget: normalizeText(row.replyTarget),
         timestamp
       };
     })
@@ -124,8 +126,111 @@ function compactView() {
   ], { spacing: 6, align: "center" });
 }
 
+function openReplyComposer(payload) {
+  const replyPayload = asObject(payload);
+  if (!replyPayload) return;
+
+  const recipient = normalizeText(replyPayload.recipient);
+  if (!recipient) return;
+  const messageID = normalizeText(replyPayload.messageID);
+  const matchedMessage = state.messages.find((message) =>
+    (messageID && message.id === messageID) || message.replyTarget === recipient
+  );
+  const avatarURL = normalizeText(replyPayload.avatarURL) || (matchedMessage && matchedMessage.avatarURL) || "";
+  const sender = normalizeText(replyPayload.sender) || (matchedMessage && matchedMessage.sender) || "WhatsApp";
+  const preview = normalizeText(replyPayload.preview) || (matchedMessage && matchedMessage.preview) || "";
+
+  replyComposer = {
+    inputID: messageID || recipient,
+    recipient,
+    sender,
+    preview,
+    avatarURL,
+    error: ""
+  };
+
+  if (typeof DynamicIsland.system.startWhatsAppWeb === "function") {
+    DynamicIsland.system.startWhatsAppWeb();
+  }
+  refreshState(true);
+}
+
+function closeReplyComposer() {
+  replyComposer = null;
+}
+
+function replyComposerView() {
+  const headerChildren = [];
+  if (replyComposer.avatarURL) {
+    headerChildren.push(View.image(replyComposer.avatarURL, {
+      width: 24,
+      height: 24,
+      cornerRadius: 12
+    }));
+  } else {
+    headerChildren.push(View.icon("person.crop.circle.fill", {
+      size: 18,
+      color: "green"
+    }));
+  }
+
+  headerChildren.push(
+    View.vstack([
+      View.text(`Reply to ${replyComposer.sender}`, { style: "title", lineLimit: 1 }),
+      View.text(replyComposer.preview || "Send a quick reply from Dynamic Island.", {
+        style: "caption",
+        color: "gray",
+        lineLimit: 2
+      })
+    ], { spacing: 3, align: "leading" })
+  );
+
+  const content = [
+    View.hstack([
+      ...headerChildren,
+      View.spacer(),
+      View.button(View.text("Close", { style: "caption", color: "gray", lineLimit: 1 }), "close-reply")
+    ], { spacing: 8, align: "center" }),
+    View.spacer(),
+    View.vstack([
+      View.inputBox(
+        `Message ${replyComposer.sender}`,
+        "",
+        "submit-reply",
+        { id: replyComposer.inputID, autoFocus: true, minHeight: 76 }
+      ),
+      View.text("Press Enter to send. Shift+Enter adds a new line.", {
+        style: "footnote",
+        color: replyComposer.error ? "red" : "gray",
+        lineLimit: 2
+      })
+    ], { spacing: 6, align: "leading" })
+  ];
+
+  if (replyComposer.error) {
+    content.splice(2, 0, View.text(replyComposer.error, {
+      style: "footnote",
+      color: "red",
+      lineLimit: 2
+    }));
+  }
+
+  return View.vstack(content, { spacing: 8, align: "leading" });
+}
+
 function expandedView() {
   refreshState();
+
+  if (replyComposer) {
+    return View.vstack([
+      View.text(`Replying to ${replyComposer.sender}`, { style: "title", lineLimit: 1 }),
+      View.text("Opened from notification. Expand to send your reply.", {
+        style: "caption",
+        color: "gray",
+        lineLimit: 2
+      })
+    ], { spacing: 6, align: "leading" });
+  }
 
   if (!state.loggedIn) {
     return View.vstack([
@@ -157,6 +262,10 @@ function expandedView() {
 
 function fullExpandedView() {
   refreshState();
+
+  if (replyComposer) {
+    return replyComposerView();
+  }
 
   if (!state.loggedIn) {
     return View.vstack([
@@ -230,6 +339,55 @@ DynamicIsland.registerModule({
     if (actionID === "refresh-qr" && typeof DynamicIsland.system.refreshWhatsAppWebQR === "function") {
       DynamicIsland.system.refreshWhatsAppWebQR();
       refreshState(true);
+      return;
+    }
+
+    if (actionID === "close-reply") {
+      closeReplyComposer();
+      const closed = typeof DynamicIsland.system.closePresentedInteraction === "function"
+        ? !!DynamicIsland.system.closePresentedInteraction()
+        : false;
+      if (!closed) {
+        refreshState(true);
+      }
+      return;
+    }
+
+    if (actionID === "open-reply") {
+      refreshState(true);
+      openReplyComposer(arguments[1]);
+      refreshState(true);
+      return;
+    }
+
+    if (actionID === "submit-reply") {
+      const body = normalizeText(arguments[1]);
+      if (!replyComposer || !body) {
+        return;
+      }
+      if (typeof DynamicIsland.system.sendWhatsAppWebMessage !== "function") {
+        replyComposer.error = "Reply API unavailable.";
+        refreshState(true);
+        return;
+      }
+
+      const result = asObject(DynamicIsland.system.sendWhatsAppWebMessage(replyComposer.recipient, body));
+      if (result && result.ok) {
+        DynamicIsland.playFeedback("success");
+        closeReplyComposer();
+        const closed = typeof DynamicIsland.system.closePresentedInteraction === "function"
+          ? !!DynamicIsland.system.closePresentedInteraction()
+          : false;
+        if (!closed) {
+          refreshState(true);
+        }
+        return;
+      }
+
+      replyComposer.error = normalizeText(result && result.error) || "Failed to send reply.";
+      DynamicIsland.playFeedback("error");
+      refreshState(true);
+      return;
     }
   }
 });
