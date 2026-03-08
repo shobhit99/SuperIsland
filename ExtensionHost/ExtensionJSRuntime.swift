@@ -611,7 +611,7 @@ final class ExtensionJSRuntime {
                           color: 'red',
                           lineLimit: 2
                         })
-                      : shortcutHint()
+                      : (options.showsShortcutHint === false ? null : shortcutHint())
                   ], {
                     spacing: options.spacing !== undefined ? Number(options.spacing) : 4,
                     align: 'leading'

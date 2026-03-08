@@ -175,7 +175,7 @@ final class AppState: ObservableObject {
         isHovering = hovering
 
         if hovering {
-            if !wasHovering {
+            if !wasHovering && currentState == .compact {
                 performNotchEntryHapticIfNeeded()
             }
 
@@ -472,6 +472,9 @@ final class AppState: ObservableObject {
         case .expanded:
             return 8
         case .fullExpanded:
+            if case .extension_ = activeModule {
+                return 8
+            }
             return 12
         }
     }
@@ -483,6 +486,9 @@ final class AppState: ObservableObject {
         case .expanded:
             return 10
         case .fullExpanded:
+            if case .extension_ = activeModule {
+                return 4
+            }
             return 14
         }
     }

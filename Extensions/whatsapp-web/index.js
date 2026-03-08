@@ -264,7 +264,6 @@ function replyComposerView() {
         View.button(View.text("Close", { style: "caption", color: "gray", lineLimit: 1 }), "close-reply")
       ], { spacing: 8, align: "top" }),
       mediaPreviewSection(),
-      View.spacer(),
       renderInputComposer({
         placeholder: `Message ${replyComposer.sender}`,
         text: "",
@@ -273,7 +272,9 @@ function replyComposerView() {
         autoFocus: true,
         minHeight: 46,
         showsEmojiButton: true,
-        error: replyComposer.error
+        error: replyComposer.error,
+        spacing: 2,
+        padding: 4
       })
     ], { spacing: 6, align: "leading" }),
     { maxHeight: 1000, alignment: "topLeading" }

@@ -30,7 +30,7 @@ struct FullExpandedView: View {
                 }
             }
             .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, 6)
+            .padding(.vertical, verticalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -56,6 +56,15 @@ struct FullExpandedView: View {
             return 6
         default:
             return 10
+        }
+    }
+
+    private var verticalPadding: CGFloat {
+        switch appState.activeModule {
+        case .extension_:
+            return 2
+        default:
+            return 6
         }
     }
 }
