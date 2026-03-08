@@ -33,10 +33,13 @@ struct NowPlayingExpandedView: View {
                     .lineLimit(1)
 
                 // Progress bar
-                ProgressBar(progress: manager.progress) { newProgress in
+                ProgressBar(
+                    progress: manager.progress,
+                    trackHeight: 3,
+                    knobSize: 8
+                ) { newProgress in
                     manager.seek(to: manager.duration * newProgress)
                 }
-                    .frame(height: 3)
             }
 
             // Play/Pause button
@@ -78,10 +81,13 @@ struct NowPlayingExpandedView: View {
 
             // Progress bar with times
             VStack(spacing: 4) {
-                ProgressBar(progress: manager.progress) { newProgress in
+                ProgressBar(
+                    progress: manager.progress,
+                    trackHeight: 4,
+                    knobSize: 12
+                ) { newProgress in
                     manager.seek(to: manager.duration * newProgress)
                 }
-                    .frame(height: 4)
 
                 HStack {
                     Text(manager.formattedElapsedTime)
@@ -124,24 +130,51 @@ struct NowPlayingExpandedView: View {
 
 struct ProgressBar: View {
     let progress: Double
+    var trackHeight: CGFloat = 4
+    var knobSize: CGFloat = 10
     var onSeek: ((Double) -> Void)? = nil
 
     @State private var dragProgress: Double?
+    @State private var isHovering = false
 
     var body: some View {
         GeometryReader { geometry in
             let displayedProgress = min(max(dragProgress ?? progress, 0), 1)
+            let knobCenterX = min(
+                max(CGFloat(displayedProgress) * geometry.size.width, knobSize / 2),
+                max(knobSize / 2, geometry.size.width - (knobSize / 2))
+            )
+            let knobVisible = onSeek != nil && (isHovering || dragProgress != nil)
+            let knobScale = (isHovering || dragProgress != nil) ? 1.08 : 1
 
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(.white.opacity(0.2))
+            ZStack {
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: trackHeight / 2)
+                        .fill(.white.opacity(0.2))
+                        .frame(height: trackHeight)
 
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(.white)
-                    .frame(width: max(0, geometry.size.width * CGFloat(displayedProgress)))
-                    .animation(Constants.progressBar, value: displayedProgress)
+                    RoundedRectangle(cornerRadius: trackHeight / 2)
+                        .fill(.white)
+                        .frame(width: max(0, geometry.size.width * CGFloat(displayedProgress)), height: trackHeight)
+                        .animation(Constants.progressBar, value: displayedProgress)
+
+                    Circle()
+                        .fill(.white)
+                        .frame(width: knobSize, height: knobSize)
+                        .scaleEffect(knobScale)
+                        .shadow(color: .black.opacity(0.22), radius: 2, y: 1)
+                        .offset(x: knobCenterX - (knobSize / 2))
+                        .opacity(knobVisible ? 1 : 0)
+                        .animation(.easeOut(duration: 0.14), value: knobVisible)
+                        .animation(.easeOut(duration: 0.14), value: knobScale)
+                }
+                .frame(height: knobSize)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .contentShape(Rectangle())
+            .onHover { hovering in
+                isHovering = hovering
+            }
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
@@ -157,5 +190,6 @@ struct ProgressBar: View {
                     }
             )
         }
+        .frame(height: max(knobSize, 16))
     }
 }
