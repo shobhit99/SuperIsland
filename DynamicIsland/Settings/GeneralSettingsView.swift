@@ -56,6 +56,27 @@ struct GeneralSettingsView: View {
                 }
 
                 SettingsCard(
+                    title: "Interaction",
+                    subtitle: "Tune pointer feedback when entering the notch."
+                ) {
+                    HStack {
+                        Text("Notch haptic intensity")
+                        Spacer()
+                        Picker("", selection: $appState.notchHapticIntensity) {
+                            ForEach(NotchHapticIntensity.allCases) { intensity in
+                                Text(intensity.title).tag(intensity.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 140)
+                    }
+
+                    Text("Higher levels use a stronger multi-pulse haptic when the pointer enters the notch.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                SettingsCard(
                     title: "Permissions",
                     subtitle: "System permissions required for full functionality."
                 ) {

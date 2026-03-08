@@ -5,13 +5,6 @@ struct FullExpandedView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Top drag handle
-            RoundedRectangle(cornerRadius: 2)
-                .fill(.white.opacity(0.3))
-                .frame(width: 36, height: 4)
-                .padding(.top, 8)
-
-            // Module content
             Group {
                 if let module = appState.activeModule {
                     switch module {

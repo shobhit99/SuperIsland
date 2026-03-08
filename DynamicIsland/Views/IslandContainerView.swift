@@ -22,17 +22,7 @@ struct IslandContainerView: View {
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: appState.activeModule)
         .onHover { hovering in
-            appState.isHovering = hovering
-            if hovering && appState.currentState == .compact {
-                appState.expand()
-            } else if hovering {
-                appState.cancelAutoDismiss()
-                appState.cancelFullExpandedCollapse()
-            } else if appState.currentState == .expanded {
-                appState.scheduleAutoDismiss()
-            } else if appState.currentState == .fullExpanded {
-                appState.scheduleFullExpandedCollapse()
-            }
+            appState.handleHoverChange(hovering)
         }
         .gesture(
             DragGesture(minimumDistance: 8)
@@ -50,30 +40,19 @@ struct IslandContainerView: View {
 
     @ViewBuilder
     private var islandSurface: some View {
-        let surface = ZStack {
+        let surface = ZStack(alignment: .top) {
             islandShape
                 .fill(.black)
                 .shadow(color: .black.opacity(0.3), radius: appState.currentState == .compact ? 0 : 10, y: 5)
 
-            Group {
-                switch appState.currentState {
-                case .compact:
-                    CompactView()
-                        .transition(.opacity)
-                case .expanded:
-                    ExpandedView()
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                case .fullExpanded:
-                    FullExpandedView()
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                }
+            if appState.currentState == .compact {
+                CompactView()
+                    .opacity(compactContentOpacity)
+                    .transition(.opacity)
+            } else {
+                expandedIslandLayout
+                    .opacity(compactContentOpacity)
             }
-            .opacity(compactContentOpacity)
-            .frame(
-                width: max(0, appState.currentSize.width - 16),
-                height: max(0, appState.currentSize.height - 8)
-            )
-            .clipped()
         }
         .frame(width: appState.currentSize.width, height: appState.currentSize.height)
         .contentShape(islandShape)
@@ -96,13 +75,56 @@ struct IslandContainerView: View {
 
     private var islandShape: PillShape {
         PillShape(
-            topCornerRadius: appState.currentTopCornerRadius,
-            bottomCornerRadius: appState.currentBottomCornerRadius
+            topLeadingRadius: appState.currentTopLeadingCornerRadius,
+            topTrailingRadius: appState.currentTopTrailingCornerRadius,
+            bottomLeadingRadius: appState.currentBottomLeadingCornerRadius,
+            bottomTrailingRadius: appState.currentBottomTrailingCornerRadius,
+            outwardTopCorners: appState.usesOutwardTopCorners,
+            topCutoutWidth: appState.currentTopCutoutWidth,
+            topCutoutDepth: appState.currentTopCutoutDepth,
+            topCutoutCornerRadius: appState.currentTopCutoutCornerRadius
         )
     }
 
     private var compactContentOpacity: Double {
         appState.currentState == .compact ? appState.idleOpacity : 1.0
+    }
+
+    private var expandedIslandLayout: some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: appState.currentContentTopInset)
+
+            currentExpandedContent
+                .padding(.horizontal, appState.contentHorizontalPadding)
+                .padding(.top, appState.contentTopPadding)
+                .padding(.bottom, appState.contentBottomPadding)
+                .frame(
+                    width: appState.currentContentSize.width,
+                    height: appState.currentContentFrameHeight,
+                    alignment: .top
+                )
+                .clipped()
+
+            Spacer(minLength: 0)
+        }
+        .frame(width: appState.currentSize.width, height: appState.currentSize.height, alignment: .top)
+    }
+
+    @ViewBuilder
+    private var currentExpandedContent: some View {
+        switch appState.currentState {
+        case .compact:
+            EmptyView()
+        case .expanded:
+            ExpandedView()
+                .scaleEffect(appState.expandedContentScale, anchor: .top)
+                .padding(.top, appState.expandedContentTopOffset)
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        case .fullExpanded:
+            FullExpandedView()
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+        }
     }
 
     private func handleSwipe(value: DragGesture.Value) {
@@ -145,7 +167,10 @@ struct IslandContainerView: View {
             Spacer()
             moduleCycleButton(systemName: "chevron.right", forward: true)
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, (Constants.moduleCyclerGutterWidth - Constants.moduleCyclerButtonSize) / 2)
+        .padding(.top, appState.currentContentTopInset)
+        .frame(height: appState.currentContentFrameHeight, alignment: .center)
+        .frame(maxHeight: .infinity, alignment: .top)
         .opacity(appState.isHovering ? 1 : 0.78)
         .animation(.easeOut(duration: 0.18), value: appState.isHovering)
         .transition(.opacity)

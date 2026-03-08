@@ -35,7 +35,8 @@ struct ExpandedView: View {
             }
         }
         .padding(.horizontal, horizontalPadding)
-        .padding(.vertical, 6)
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var horizontalPadding: CGFloat {

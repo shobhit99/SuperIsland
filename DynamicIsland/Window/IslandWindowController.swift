@@ -70,13 +70,13 @@ final class IslandWindowController {
             if appState.currentState == .compact {
                 y = notch.midY - (windowHeight / 2) + Constants.compactNotchVerticalOffset
             } else {
-                // Expanded states behave like a drawer that opens from the notch's lower edge.
-                y = notch.minY - windowHeight + Constants.expandedDrawerTopOverlap
+                // Keep expanded states pinned to the top edge so the upper corners remain usable.
+                y = notch.maxY - windowHeight - Constants.expandedTopInset
             }
         } else {
             // Top center of screen
             x = screenFrame.midX - windowWidth / 2
-            y = screenFrame.maxY - windowHeight
+            y = screenFrame.maxY - windowHeight - Constants.expandedTopInset
         }
 
         let frame = NSRect(x: x, y: y, width: windowWidth, height: windowHeight)

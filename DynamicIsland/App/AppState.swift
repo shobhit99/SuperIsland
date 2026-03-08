@@ -48,6 +48,43 @@ enum ModuleType: String, CaseIterable, Identifiable {
     }
 }
 
+enum NotchHapticIntensity: Int, CaseIterable, Identifiable {
+    case off = 0
+    case subtle = 1
+    case medium = 2
+    case strong = 3
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .off: return "Off"
+        case .subtle: return "Subtle"
+        case .medium: return "Medium"
+        case .strong: return "Strong"
+        }
+    }
+
+    var feedbackSequence: [(delay: TimeInterval, pattern: NSHapticFeedbackManager.FeedbackPattern)] {
+        switch self {
+        case .off:
+            return []
+        case .subtle:
+            return [(delay: 0, pattern: .generic)]
+        case .medium:
+            return [
+                (delay: 0, pattern: .alignment),
+                (delay: 0.04, pattern: .generic)
+            ]
+        case .strong:
+            return [
+                (delay: 0, pattern: .levelChange),
+                (delay: 0.03, pattern: .alignment)
+            ]
+        }
+    }
+}
+
 // MARK: - App State
 @MainActor
 final class AppState: ObservableObject {
@@ -82,6 +119,7 @@ final class AppState: ObservableObject {
     @AppStorage("general.launchAtLogin") var launchAtLogin = false
     @AppStorage("general.showInScreenRecordings") var showInScreenRecordings = false
     @AppStorage("general.expandedAutoDismissDelay") var expandedAutoDismissDelay: Double = 2.0
+    @AppStorage("general.notchHapticIntensity") var notchHapticIntensity = NotchHapticIntensity.medium.rawValue
 
     private var autoDismissWorkItem: DispatchWorkItem?
     private var fullExpandedCollapseWorkItem: DispatchWorkItem?
@@ -129,6 +167,28 @@ final class AppState: ObservableObject {
         cancelFullExpandedCollapse()
         withAnimation(Constants.expandedToFull) {
             currentState = .expanded
+        }
+    }
+
+    func handleHoverChange(_ hovering: Bool) {
+        let wasHovering = isHovering
+        isHovering = hovering
+
+        if hovering {
+            if !wasHovering {
+                performNotchEntryHapticIfNeeded()
+            }
+
+            if currentState == .compact {
+                expand()
+            } else {
+                cancelAutoDismiss()
+                cancelFullExpandedCollapse()
+            }
+        } else if currentState == .expanded {
+            scheduleAutoDismiss()
+        } else if currentState == .fullExpanded {
+            scheduleFullExpandedCollapse()
         }
     }
 
@@ -266,9 +326,18 @@ final class AppState: ObservableObject {
         return module
     }
 
+    private func isCyclableIslandModule(_ module: ModuleType) -> Bool {
+        switch module {
+        case .volumeHUD, .brightnessHUD:
+            return false
+        default:
+            return true
+        }
+    }
+
     var availableModules: [ActiveModule] {
         let builtIns = ModuleType.allCases
-            .filter { isModuleEnabled($0) }
+            .filter { isCyclableIslandModule($0) && isModuleEnabled($0) }
             .map(ActiveModule.builtIn)
         return builtIns + ExtensionManager.shared.availableModules
     }
@@ -278,9 +347,23 @@ final class AppState: ObservableObject {
     var currentSize: CGSize {
         switch currentState {
         case .compact:
+            return currentContentSize
+        case .expanded, .fullExpanded:
+            return CGSize(
+                width: currentContentSize.width,
+                height: currentContentSize.height + currentContentTopInset
+            )
+        }
+    }
+
+    var currentContentSize: CGSize {
+        switch currentState {
+        case .compact:
             return compactIslandMetrics?.size ?? Constants.compactSize
-        case .expanded: return Constants.expandedSize
-        case .fullExpanded: return Constants.fullExpandedSize
+        case .expanded:
+            return Constants.expandedSize
+        case .fullExpanded:
+            return Constants.fullExpandedSize
         }
     }
 
@@ -290,7 +373,7 @@ final class AppState: ObservableObject {
             return currentSize
         case .expanded, .fullExpanded:
             return CGSize(
-                width: currentSize.width + (Constants.moduleCyclerGutterWidth * 2) + 8,
+                width: currentSize.width + (Constants.moduleCyclerGutterWidth * 2),
                 height: currentSize.height
             )
         }
@@ -302,6 +385,28 @@ final class AppState: ObservableObject {
         case .expanded: return Constants.expandedCornerRadius
         case .fullExpanded: return Constants.fullExpandedCornerRadius
         }
+    }
+
+    var currentTopLeadingCornerRadius: CGFloat {
+        if shouldUseSquaredTopCorners {
+            return notchedExpandedShoulderRadius
+        }
+        return currentTopCornerRadius
+    }
+
+    var currentTopTrailingCornerRadius: CGFloat {
+        if shouldUseSquaredTopCorners {
+            return notchedExpandedShoulderRadius
+        }
+        return currentTopCornerRadius
+    }
+
+    var currentBottomLeadingCornerRadius: CGFloat {
+        currentBottomCornerRadius
+    }
+
+    var currentBottomTrailingCornerRadius: CGFloat {
+        currentBottomCornerRadius
     }
 
     var currentTopCornerRadius: CGFloat {
@@ -326,10 +431,138 @@ final class AppState: ObservableObject {
         }
     }
 
+    var currentTopCutoutWidth: CGFloat {
+        0
+    }
+
+    var currentTopCutoutDepth: CGFloat {
+        0
+    }
+
+    var currentTopCutoutCornerRadius: CGFloat {
+        0
+    }
+
+    var currentContentTopInset: CGFloat {
+        guard shouldUseSquaredTopCorners, let notch = currentNotchRect else {
+            return 0
+        }
+        return notch.height + Constants.expandedNotchHeightBoost
+    }
+
+    var currentContentFrameHeight: CGFloat {
+        currentContentSize.height
+    }
+
+    var contentHorizontalPadding: CGFloat {
+        switch currentState {
+        case .compact:
+            return 0
+        case .expanded:
+            return 22
+        case .fullExpanded:
+            return 26
+        }
+    }
+
+    var contentTopPadding: CGFloat {
+        switch currentState {
+        case .compact:
+            return 0
+        case .expanded:
+            return 6
+        case .fullExpanded:
+            return 8
+        }
+    }
+
+    var contentBottomPadding: CGFloat {
+        switch currentState {
+        case .compact:
+            return 0
+        case .expanded:
+            return 8
+        case .fullExpanded:
+            return 10
+        }
+    }
+
+    var expandedContentScale: CGFloat {
+        guard currentState == .expanded, shouldUseSquaredTopCorners else {
+            return 1
+        }
+        return 0.95
+    }
+
+    var expandedContentTopOffset: CGFloat {
+        guard currentState == .expanded, shouldUseSquaredTopCorners else {
+            return 0
+        }
+        return 4
+    }
+
     private var compactIslandMetrics: ScreenDetector.CompactIslandMetrics? {
-        guard let screen = ScreenDetector.primaryScreen else {
+        guard let screen = currentScreen else {
             return nil
         }
         return ScreenDetector.compactIslandMetrics(screen: screen)
     }
+
+    var usesOutwardTopCorners: Bool {
+        shouldUseSquaredTopCorners
+    }
+
+    private var shouldUseSquaredTopCorners: Bool {
+        guard currentState != .compact, let screen = currentScreen else {
+            return false
+        }
+        return ScreenDetector.hasNotch(screen: screen)
+    }
+
+    private var notchedExpandedShoulderRadius: CGFloat {
+        guard let notch = currentNotchRect else {
+            return currentTopCornerRadius
+        }
+
+        let targetRadius = (notch.height + Constants.expandedNotchHeightBoost) / 2
+        return min(currentBottomCornerRadius, max(Constants.compactNotchBottomCornerRadius, targetRadius))
+    }
+
+    private var currentNotchRect: NSRect? {
+        guard let screen = currentScreen else {
+            return nil
+        }
+        return ScreenDetector.notchRect(screen: screen)
+    }
+
+    private var currentScreen: NSScreen? {
+        ScreenDetector.activeScreen
+            ?? ScreenDetector.primaryScreen
+            ?? NSScreen.screens.first
+    }
+
+    private func performNotchEntryHapticIfNeeded() {
+        guard let screen = currentScreen, ScreenDetector.hasNotch(screen: screen) else {
+            return
+        }
+
+        let intensity = NotchHapticIntensity(rawValue: notchHapticIntensity) ?? .medium
+        let feedbackSequence = intensity.feedbackSequence
+        guard !feedbackSequence.isEmpty else { return }
+
+        for feedback in feedbackSequence {
+            let performer = NSHapticFeedbackManager.defaultPerformer
+
+            if feedback.delay == 0 {
+                performer.perform(feedback.pattern, performanceTime: .default)
+                continue
+            }
+
+            let pattern = feedback.pattern
+            DispatchQueue.main.asyncAfter(deadline: .now() + feedback.delay) {
+                NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
+            }
+        }
+    }
+
 }
