@@ -33,7 +33,9 @@ struct NowPlayingExpandedView: View {
                     .lineLimit(1)
 
                 // Progress bar
-                ProgressBar(progress: manager.progress)
+                ProgressBar(progress: manager.progress) { newProgress in
+                    manager.seek(to: manager.duration * newProgress)
+                }
                     .frame(height: 3)
             }
 
@@ -76,7 +78,9 @@ struct NowPlayingExpandedView: View {
 
             // Progress bar with times
             VStack(spacing: 4) {
-                ProgressBar(progress: manager.progress)
+                ProgressBar(progress: manager.progress) { newProgress in
+                    manager.seek(to: manager.duration * newProgress)
+                }
                     .frame(height: 4)
 
                 HStack {
@@ -120,18 +124,38 @@ struct NowPlayingExpandedView: View {
 
 struct ProgressBar: View {
     let progress: Double
+    var onSeek: ((Double) -> Void)? = nil
+
+    @State private var dragProgress: Double?
 
     var body: some View {
         GeometryReader { geometry in
+            let displayedProgress = min(max(dragProgress ?? progress, 0), 1)
+
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(.white.opacity(0.2))
 
                 RoundedRectangle(cornerRadius: 2)
                     .fill(.white)
-                    .frame(width: max(0, geometry.size.width * CGFloat(min(progress, 1.0))))
-                    .animation(Constants.progressBar, value: progress)
+                    .frame(width: max(0, geometry.size.width * CGFloat(displayedProgress)))
+                    .animation(Constants.progressBar, value: displayedProgress)
             }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard onSeek != nil, geometry.size.width > 0 else { return }
+                        let nextProgress = min(max(value.location.x / geometry.size.width, 0), 1)
+                        dragProgress = nextProgress
+                    }
+                    .onEnded { value in
+                        guard let onSeek, geometry.size.width > 0 else { return }
+                        let nextProgress = min(max(value.location.x / geometry.size.width, 0), 1)
+                        dragProgress = nil
+                        onSeek(nextProgress)
+                    }
+            )
         }
     }
 }

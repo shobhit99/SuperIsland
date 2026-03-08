@@ -6,6 +6,7 @@ private typealias MRMediaRemoteRegisterForNowPlayingNotificationsFunction = @con
 private typealias MRMediaRemoteGetNowPlayingInfoFunction = @convention(c) (DispatchQueue, @escaping ([String: Any]) -> Void) -> Void
 private typealias MRMediaRemoteGetNowPlayingApplicationIsPlayingFunction = @convention(c) (DispatchQueue, @escaping (Bool) -> Void) -> Void
 private typealias MRMediaRemoteSendCommandFunction = @convention(c) (UInt32, UnsafeMutableRawPointer?) -> Bool
+private typealias MRMediaRemoteSetElapsedTimeFunction = @convention(c) (Double) -> Void
 
 // MediaRemote command constants
 private let kMRPlay: UInt32 = 0
@@ -43,6 +44,7 @@ final class NowPlayingManager: ObservableObject {
     private var getNowPlayingInfoFunc: MRMediaRemoteGetNowPlayingInfoFunction?
     private var getIsPlayingFunc: MRMediaRemoteGetNowPlayingApplicationIsPlayingFunction?
     private var sendCommandFunc: MRMediaRemoteSendCommandFunction?
+    private var setElapsedTimeFunc: MRMediaRemoteSetElapsedTimeFunction?
 
     private var playbackTimer: Timer?
     private var pollTimer: Timer?
@@ -55,10 +57,20 @@ final class NowPlayingManager: ObservableObject {
     // Track the most recent Chrome media tab and the last one paused by our controls.
     private var currentChromeTabURL: String = ""
     private var lastPausedChromeTabURL: String = ""
+    private var currentBundleIdentifier: String = ""
+    private var lastPlaybackUpdateDate: Date = .distantPast
+    private var recentTrackChangeDate: Date = .distantPast
+    private var adapterProcess: Process?
+    private var adapterPipeHandler: JSONLinesPipeHandler?
+    private var adapterStreamTask: Task<Void, Never>?
+    private var adapterDidDeliverUpdate = false
 
     private init() {
         loadMediaRemote()
         registerForNotifications()
+        Task { [weak self] in
+            await self?.startMediaRemoteAdapterObserver()
+        }
         fetchNowPlayingInfo()
         observeSpotify()
 
@@ -102,6 +114,10 @@ final class NowPlayingManager: ObservableObject {
 
         if let sym = dlsym(handle, "MRMediaRemoteSendCommand") {
             sendCommandFunc = unsafeBitCast(sym, to: MRMediaRemoteSendCommandFunction.self)
+        }
+
+        if let sym = dlsym(handle, "MRMediaRemoteSetElapsedTime") {
+            setElapsedTimeFunc = unsafeBitCast(sym, to: MRMediaRemoteSetElapsedTimeFunction.self)
         }
     }
 
@@ -173,6 +189,7 @@ final class NowPlayingManager: ObservableObject {
             if !newTitle.isEmpty, newPlaybackRate > 0 {
                 self.mediaRemoteActive = true
                 self.currentChromeTabURL = ""
+                self.currentBundleIdentifier = ""
                 self.title = newTitle
                 self.artist = info[kMRMediaRemoteNowPlayingInfoArtist] as? String ?? ""
                 self.album = info[kMRMediaRemoteNowPlayingInfoAlbum] as? String ?? ""
@@ -205,11 +222,201 @@ final class NowPlayingManager: ObservableObject {
         }
     }
 
+    // MARK: - MediaRemote Adapter
+
+    private func startMediaRemoteAdapterObserver() async {
+        guard adapterProcess == nil else { return }
+        guard let resources = mediaRemoteAdapterResources() else {
+            print("[NowPlaying] MediaRemote adapter resources not found")
+            return
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        process.arguments = [resources.scriptURL.path, resources.frameworkURL.path, "stream"]
+
+        let pipeHandler = JSONLinesPipeHandler()
+        process.standardOutput = await pipeHandler.getPipe()
+
+        process.terminationHandler = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.adapterProcess = nil
+                self?.adapterPipeHandler = nil
+                self?.adapterStreamTask = nil
+                self?.adapterDidDeliverUpdate = false
+            }
+        }
+
+        adapterProcess = process
+        adapterPipeHandler = pipeHandler
+
+        do {
+            try process.run()
+            adapterStreamTask = Task { [weak self] in
+                await self?.processAdapterJSONStream()
+            }
+        } catch {
+            print("[NowPlaying] Failed to launch MediaRemote adapter: \(error)")
+            adapterProcess = nil
+            adapterPipeHandler = nil
+        }
+    }
+
+    private func processAdapterJSONStream() async {
+        guard let pipeHandler = adapterPipeHandler else { return }
+
+        await pipeHandler.readJSONLines(as: NowPlayingUpdate.self) { [weak self] update in
+            await self?.handleAdapterUpdate(update)
+        }
+    }
+
+    private func handleAdapterUpdate(_ update: NowPlayingUpdate) async {
+        adapterDidDeliverUpdate = true
+
+        let payload = update.payload
+        let diff = update.diff ?? false
+        let previousElapsedTime = elapsedTime
+        let previousPlaybackRate = playbackRate
+        let previousPlaybackUpdateDate = lastPlaybackUpdateDate
+        let bundleIdentifier = payload.parentApplicationBundleIdentifier ?? payload.bundleIdentifier ?? ""
+        let resolvedTitle = payload.title ?? (diff ? title : "")
+        let resolvedArtist = payload.artist ?? (diff ? artist : "")
+        let resolvedAlbum = payload.album ?? (diff ? album : "")
+        let resolvedDuration = payload.duration ?? (diff ? duration : 0)
+        let resolvedPlaybackRate = payload.playbackRate ?? (diff ? playbackRate : 1.0)
+        let resolvedIsPlaying = payload.playing ?? (diff ? isPlaying : false)
+        let resolvedSourceName = sourceName(forBundleIdentifier: bundleIdentifier)
+        let previousTrackSignature = trackSignature(
+            title: title,
+            artist: artist,
+            album: album,
+            bundleIdentifier: currentBundleIdentifier
+        )
+        let incomingTrackSignature = trackSignature(
+            title: resolvedTitle,
+            artist: resolvedArtist,
+            album: resolvedAlbum,
+            bundleIdentifier: bundleIdentifier
+        )
+        let trackChanged = !resolvedTitle.isEmpty && incomingTrackSignature != previousTrackSignature
+        let resolvedUpdateDate: Date
+
+        if let dateString = payload.timestamp,
+           let date = ISO8601DateFormatter().date(from: dateString) {
+            resolvedUpdateDate = date
+        } else if diff {
+            resolvedUpdateDate = previousPlaybackUpdateDate
+        } else {
+            resolvedUpdateDate = Date()
+        }
+
+        let resolvedElapsedTime: TimeInterval
+
+        if let rawElapsedTime = payload.elapsedTime {
+            resolvedElapsedTime = clampElapsedTime(rawElapsedTime, duration: resolvedDuration)
+        } else if trackChanged {
+            resolvedElapsedTime = 0
+        } else if diff {
+            if payload.playing == false {
+                let delta = max(0, Date().timeIntervalSince(previousPlaybackUpdateDate))
+                resolvedElapsedTime = clampElapsedTime(
+                    previousElapsedTime + (previousPlaybackRate * delta),
+                    duration: resolvedDuration
+                )
+            } else {
+                resolvedElapsedTime = clampElapsedTime(previousElapsedTime, duration: resolvedDuration)
+            }
+        } else {
+            resolvedElapsedTime = 0
+        }
+
+        mediaRemoteActive = !resolvedTitle.isEmpty || !bundleIdentifier.isEmpty
+        currentBundleIdentifier = bundleIdentifier
+        lastPlaybackUpdateDate = resolvedUpdateDate
+        title = resolvedTitle
+        artist = resolvedArtist
+        album = resolvedAlbum
+        duration = resolvedDuration
+        playbackRate = resolvedPlaybackRate
+        isPlaying = resolvedIsPlaying
+        sourceName = resolvedSourceName
+
+        if trackChanged {
+            recentTrackChangeDate = Date()
+        }
+
+        let shouldResetSuspiciousElapsedTime =
+            Date().timeIntervalSince(recentTrackChangeDate) < 1.5 &&
+            resolvedElapsedTime > 3 &&
+            resolvedDuration > 0 &&
+            resolvedElapsedTime < resolvedDuration
+
+        elapsedTime = shouldResetSuspiciousElapsedTime ? 0 : resolvedElapsedTime
+
+        if isChromeBundleIdentifier(bundleIdentifier) {
+            if !resolvedIsPlaying && !currentChromeTabURL.isEmpty {
+                lastPausedChromeTabURL = currentChromeTabURL
+            }
+        } else {
+            currentChromeTabURL = ""
+            lastPausedChromeTabURL = ""
+        }
+
+        if let artworkDataString = payload.artworkData,
+           let artworkData = Data(base64Encoded: artworkDataString.trimmingCharacters(in: .whitespacesAndNewlines)),
+           let image = NSImage(data: artworkData) {
+            albumArt = image
+        } else if resolvedTitle.isEmpty {
+            albumArt = nil
+        }
+
+        if !resolvedTitle.isEmpty, resolvedTitle != lastDetectedTitle {
+            lastDetectedTitle = resolvedTitle
+            AppState.shared.setActiveModule(.nowPlaying)
+        } else if resolvedTitle.isEmpty {
+            lastDetectedTitle = ""
+        }
+
+        updatePlaybackTimer()
+    }
+
+    private func mediaRemoteAdapterResources() -> (scriptURL: URL, frameworkURL: URL)? {
+        if let resourceURL = Bundle.main.resourceURL {
+            let adapterDirectory = resourceURL.appendingPathComponent("MediaRemoteAdapter", isDirectory: true)
+            let scriptURL = adapterDirectory.appendingPathComponent("mediaremote-adapter.pl")
+            let frameworkURL = adapterDirectory.appendingPathComponent("MediaRemoteAdapter.framework")
+
+            if FileManager.default.fileExists(atPath: scriptURL.path),
+               FileManager.default.fileExists(atPath: frameworkURL.path) {
+                return (scriptURL, frameworkURL)
+            }
+        }
+
+        let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let adapterDirectory = sourceRoot.appendingPathComponent("Resources/MediaRemoteAdapter", isDirectory: true)
+        let scriptURL = adapterDirectory.appendingPathComponent("mediaremote-adapter.pl")
+        let frameworkURL = adapterDirectory.appendingPathComponent("MediaRemoteAdapter.framework")
+
+        guard FileManager.default.fileExists(atPath: scriptURL.path),
+              FileManager.default.fileExists(atPath: frameworkURL.path) else {
+            return nil
+        }
+
+        return (scriptURL, frameworkURL)
+    }
+
     // MARK: - AppleScript Fallback
 
     private func refreshPreferredSource() {
         let work = { [weak self] in
             guard let self else { return }
+
+            if self.adapterDidDeliverUpdate {
+                return
+            }
 
             if self.refreshCurrentSourceIfNeeded() { return }
 
@@ -249,6 +456,10 @@ final class NowPlayingManager: ObservableObject {
         default:
             return false
         }
+    }
+
+    private var shouldUseMediaRemoteControls: Bool {
+        mediaRemoteActive || (adapterDidDeliverUpdate && !currentBundleIdentifier.isEmpty)
     }
 
     private func fetchSpotifyViaAppleScript() -> Bool {
@@ -561,16 +772,15 @@ final class NowPlayingManager: ObservableObject {
         isPlaying = shouldPlay
         updatePlaybackTimer()
 
-        if isChromePlaybackSource {
-            _ = controlChromePlayback(shouldPlay: shouldPlay)
-            refreshPlaybackStateAfterControlAction(preferChromeRefresh: true)
+        if shouldUseMediaRemoteControls {
+            _ = sendCommandFunc?(shouldPlay ? kMRPlay : kMRPause, nil)
+            refreshPlaybackStateAfterControlAction()
             return
         }
 
-        // Try MediaRemote first
-        if mediaRemoteActive {
-            _ = sendCommandFunc?(shouldPlay ? kMRPlay : kMRPause, nil)
-            refreshPlaybackStateAfterControlAction()
+        if isChromePlaybackSource {
+            _ = controlChromePlayback(shouldPlay: shouldPlay)
+            refreshPlaybackStateAfterControlAction(preferChromeRefresh: true)
             return
         }
 
@@ -588,7 +798,7 @@ final class NowPlayingManager: ObservableObject {
     }
 
     func nextTrack() {
-        if mediaRemoteActive {
+        if shouldUseMediaRemoteControls {
             _ = sendCommandFunc?(kMRNextTrack, nil)
             return
         }
@@ -603,7 +813,7 @@ final class NowPlayingManager: ObservableObject {
     }
 
     func previousTrack() {
-        if mediaRemoteActive {
+        if shouldUseMediaRemoteControls {
             _ = sendCommandFunc?(kMRPreviousTrack, nil)
             return
         }
@@ -619,6 +829,27 @@ final class NowPlayingManager: ObservableObject {
 
     func skipTrack(forward: Bool) {
         if forward { nextTrack() } else { previousTrack() }
+    }
+
+    func seek(to time: TimeInterval) {
+        let clampedTime = max(0, min(time, duration))
+        elapsedTime = clampedTime
+        updatePlaybackTimer()
+
+        if shouldUseMediaRemoteControls {
+            setElapsedTimeFunc?(clampedTime)
+            refreshPlaybackStateAfterControlAction()
+            return
+        }
+
+        switch sourceName {
+        case "Spotify":
+            _ = runAppleScript("tell application \"Spotify\" to set player position to \(clampedTime)")
+        case "Apple Music":
+            _ = runAppleScript("tell application \"Music\" to set player position to \(clampedTime)")
+        default:
+            break
+        }
     }
 
     // MARK: - Helpers
@@ -756,6 +987,49 @@ final class NowPlayingManager: ObservableObject {
         return "Google Chrome"
     }
 
+    private func sourceName(forBundleIdentifier bundleIdentifier: String) -> String {
+        switch bundleIdentifier {
+        case "com.apple.Music":
+            return "Apple Music"
+        case "com.spotify.client":
+            return "Spotify"
+        case "com.google.Chrome":
+            return "Google Chrome"
+        case "com.google.Chrome.canary":
+            return "Google Chrome Canary"
+        case "com.apple.Safari":
+            return "Safari"
+        case "com.microsoft.edgemac":
+            return "Microsoft Edge"
+        default:
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier),
+               let bundle = Bundle(url: appURL),
+               let appName = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String,
+               !appName.isEmpty {
+                return appName
+            }
+            return bundleIdentifier
+        }
+    }
+
+    private func trackSignature(title: String, artist: String, album: String, bundleIdentifier: String) -> String {
+        [bundleIdentifier, title, artist, album]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .joined(separator: "||")
+    }
+
+    private func clampElapsedTime(_ elapsedTime: TimeInterval, duration: TimeInterval) -> TimeInterval {
+        let normalizedElapsedTime = max(0, elapsedTime)
+        guard duration > 0 else {
+            return normalizedElapsedTime
+        }
+        return min(normalizedElapsedTime, duration)
+    }
+
+    private func isChromeBundleIdentifier(_ bundleIdentifier: String) -> Bool {
+        bundleIdentifier == "com.google.Chrome" || bundleIdentifier == "com.google.Chrome.canary"
+    }
+
     private func escapeAppleScriptString(_ value: String) -> String {
         value
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -771,8 +1045,96 @@ final class NowPlayingManager: ObservableObject {
     deinit {
         playbackTimer?.invalidate()
         pollTimer?.invalidate()
+        adapterStreamTask?.cancel()
+        if let adapterPipeHandler {
+            Task {
+                await adapterPipeHandler.close()
+            }
+        }
+        if let adapterProcess, adapterProcess.isRunning {
+            adapterProcess.terminate()
+            adapterProcess.waitUntilExit()
+        }
         if let handle {
             dlclose(handle)
+        }
+    }
+}
+
+private struct NowPlayingUpdate: Decodable {
+    let payload: NowPlayingPayload
+    let diff: Bool?
+}
+
+private struct NowPlayingPayload: Decodable {
+    let title: String?
+    let artist: String?
+    let album: String?
+    let duration: Double?
+    let elapsedTime: Double?
+    let artworkData: String?
+    let timestamp: String?
+    let playbackRate: Double?
+    let playing: Bool?
+    let parentApplicationBundleIdentifier: String?
+    let bundleIdentifier: String?
+}
+
+private actor JSONLinesPipeHandler {
+    private let pipe = Pipe()
+    private lazy var fileHandle = pipe.fileHandleForReading
+    private var buffer = ""
+
+    func getPipe() -> Pipe {
+        pipe
+    }
+
+    func readJSONLines<T: Decodable>(as type: T.Type, onLine: @escaping (T) async -> Void) async {
+        do {
+            while true {
+                let data = try await readData()
+                guard !data.isEmpty else { break }
+
+                if let chunk = String(data: data, encoding: .utf8) {
+                    buffer.append(chunk)
+
+                    while let range = buffer.range(of: "\n") {
+                        let line = String(buffer[..<range.lowerBound])
+                        buffer = String(buffer[range.upperBound...])
+
+                        guard !line.isEmpty, let lineData = line.data(using: .utf8) else { continue }
+
+                        do {
+                            let decoded = try JSONDecoder().decode(T.self, from: lineData)
+                            await onLine(decoded)
+                        } catch {
+                            continue
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("[NowPlaying] Error reading MediaRemote adapter stream: \(error)")
+        }
+    }
+
+    private func readData() async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            fileHandle.readabilityHandler = { handle in
+                let data = handle.availableData
+                handle.readabilityHandler = nil
+                continuation.resume(returning: data)
+            }
+        }
+    }
+
+    func close() async {
+        do {
+            fileHandle.readabilityHandler = nil
+            try fileHandle.close()
+            try pipe.fileHandleForWriting.close()
+        } catch {
+            print("[NowPlaying] Error closing MediaRemote adapter pipe: \(error)")
         }
     }
 }
