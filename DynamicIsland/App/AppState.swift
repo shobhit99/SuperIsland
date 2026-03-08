@@ -374,7 +374,7 @@ final class AppState: ObservableObject {
         case .expanded, .fullExpanded:
             return CGSize(
                 width: currentSize.width + (Constants.moduleCyclerGutterWidth * 2),
-                height: currentSize.height
+                height: currentSize.height + Constants.expandedShadowBottomPadding
             )
         }
     }

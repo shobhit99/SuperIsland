@@ -11,6 +11,7 @@ enum Constants {
     static let windowMaxHeight: CGFloat = 260
     static let moduleCyclerGutterWidth: CGFloat = 52
     static let moduleCyclerButtonSize: CGFloat = 24
+    static let expandedShadowBottomPadding: CGFloat = 40
     static let expandedNotchHeightBoost: CGFloat = 5
     static let compactNotchHorizontalInset: CGFloat = 4
     static let compactNotchHeightInset: CGFloat = 0
@@ -24,9 +25,9 @@ enum Constants {
     static let fullExpandedCornerRadius: CGFloat = 26
 
     // MARK: - Animation Springs
-    static let compactToExpanded: Animation = .spring(response: 0.35, dampingFraction: 0.75)
-    static let expandedToCompact: Animation = .spring(response: 0.3, dampingFraction: 0.8)
-    static let expandedToFull: Animation = .spring(response: 0.4, dampingFraction: 0.7)
+    static let compactToExpanded: Animation = .spring(response: 0.52, dampingFraction: 0.8)
+    static let expandedToCompact: Animation = .spring(response: 0.46, dampingFraction: 0.84)
+    static let expandedToFull: Animation = .spring(response: 0.6, dampingFraction: 0.78)
     static let hudAppear: Animation = .easeOut(duration: 0.25)
     static let hudDismiss: Animation = .easeIn(duration: 0.2)
     static let progressBar: Animation = .easeInOut(duration: 0.15)

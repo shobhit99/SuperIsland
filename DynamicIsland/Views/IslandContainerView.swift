@@ -2,14 +2,22 @@ import SwiftUI
 
 struct IslandContainerView: View {
     @EnvironmentObject var appState: AppState
+    @State private var surfaceScale: CGFloat = 1.0
+    @State private var overshootResetWorkItem: DispatchWorkItem?
 
     var body: some View {
         islandBody
+            .onChange(of: appState.currentState) { oldValue, newValue in
+                triggerExpansionOvershoot(from: oldValue, to: newValue)
+            }
+            .onDisappear {
+                overshootResetWorkItem?.cancel()
+            }
     }
 
     private var islandBody: some View {
         GeometryReader { geometry in
-            ZStack {
+            ZStack(alignment: .top) {
                 islandSurface
 
                 if showModuleCycler {
@@ -20,7 +28,7 @@ struct IslandContainerView: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: appState.activeModule)
+        .animation(.spring(response: 0.48, dampingFraction: 0.8), value: appState.activeModule)
         .onHover { hovering in
             appState.handleHoverChange(hovering)
         }
@@ -42,8 +50,41 @@ struct IslandContainerView: View {
     private var islandSurface: some View {
         let surface = ZStack(alignment: .top) {
             islandShape
-                .fill(.black)
-                .shadow(color: .black.opacity(0.3), radius: appState.currentState == .compact ? 0 : 10, y: 5)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.98),
+                            Color.black.opacity(0.94)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay {
+                    islandShape
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(appState.currentState == .compact ? 0.14 : 0.18),
+                                    .white.opacity(0.05)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 0.9
+                        )
+                }
+                .compositingGroup()
+                .shadow(
+                    color: .black.opacity(ambientShadowOpacity),
+                    radius: ambientShadowRadius,
+                    y: ambientShadowYOffset
+                )
+                .shadow(
+                    color: .black.opacity(keyShadowOpacity),
+                    radius: keyShadowRadius,
+                    y: keyShadowYOffset
+                )
 
             if appState.currentState == .compact {
                 CompactView()
@@ -55,7 +96,9 @@ struct IslandContainerView: View {
             }
         }
         .frame(width: appState.currentSize.width, height: appState.currentSize.height)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contentShape(islandShape)
+        .scaleEffect(surfaceScale, anchor: surfaceScaleAnchor)
 
         if appState.currentState == .fullExpanded {
             surface
@@ -88,6 +131,44 @@ struct IslandContainerView: View {
 
     private var compactContentOpacity: Double {
         appState.currentState == .compact ? appState.idleOpacity : 1.0
+    }
+
+    private var surfaceScaleAnchor: UnitPoint {
+        appState.currentState == .compact ? .center : .top
+    }
+
+    private var shadowBoost: CGFloat {
+        max(surfaceScale - 1.0, 0)
+    }
+
+    private var ambientShadowOpacity: Double {
+        let baseOpacity = appState.currentState == .compact ? 0.24 : 0.34
+        return min(baseOpacity + Double(shadowBoost * 1.9), 0.46)
+    }
+
+    private var ambientShadowRadius: CGFloat {
+        let baseRadius: CGFloat = appState.currentState == .compact ? 4 : 6
+        return baseRadius + (shadowBoost * 20)
+    }
+
+    private var ambientShadowYOffset: CGFloat {
+        let baseOffset: CGFloat = appState.currentState == .compact ? 3 : 5
+        return baseOffset + (shadowBoost * 10)
+    }
+
+    private var keyShadowOpacity: Double {
+        let baseOpacity = appState.currentState == .compact ? 0.42 : 0.52
+        return min(baseOpacity + Double(shadowBoost * 2.2), 0.68)
+    }
+
+    private var keyShadowRadius: CGFloat {
+        let baseRadius: CGFloat = appState.currentState == .compact ? 8 : 11
+        return baseRadius + (shadowBoost * 28)
+    }
+
+    private var keyShadowYOffset: CGFloat {
+        let baseOffset: CGFloat = appState.currentState == .compact ? 6 : 8
+        return baseOffset + (shadowBoost * 14)
     }
 
     private var expandedIslandLayout: some View {
@@ -196,5 +277,40 @@ struct IslandContainerView: View {
         }
         .buttonStyle(.plain)
         .help(forward ? "Next module" : "Previous module")
+    }
+
+    private func triggerExpansionOvershoot(from oldState: IslandState, to newState: IslandState) {
+        overshootResetWorkItem?.cancel()
+
+        let overshootScale: CGFloat
+        switch (oldState, newState) {
+        case (.compact, .expanded):
+            overshootScale = 1.035
+        case (.compact, .fullExpanded):
+            overshootScale = 1.04
+        case (.expanded, .fullExpanded):
+            overshootScale = 1.024
+        default:
+            overshootScale = 1.0
+        }
+
+        guard overshootScale > 1 else {
+            withAnimation(.easeOut(duration: 0.12)) {
+                surfaceScale = 1.0
+            }
+            return
+        }
+
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+            surfaceScale = overshootScale
+        }
+
+        let settleWorkItem = DispatchWorkItem {
+            withAnimation(.spring(response: 0.44, dampingFraction: 0.88)) {
+                surfaceScale = 1.0
+            }
+        }
+        overshootResetWorkItem = settleWorkItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: settleWorkItem)
     }
 }

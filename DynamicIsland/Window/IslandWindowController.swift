@@ -24,9 +24,11 @@ final class IslandWindowController {
         )
         hostingView.frame = panel.contentView?.bounds ?? .zero
         hostingView.autoresizingMask = [.width, .height]
+        hostingView.wantsLayer = true
 
         // Make hosting view background transparent
         hostingView.layer?.backgroundColor = .clear
+        hostingView.layer?.masksToBounds = false
 
         panel.contentView = hostingView
         positionIsland(on: panel)
@@ -83,8 +85,13 @@ final class IslandWindowController {
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.22
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                context.duration = 0.28
+                context.timingFunction = CAMediaTimingFunction(
+                    controlPoints: 0.22,
+                    0.9,
+                    0.24,
+                    1.0
+                )
                 panel.animator().setFrame(frame, display: true)
             }
         } else {
@@ -111,8 +118,10 @@ final class IslandWindowController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self, let panel = self.panel else { return }
-            self.positionIsland(on: panel)
+            Task { @MainActor [weak self] in
+                guard let self, let panel = self.panel else { return }
+                self.positionIsland(on: panel)
+            }
         }
     }
 
