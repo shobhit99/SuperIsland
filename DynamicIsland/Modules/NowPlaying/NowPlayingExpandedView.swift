@@ -121,7 +121,7 @@ struct NowPlayingExpandedView: View {
                 .buttonStyle(.plain)
             }
             .foregroundColor(.white)
-            .offset(y: -4)
+            .padding(.top, 6)
         }
     }
 }

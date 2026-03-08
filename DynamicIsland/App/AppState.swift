@@ -118,7 +118,7 @@ final class AppState: ObservableObject {
     @AppStorage("general.showOnAllSpaces") var showOnAllSpaces = true
     @AppStorage("general.launchAtLogin") var launchAtLogin = false
     @AppStorage("general.showInScreenRecordings") var showInScreenRecordings = false
-    @AppStorage("general.expandedAutoDismissDelay") var expandedAutoDismissDelay: Double = 2.0
+    @AppStorage("general.expandedAutoDismissDelay") var expandedAutoDismissDelay: Double = 1.0
     @AppStorage("general.notchHapticIntensity") var notchHapticIntensity = NotchHapticIntensity.medium.rawValue
 
     private var autoDismissWorkItem: DispatchWorkItem?
@@ -459,9 +459,9 @@ final class AppState: ObservableObject {
         case .compact:
             return 0
         case .expanded:
-            return 22
-        case .fullExpanded:
             return 26
+        case .fullExpanded:
+            return 32
         }
     }
 
@@ -470,9 +470,9 @@ final class AppState: ObservableObject {
         case .compact:
             return 0
         case .expanded:
-            return 6
-        case .fullExpanded:
             return 8
+        case .fullExpanded:
+            return 12
         }
     }
 
@@ -481,9 +481,9 @@ final class AppState: ObservableObject {
         case .compact:
             return 0
         case .expanded:
-            return 8
-        case .fullExpanded:
             return 10
+        case .fullExpanded:
+            return 14
         }
     }
 
