@@ -25,13 +25,13 @@ enum Constants {
     static let fullExpandedCornerRadius: CGFloat = 26
 
     // MARK: - Animation Springs
-    static let compactToExpanded: Animation = .spring(response: 0.52, dampingFraction: 0.8)
-    static let expandedToCompact: Animation = .spring(response: 0.46, dampingFraction: 0.84)
-    static let expandedToFull: Animation = .spring(response: 0.6, dampingFraction: 0.78)
-    static let hudAppear: Animation = .easeOut(duration: 0.25)
-    static let hudDismiss: Animation = .easeIn(duration: 0.2)
+    static let compactToExpanded: Animation = .interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0)
+    static let expandedToCompact: Animation = .interactiveSpring(response: 0.45, dampingFraction: 1.0, blendDuration: 0)
+    static let expandedToFull: Animation = .interactiveSpring(response: 0.42, dampingFraction: 0.82, blendDuration: 0)
+    static let hudAppear: Animation = compactToExpanded
+    static let hudDismiss: Animation = expandedToCompact
     static let progressBar: Animation = .easeInOut(duration: 0.15)
-    static let contentSwap: Animation = .easeInOut(duration: 0.2)
+    static let contentSwap: Animation = .smooth(duration: 0.22)
     static let overshootBounce: Animation = .spring(response: 0.3, dampingFraction: 0.5)
 
     // MARK: - Timing

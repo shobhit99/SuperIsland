@@ -5,9 +5,16 @@ import Security
 
 enum AIUsageProvider {
     private static let cacheTTL: TimeInterval = 300
+    private static let claudeKeychainAccessStateDefaultsKey = "aiUsage.claude.keychainAccessState"
     private static var cachedSnapshot: [String: Any]?
     private static var cachedAt: Date?
     private static let cacheLock = NSLock()
+
+    private enum ClaudeKeychainAccessState: String {
+        case unknown
+        case allowed
+        case denied
+    }
 
     static func snapshot() -> [String: Any] {
         let nowDate = Date()
@@ -474,7 +481,8 @@ enum AIUsageProvider {
         }
 
         #if os(macOS)
-        if let token = loadClaudeAccessTokenFromKeychain() {
+        if claudeKeychainAccessState() != .denied,
+           let token = loadClaudeAccessTokenFromKeychain() {
             return token
         }
         #endif
@@ -575,6 +583,7 @@ enum AIUsageProvider {
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        updateClaudeKeychainAccessState(for: status)
         guard status == errSecSuccess, let data = result as? Data else {
             return nil
         }
@@ -602,6 +611,36 @@ enum AIUsageProvider {
         return nil
     }
     #endif
+
+    private static func claudeKeychainAccessState() -> ClaudeKeychainAccessState {
+        guard let rawValue = UserDefaults.standard.string(forKey: claudeKeychainAccessStateDefaultsKey),
+              let state = ClaudeKeychainAccessState(rawValue: rawValue) else {
+            return .unknown
+        }
+        return state
+    }
+
+    private static func setClaudeKeychainAccessState(_ state: ClaudeKeychainAccessState) {
+        if state == .unknown {
+            UserDefaults.standard.removeObject(forKey: claudeKeychainAccessStateDefaultsKey)
+        } else {
+            UserDefaults.standard.set(state.rawValue, forKey: claudeKeychainAccessStateDefaultsKey)
+        }
+    }
+
+    private static func updateClaudeKeychainAccessState(for status: OSStatus) {
+        switch status {
+        case errSecSuccess:
+            setClaudeKeychainAccessState(.allowed)
+        #if os(macOS)
+        case errSecAuthFailed, errSecUserCanceled, errSecInteractionNotAllowed:
+            // Stop repeated OS keychain prompts after the user explicitly denies once.
+            setClaudeKeychainAccessState(.denied)
+        #endif
+        default:
+            break
+        }
+    }
 
     private static func preferredClaudeModel(from stats: [String: Any]) -> String? {
         guard let modelUsage = stats["modelUsage"] as? [String: Any], !modelUsage.isEmpty else {

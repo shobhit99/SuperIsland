@@ -63,35 +63,26 @@ final class IslandWindowController {
         let windowWidth = size.width
         let windowHeight = size.height
 
-        let x: CGFloat
-        let y: CGFloat
+        let anchorX: CGFloat
+        let anchorY: CGFloat
 
         if hasNotch, let notch = notchRect {
-            // Center the window over the notch area
-            x = notch.midX - windowWidth / 2
-            if appState.currentState == .compact {
-                y = notch.midY - (windowHeight / 2) + Constants.compactNotchVerticalOffset
-            } else {
-                // Keep expanded states pinned to the top edge so the upper corners remain usable.
-                y = notch.maxY - windowHeight - Constants.expandedTopInset
-            }
+            anchorX = notch.midX
+            anchorY = notch.maxY - Constants.expandedTopInset
         } else {
-            // Top center of screen
-            x = screenFrame.midX - windowWidth / 2
-            y = screenFrame.maxY - windowHeight - Constants.expandedTopInset
+            anchorX = screenFrame.midX
+            anchorY = screenFrame.maxY - Constants.expandedTopInset
         }
+
+        let x = anchorX - windowWidth / 2
+        let y = anchorY - windowHeight
 
         let frame = NSRect(x: x, y: y, width: windowWidth, height: windowHeight)
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.28
-                context.timingFunction = CAMediaTimingFunction(
-                    controlPoints: 0.22,
-                    0.9,
-                    0.24,
-                    1.0
-                )
+                context.duration = appState.currentState == .compact ? 0.45 : 0.38
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 panel.animator().setFrame(frame, display: true)
             }
         } else {

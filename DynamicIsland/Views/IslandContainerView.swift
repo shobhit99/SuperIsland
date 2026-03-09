@@ -2,17 +2,12 @@ import SwiftUI
 
 struct IslandContainerView: View {
     @EnvironmentObject var appState: AppState
-    @State private var surfaceScale: CGFloat = 1.0
-    @State private var overshootResetWorkItem: DispatchWorkItem?
+    @State private var isHoveringIslandSurface = false
+    @State private var isHoveringPreviousButton = false
+    @State private var isHoveringNextButton = false
 
     var body: some View {
         islandBody
-            .onChange(of: appState.currentState) { oldValue, newValue in
-                triggerExpansionOvershoot(from: oldValue, to: newValue)
-            }
-            .onDisappear {
-                overshootResetWorkItem?.cancel()
-            }
     }
 
     private var islandBody: some View {
@@ -29,8 +24,10 @@ struct IslandContainerView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .animation(.spring(response: 0.48, dampingFraction: 0.8), value: appState.activeModule)
-        .onHover { hovering in
-            appState.handleHoverChange(hovering)
+        .onChange(of: showModuleCycler) { _, isVisible in
+            guard !isVisible else { return }
+            setCycleButtonHover(false, forward: false)
+            setCycleButtonHover(false, forward: true)
         }
         .gesture(
             DragGesture(minimumDistance: 8)
@@ -82,12 +79,12 @@ struct IslandContainerView: View {
             }
         }
         .frame(width: appState.currentSize.width, height: appState.currentSize.height)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contentShape(islandShape)
-        .scaleEffect(surfaceScale, anchor: surfaceScaleAnchor)
+        .onHover(perform: setIslandSurfaceHover)
 
         if appState.currentState == .fullExpanded {
             surface
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             surface.onTapGesture {
                 switch appState.currentState {
@@ -99,6 +96,7 @@ struct IslandContainerView: View {
                     break
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 
@@ -119,42 +117,28 @@ struct IslandContainerView: View {
         appState.currentState == .compact ? appState.idleOpacity : 1.0
     }
 
-    private var surfaceScaleAnchor: UnitPoint {
-        appState.currentState == .compact ? .center : .top
-    }
-
-    private var shadowBoost: CGFloat {
-        max(surfaceScale - 1.0, 0)
-    }
-
     private var ambientShadowOpacity: Double {
-        let baseOpacity = appState.currentState == .compact ? 0.24 : 0.34
-        return min(baseOpacity + Double(shadowBoost * 1.9), 0.46)
+        appState.currentState == .compact ? 0.24 : 0.34
     }
 
     private var ambientShadowRadius: CGFloat {
-        let baseRadius: CGFloat = appState.currentState == .compact ? 4 : 6
-        return baseRadius + (shadowBoost * 20)
+        appState.currentState == .compact ? 4 : 6
     }
 
     private var ambientShadowYOffset: CGFloat {
-        let baseOffset: CGFloat = appState.currentState == .compact ? 3 : 5
-        return baseOffset + (shadowBoost * 10)
+        appState.currentState == .compact ? 3 : 5
     }
 
     private var keyShadowOpacity: Double {
-        let baseOpacity = appState.currentState == .compact ? 0.42 : 0.52
-        return min(baseOpacity + Double(shadowBoost * 2.2), 0.68)
+        appState.currentState == .compact ? 0.42 : 0.52
     }
 
     private var keyShadowRadius: CGFloat {
-        let baseRadius: CGFloat = appState.currentState == .compact ? 8 : 11
-        return baseRadius + (shadowBoost * 28)
+        appState.currentState == .compact ? 8 : 11
     }
 
     private var keyShadowYOffset: CGFloat {
-        let baseOffset: CGFloat = appState.currentState == .compact ? 6 : 8
-        return baseOffset + (shadowBoost * 14)
+        appState.currentState == .compact ? 6 : 8
     }
 
     private var expandedIslandLayout: some View {
@@ -260,43 +244,35 @@ struct IslandContainerView: View {
                         .stroke(.white.opacity(0.12), lineWidth: 1)
                 )
                 .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            setCycleButtonHover(hovering, forward: forward)
+        }
         .help(forward ? "Next module" : "Previous module")
     }
 
-    private func triggerExpansionOvershoot(from oldState: IslandState, to newState: IslandState) {
-        overshootResetWorkItem?.cancel()
+    private func setIslandSurfaceHover(_ hovering: Bool) {
+        guard isHoveringIslandSurface != hovering else { return }
+        isHoveringIslandSurface = hovering
+        syncHoverState()
+    }
 
-        let overshootScale: CGFloat
-        switch (oldState, newState) {
-        case (.compact, .expanded):
-            overshootScale = 1.035
-        case (.compact, .fullExpanded):
-            overshootScale = 1.04
-        case (.expanded, .fullExpanded):
-            overshootScale = 1.024
-        default:
-            overshootScale = 1.0
+    private func setCycleButtonHover(_ hovering: Bool, forward: Bool) {
+        if forward {
+            guard isHoveringNextButton != hovering else { return }
+            isHoveringNextButton = hovering
+        } else {
+            guard isHoveringPreviousButton != hovering else { return }
+            isHoveringPreviousButton = hovering
         }
+        syncHoverState()
+    }
 
-        guard overshootScale > 1 else {
-            withAnimation(.easeOut(duration: 0.12)) {
-                surfaceScale = 1.0
-            }
-            return
-        }
-
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
-            surfaceScale = overshootScale
-        }
-
-        let settleWorkItem = DispatchWorkItem {
-            withAnimation(.spring(response: 0.44, dampingFraction: 0.88)) {
-                surfaceScale = 1.0
-            }
-        }
-        overshootResetWorkItem = settleWorkItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: settleWorkItem)
+    private func syncHoverState() {
+        appState.handleHoverChange(
+            isHoveringIslandSurface || isHoveringPreviousButton || isHoveringNextButton
+        )
     }
 }
