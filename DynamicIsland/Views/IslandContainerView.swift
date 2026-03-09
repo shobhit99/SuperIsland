@@ -60,20 +60,6 @@ struct IslandContainerView: View {
                         endPoint: .bottom
                     )
                 )
-                .overlay {
-                    islandShape
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    .white.opacity(appState.currentState == .compact ? 0.14 : 0.18),
-                                    .white.opacity(0.05)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ),
-                            lineWidth: 0.9
-                        )
-                }
                 .compositingGroup()
                 .shadow(
                     color: .black.opacity(ambientShadowOpacity),
