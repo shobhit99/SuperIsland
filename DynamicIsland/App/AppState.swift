@@ -164,6 +164,8 @@ final class AppState: ObservableObject {
     private var autoDismissWorkItem: DispatchWorkItem?
     private var fullExpandedDismissWorkItem: DispatchWorkItem?
     private var hoverActivationWorkItem: DispatchWorkItem?
+    private var systemEmojiInteractionWorkItem: DispatchWorkItem?
+    private var systemEmojiInteractionExpiry: Date?
     private init() {}
 
     // MARK: - State Transitions
@@ -215,6 +217,7 @@ final class AppState: ObservableObject {
         cancelAutoDismiss()
         cancelFullExpandedDismiss()
         cancelHoverActivation()
+        endSystemEmojiInteraction()
         withAnimation(Constants.expandedToCompact) {
             currentState = .compact
         }
@@ -235,6 +238,10 @@ final class AppState: ObservableObject {
             }
         } else {
             cancelHoverActivation()
+
+            if isSystemEmojiInteractionActive {
+                return
+            }
 
             if currentState == .expanded {
                 scheduleAutoDismiss()
@@ -273,6 +280,7 @@ final class AppState: ObservableObject {
 
     func scheduleAutoDismiss(after delayOverride: TimeInterval? = nil) {
         cancelAutoDismiss()
+        guard !isSystemEmojiInteractionActive else { return }
         let delay = delayOverride ?? expandedAutoDismissDelay
         guard delay > 0 else { return }
         let workItem = DispatchWorkItem { [weak self] in
@@ -292,6 +300,7 @@ final class AppState: ObservableObject {
 
     func scheduleFullExpandedDismiss() {
         cancelFullExpandedDismiss()
+        guard !isSystemEmojiInteractionActive else { return }
         let delay = expandedAutoDismissDelay
         guard delay > 0 else { return }
         let workItem = DispatchWorkItem { [weak self] in
@@ -310,6 +319,42 @@ final class AppState: ObservableObject {
     func cancelHoverActivation() {
         hoverActivationWorkItem?.cancel()
         hoverActivationWorkItem = nil
+    }
+
+    var isSystemEmojiInteractionActive: Bool {
+        guard let expiry = systemEmojiInteractionExpiry else { return false }
+        return expiry > Date()
+    }
+
+    func beginSystemEmojiInteraction(timeout: TimeInterval = 12) {
+        cancelAutoDismiss()
+        cancelFullExpandedDismiss()
+
+        let expiry = Date().addingTimeInterval(timeout)
+        systemEmojiInteractionExpiry = expiry
+        systemEmojiInteractionWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.systemEmojiInteractionExpiry = nil
+            self.systemEmojiInteractionWorkItem = nil
+
+            guard !self.isHovering else { return }
+            if self.currentState == .expanded {
+                self.scheduleAutoDismiss()
+            } else if self.currentState == .fullExpanded {
+                self.scheduleFullExpandedDismiss()
+            }
+        }
+
+        systemEmojiInteractionWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: workItem)
+    }
+
+    func endSystemEmojiInteraction() {
+        systemEmojiInteractionWorkItem?.cancel()
+        systemEmojiInteractionWorkItem = nil
+        systemEmojiInteractionExpiry = nil
     }
 
     private func scheduleHoverActivation(wasHovering: Bool) {

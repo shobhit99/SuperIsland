@@ -335,6 +335,9 @@ private struct ExtensionToggleNode: View {
 }
 
 private struct ExtensionInputBoxNode: View {
+    private static let inputFont = NSFont.systemFont(ofSize: 12, weight: .medium)
+    private static let inputLineHeight = ceil(inputFont.ascender - inputFont.descender + inputFont.leading)
+
     let extensionID: String
     let inputID: String
     let placeholder: String
@@ -348,7 +351,20 @@ private struct ExtensionInputBoxNode: View {
         CGFloat(max(46, minHeight))
     }
 
+    private var boxCornerRadius: CGFloat {
+        appState.currentCornerRadius
+    }
+
+    private var textHorizontalInset: CGFloat {
+        12
+    }
+
+    private var textVerticalInset: CGFloat {
+        max(8, floor((boxHeight - Self.inputLineHeight) / 2))
+    }
+
     @ObservedObject private var manager = ExtensionManager.shared
+    @ObservedObject private var appState = AppState.shared
     @State private var localText: String
     @State private var shouldFocus: Bool = false
     @State private var shouldOpenEmojiPicker: Bool = false
@@ -380,7 +396,9 @@ private struct ExtensionInputBoxNode: View {
                 text: $localText,
                 shouldFocus: $shouldFocus,
                 shouldOpenEmojiPicker: $shouldOpenEmojiPicker,
-                fixedHeight: boxHeight
+                fixedHeight: boxHeight,
+                horizontalInset: textHorizontalInset,
+                minimumVerticalInset: 8
             ) {
                 submit()
             }
@@ -389,20 +407,20 @@ private struct ExtensionInputBoxNode: View {
                 Text(placeholder)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.34))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .padding(.trailing, showsEmojiButton ? 30 : 0)
+                    .padding(.leading, textHorizontalInset)
+                    .padding(.top, textVerticalInset)
+                    .padding(.trailing, showsEmojiButton ? 36 : textHorizontalInset)
                     .allowsHitTesting(false)
             }
         }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .frame(height: boxHeight, alignment: .topLeading)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: boxCornerRadius, style: .continuous)
                     .fill(.white.opacity(0.08))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: boxCornerRadius, style: .continuous)
                     .stroke(.white.opacity(0.08), lineWidth: 1)
             )
             .overlay(alignment: .bottomTrailing) {
@@ -444,11 +462,15 @@ private struct ExtensionInputBoxNode: View {
 }
 
 private struct ExtensionInputTextView: NSViewRepresentable {
+    private static let inputFont = NSFont.systemFont(ofSize: 12, weight: .medium)
+
     @Binding var text: String
     @Binding var shouldFocus: Bool
     @Binding var shouldOpenEmojiPicker: Bool
 
     let fixedHeight: CGFloat
+    let horizontalInset: CGFloat
+    let minimumVerticalInset: CGFloat
     let onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -485,11 +507,13 @@ private struct ExtensionInputTextView: NSViewRepresentable {
         textView.isAutomaticDataDetectionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
-        textView.font = .systemFont(ofSize: 12, weight: .medium)
+        textView.font = Self.inputFont
         textView.textColor = .white
         textView.insertionPointColor = .white
         textView.caretWidth = 1
-        textView.textContainerInset = NSSize(width: 6, height: 8)
+        textView.fixedHeight = fixedHeight
+        textView.horizontalInset = horizontalInset
+        textView.minimumVerticalInset = minimumVerticalInset
         textView.onSubmit = {
             context.coordinator.handleSubmit()
         }
@@ -506,6 +530,7 @@ private struct ExtensionInputTextView: NSViewRepresentable {
         textView.minSize = NSSize(width: 0, height: fixedHeight)
         textView.translatesAutoresizingMaskIntoConstraints = true
         textView.autoresizingMask = [.width]
+        textView.recenterTextIfNeeded()
         scrollView.documentView = textView
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.contentView.automaticallyAdjustsContentInsets = false
@@ -526,6 +551,10 @@ private struct ExtensionInputTextView: NSViewRepresentable {
         }
 
         textView.minSize = NSSize(width: 0, height: fixedHeight)
+        textView.fixedHeight = fixedHeight
+        textView.horizontalInset = horizontalInset
+        textView.minimumVerticalInset = minimumVerticalInset
+        textView.recenterTextIfNeeded()
 
         if shouldFocus, textView.window?.firstResponder !== textView {
             textView.window?.makeKeyAndOrderFront(nil)
@@ -539,6 +568,7 @@ private struct ExtensionInputTextView: NSViewRepresentable {
             textView.window?.makeKeyAndOrderFront(nil)
             textView.window?.makeFirstResponder(textView)
             DispatchQueue.main.async {
+                AppState.shared.beginSystemEmojiInteraction()
                 NSApp.orderFrontCharacterPalette(nil)
                 shouldOpenEmojiPicker = false
             }
@@ -568,12 +598,18 @@ private struct ExtensionInputTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
             text = textView.string
+            Task { @MainActor in
+                AppState.shared.endSystemEmojiInteraction()
+            }
         }
 
         func handleSubmit() {
             onSubmit()
             shouldFocus = true
             shouldOpenEmojiPicker = false
+            Task { @MainActor in
+                AppState.shared.endSystemEmojiInteraction()
+            }
         }
     }
 }
@@ -581,6 +617,33 @@ private struct ExtensionInputTextView: NSViewRepresentable {
 private final class SubmitAwareTextView: NSTextView {
     var onSubmit: (() -> Void)?
     var caretWidth: CGFloat = 1
+    var fixedHeight: CGFloat = 46
+    var horizontalInset: CGFloat = 12
+    var minimumVerticalInset: CGFloat = 8
+
+    override func layout() {
+        super.layout()
+        recenterTextIfNeeded()
+    }
+
+    func recenterTextIfNeeded() {
+        let lineHeight = ceil((font?.ascender ?? 11) - (font?.descender ?? -3) + (font?.leading ?? 0))
+        let usedHeight: CGFloat
+        if string.trimmingCharacters(in: .newlines).isEmpty {
+            usedHeight = lineHeight
+        } else if let textContainer, let layoutManager {
+            layoutManager.ensureLayout(for: textContainer)
+            usedHeight = max(lineHeight, ceil(layoutManager.usedRect(for: textContainer).height))
+        } else {
+            usedHeight = lineHeight
+        }
+
+        let insetY = max(minimumVerticalInset, floor((fixedHeight - usedHeight) / 2))
+        let targetInset = NSSize(width: horizontalInset, height: insetY)
+        if textContainerInset != targetInset {
+            textContainerInset = targetInset
+        }
+    }
 
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
