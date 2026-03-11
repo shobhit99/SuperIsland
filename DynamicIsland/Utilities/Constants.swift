@@ -4,7 +4,7 @@ enum Constants {
     // MARK: - Island Sizes
     static let compactSize = CGSize(width: 188, height: 34)
     static let expandedSize = CGSize(width: 408, height: 88)
-    static let fullExpandedSize = CGSize(width: 548, height: 232)
+    static let fullExpandedSize = CGSize(width: 658, height: 180)
 
     // MARK: - Window
     static let windowMaxWidth: CGFloat = 420
@@ -22,7 +22,7 @@ enum Constants {
     static let expandedTopInset: CGFloat = 0
     static let compactCornerRadius: CGFloat = 18
     static let expandedCornerRadius: CGFloat = 22
-    static let fullExpandedCornerRadius: CGFloat = 26
+    static let fullExpandedCornerRadius: CGFloat = 32
 
     // MARK: - Animation Springs
     static let compactToExpanded: Animation = .interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0)

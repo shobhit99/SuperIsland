@@ -123,6 +123,7 @@ final class AppState: ObservableObject {
 
     private var autoDismissWorkItem: DispatchWorkItem?
     private var fullExpandedCollapseWorkItem: DispatchWorkItem?
+    private var hoverActivationWorkItem: DispatchWorkItem?
     private init() {}
 
     // MARK: - State Transitions
@@ -171,6 +172,7 @@ final class AppState: ObservableObject {
     func dismiss() {
         cancelAutoDismiss()
         cancelFullExpandedCollapse()
+        cancelHoverActivation()
         withAnimation(Constants.expandedToCompact) {
             currentState = .compact
         }
@@ -188,20 +190,22 @@ final class AppState: ObservableObject {
         isHovering = hovering
 
         if hovering {
-            if !wasHovering && currentState == .compact {
-                performNotchEntryHapticIfNeeded()
-            }
+            cancelAutoDismiss()
+            cancelFullExpandedCollapse()
 
             if currentState != .fullExpanded {
-                open()
+                scheduleHoverActivation(wasHovering: wasHovering)
             } else {
-                cancelAutoDismiss()
-                cancelFullExpandedCollapse()
+                cancelHoverActivation()
             }
-        } else if currentState == .expanded {
-            scheduleAutoDismiss()
-        } else if currentState == .fullExpanded {
-            scheduleFullExpandedCollapse()
+        } else {
+            cancelHoverActivation()
+
+            if currentState == .expanded {
+                scheduleAutoDismiss()
+            } else if currentState == .fullExpanded {
+                scheduleFullExpandedCollapse()
+            }
         }
     }
 
@@ -266,6 +270,34 @@ final class AppState: ObservableObject {
     func cancelFullExpandedCollapse() {
         fullExpandedCollapseWorkItem?.cancel()
         fullExpandedCollapseWorkItem = nil
+    }
+
+    func cancelHoverActivation() {
+        hoverActivationWorkItem?.cancel()
+        hoverActivationWorkItem = nil
+    }
+
+    private func scheduleHoverActivation(wasHovering: Bool) {
+        guard !wasHovering else { return }
+
+        cancelHoverActivation()
+
+        let startingState = currentState
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.isHovering, self.currentState != .fullExpanded else { return }
+
+            if startingState == .compact {
+                self.performNotchEntryHapticIfNeeded()
+            }
+
+            self.open()
+        }
+
+        hoverActivationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Constants.hoverPeekDelay,
+            execute: workItem
+        )
     }
 
     private func handleStateTransition(from oldValue: IslandState, to newValue: IslandState) {
