@@ -130,9 +130,7 @@ final class AppState: ObservableObject {
     func toggleExpansion() {
         switch currentState {
         case .compact:
-            withAnimation(Constants.compactToExpanded) {
-                currentState = .expanded
-            }
+            open()
         case .expanded:
             withAnimation(Constants.expandedToFull) {
                 currentState = .fullExpanded
@@ -146,6 +144,21 @@ final class AppState: ObservableObject {
         guard currentState == .compact else { return }
         withAnimation(Constants.compactToExpanded) {
             currentState = .expanded
+        }
+    }
+
+    func open() {
+        guard currentState != .fullExpanded else { return }
+
+        cancelAutoDismiss()
+        cancelFullExpandedCollapse()
+
+        let animation: Animation = currentState == .compact
+            ? Constants.compactToExpanded
+            : Constants.expandedToFull
+
+        withAnimation(animation) {
+            currentState = .fullExpanded
         }
     }
 
@@ -179,8 +192,8 @@ final class AppState: ObservableObject {
                 performNotchEntryHapticIfNeeded()
             }
 
-            if currentState == .compact {
-                expand()
+            if currentState != .fullExpanded {
+                open()
             } else {
                 cancelAutoDismiss()
                 cancelFullExpandedCollapse()

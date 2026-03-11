@@ -88,10 +88,8 @@ struct IslandContainerView: View {
         } else {
             surface.onTapGesture {
                 switch appState.currentState {
-                case .compact:
-                    appState.expand()
-                case .expanded:
-                    appState.fullyExpand()
+                case .compact, .expanded:
+                    appState.open()
                 case .fullExpanded:
                     break
                 }
@@ -191,11 +189,9 @@ struct IslandContainerView: View {
         } else {
             // Vertical swipe
             if vertical < 0 {
-                // Swipe up -> expand
-                if appState.currentState == .compact {
-                    appState.expand()
-                } else if appState.currentState == .expanded {
-                    appState.fullyExpand()
+                // Swipe up -> open
+                if appState.currentState != .fullExpanded {
+                    appState.open()
                 }
             } else {
                 // Swipe down -> collapse

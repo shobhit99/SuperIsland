@@ -26,9 +26,9 @@ final class GestureHandler: ObservableObject {
                 appState.cycleModule(forward: direction == .right)
             }
         case (.up, .compact):
-            appState.expand()
+            appState.open()
         case (.up, .expanded):
-            appState.fullyExpand()
+            appState.open()
         case (.down, _):
             appState.dismiss()
         default:
