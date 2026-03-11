@@ -206,6 +206,7 @@ struct FullExpandedTopBarView: View {
                 )
         }
         .buttonStyle(.plain)
+        .hoverPointer()
         .help("Settings")
     }
 
@@ -240,10 +241,15 @@ struct FullExpandedTopBarView: View {
                         .stroke(Color.white.opacity(isSelected ? 0.09 : 0.035), lineWidth: 1)
                 )
                 .overlay(alignment: .topTrailing) {
-                    notificationCountBadge
+                    if notificationManager.recentNotifications.isEmpty {
+                        EmptyView()
+                    } else {
+                        notificationCountBadge
+                    }
                 }
         }
         .buttonStyle(.plain)
+        .hoverPointer()
         .help("Notifications")
     }
 
@@ -255,13 +261,13 @@ struct FullExpandedTopBarView: View {
             .padding(.vertical, 2)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.14))
+                    .fill(Color.green.opacity(0.82))
             )
             .overlay(
                 Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    .stroke(Color.green.opacity(0.28), lineWidth: 1)
             )
-            .offset(x: 6, y: -4)
+            .offset(x: 3, y: -2)
     }
 
     private var moduleTabs: [FullExpandedTab] {
@@ -370,6 +376,7 @@ private struct FullExpandedTabButton: View {
             )
         }
         .buttonStyle(.plain)
+        .hoverPointer()
         .help(tab.title)
     }
 }

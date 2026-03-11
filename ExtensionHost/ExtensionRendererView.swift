@@ -59,6 +59,14 @@ struct ViewNodeRenderer: View {
                 .truncationMode(.tail)
                 .multilineTextAlignment(.leading)
 
+        case .markdownText(let value, let style, let color, let lineLimit):
+            ExtensionMarkdownTextNode(
+                markdown: value,
+                style: style,
+                color: color.swiftUI,
+                lineLimit: lineLimit
+            )
+
         case .icon(let name, let size, let color):
             Image(systemName: name)
                 .font(.system(size: size))
@@ -147,6 +155,7 @@ struct ViewNodeRenderer: View {
                 ViewNodeRenderer(node: label, extensionID: extensionID)
             }
             .buttonStyle(.plain)
+            .hoverPointer()
 
         case .inputBox(let inputID, let placeholder, let text, let actionID, let autoFocus, let minHeight, let showsEmojiButton):
             ExtensionInputBoxNode(
@@ -264,6 +273,38 @@ struct ViewNodeRenderer: View {
         case "bottomTrailing": return .bottomTrailing
         default: return .center
         }
+    }
+}
+
+private struct ExtensionMarkdownTextNode: View {
+    let markdown: String
+    let style: TextStyle
+    let color: Color
+    let lineLimit: Int?
+
+    var body: some View {
+        Text(attributedText)
+            .lineLimit(lineLimit)
+            .truncationMode(.tail)
+            .multilineTextAlignment(.leading)
+            .tint(.blue)
+            .hoverPointer()
+    }
+
+    private var attributedText: AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        var attributed = (try? AttributedString(markdown: markdown, options: options)) ?? AttributedString(markdown)
+
+        for run in attributed.runs {
+            attributed[run.range].font = style.font
+            if run.link == nil {
+                attributed[run.range].foregroundColor = color
+            }
+        }
+
+        return attributed
     }
 }
 
@@ -435,6 +476,7 @@ private struct ExtensionInputBoxNode: View {
                             .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.plain)
+                    .hoverPointer()
                     .padding(.trailing, 10)
                     .padding(.bottom, 8)
                 }

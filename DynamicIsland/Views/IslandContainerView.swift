@@ -286,6 +286,7 @@ struct IslandContainerView: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .hoverPointer()
         .onHover { hovering in
             setCycleButtonHover(hovering, forward: forward)
         }

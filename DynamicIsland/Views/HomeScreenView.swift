@@ -154,6 +154,7 @@ private struct HomeNowPlayingPanel: View {
                 )
         }
         .buttonStyle(.plain)
+        .hoverPointer()
     }
 
     private func sanitized(_ value: String) -> String? {

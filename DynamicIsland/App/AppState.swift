@@ -370,6 +370,14 @@ final class AppState: ObservableObject {
                 self.performNotchEntryHapticIfNeeded()
             }
 
+            if self.shouldHoverExpandNotifications(from: startingState) {
+                withAnimation(Constants.compactToExpanded) {
+                    self.currentState = .expanded
+                }
+                self.cancelAutoDismiss()
+                return
+            }
+
             self.open()
         }
 
@@ -378,6 +386,15 @@ final class AppState: ObservableObject {
             deadline: .now() + Constants.hoverPeekDelay,
             execute: workItem
         )
+    }
+
+    private func shouldHoverExpandNotifications(from startingState: IslandState) -> Bool {
+        guard startingState == .compact,
+              activeBuiltInModule == .notifications,
+              NotificationManager.shared.latestNotification != nil else {
+            return false
+        }
+        return true
     }
 
     private func handleStateTransition(from oldValue: IslandState, to newValue: IslandState) {

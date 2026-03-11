@@ -68,6 +68,81 @@ function displayPreview(text) {
   return LEGACY_MEDIA_PREVIEW_LABELS[value] || value;
 }
 
+function firstLinkURL(text) {
+  const value = normalizeText(text);
+  if (!value) return "";
+
+  const match = value.match(/\b((?:https?:\/\/|www\.)[^\s<>"']+)/i);
+  if (!match || !match[1]) return "";
+
+  let url = match[1];
+  while (/[)\].,!?:;]+$/.test(url)) {
+    url = url.slice(0, -1);
+  }
+
+  if (!url) return "";
+  if (/^www\./i.test(url)) {
+    url = `https://${url}`;
+  }
+
+  return url;
+}
+
+function openLinkActionID(url) {
+  return `open-link:${encodeURIComponent(url)}`;
+}
+
+function escapeMarkdownText(value) {
+  return String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)")
+    .replace(/\*/g, "\\*")
+    .replace(/_/g, "\\_")
+    .replace(/`/g, "\\`");
+}
+
+function markdownWithLinkedURL(text, limit) {
+  const value = limit ? truncate(text, limit) : normalizeText(text);
+  if (!value) return "";
+
+  const match = value.match(/\b((?:https?:\/\/|www\.)[^\s<>"']+)/i);
+  if (!match || !match[1]) return "";
+
+  const rawLinkText = match[1];
+  let linkText = rawLinkText;
+  while (/[)\].,!?:;]+$/.test(linkText)) {
+    linkText = linkText.slice(0, -1);
+  }
+  if (!linkText) return "";
+
+  const start = match.index ?? value.indexOf(rawLinkText);
+  if (start < 0) return "";
+
+  const prefix = value.slice(0, start);
+  const suffix = value.slice(start + rawLinkText.length);
+  const url = firstLinkURL(linkText);
+  if (!url) return "";
+
+  return `${escapeMarkdownText(prefix)}[${escapeMarkdownText(linkText)}](${url})${escapeMarkdownText(suffix)}`;
+}
+
+function previewNode(preview, limit, style, color, lineLimit) {
+  const value = truncate(preview, limit);
+  if (!value) {
+    return View.text("", { style, color, lineLimit });
+  }
+
+  const markdown = markdownWithLinkedURL(preview, limit);
+  if (markdown) {
+    return View.markdownText(markdown, { style, color, lineLimit });
+  }
+
+  return View.text(value, { style, color, lineLimit });
+}
+
 function shouldShowConnectionHint() {
   const configured = DynamicIsland.settings.get("showConnectionHint");
   return typeof configured === "boolean" ? configured : true;
@@ -196,15 +271,22 @@ function closeReplyComposer() {
 
 function mediaPreviewSection() {
   const previewText = replyComposer.preview || "Send a quick reply from Dynamic Island.";
-  const messageScroller = View.frame(
-    View.scroll(
-      View.frame(
-        View.text(previewText, {
+  const previewMarkdown = markdownWithLinkedURL(previewText);
+  const previewTextNode = View.frame(
+    previewMarkdown
+      ? View.markdownText(previewMarkdown, {
+          style: "body",
+          color: { r: 1, g: 1, b: 1, a: 0.7 }
+        })
+      : View.text(previewText, {
           style: "body",
           color: { r: 1, g: 1, b: 1, a: 0.7 }
         }),
-        { maxWidth: 1000, alignment: "leading" }
-      ),
+    { maxWidth: 1000, alignment: "leading" }
+  );
+  const messageScroller = View.frame(
+    View.scroll(
+      previewTextNode,
       { axes: "vertical", showsIndicators: true }
     ),
     {
@@ -351,11 +433,7 @@ function fullExpandedView() {
         View.spacer(),
         View.text(timeAgoLabel(message.timestamp), { style: "footnote", color: "gray", lineLimit: 1 })
       ], { spacing: 6, align: "center" }),
-      View.text(truncate(message.preview, PREVIEW_LIMIT_EXPANDED), {
-        style: "footnote",
-        color: "gray",
-        lineLimit: 2
-      })
+      previewNode(message.preview, PREVIEW_LIMIT_EXPANDED, "footnote", "gray", 2)
     ], { spacing: 3, align: "leading" })
   );
 

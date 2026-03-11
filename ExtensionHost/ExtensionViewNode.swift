@@ -93,6 +93,7 @@ indirect enum ViewNode: Equatable {
     case scroll(child: ViewNode, axes: String, showsIndicators: Bool)
 
     case text(String, style: TextStyle, color: ColorValue, lineLimit: Int?)
+    case markdownText(String, style: TextStyle, color: ColorValue, lineLimit: Int?)
     case icon(name: String, size: Double, color: ColorValue)
     case image(url: String, width: Double, height: Double, cornerRadius: Double)
     case progress(value: Double, total: Double, color: ColorValue)
@@ -164,6 +165,15 @@ indirect enum ViewNode: Equatable {
         case "text":
             let style = TextStyle(rawValue: value.forProperty("style")?.toString() ?? "body") ?? .body
             return .text(
+                value.forProperty("value")?.toString() ?? "",
+                style: style,
+                color: parseColor(value.forProperty("color")),
+                lineLimit: propertyInt(value, key: "lineLimit")
+            )
+
+        case "markdown-text":
+            let style = TextStyle(rawValue: value.forProperty("style")?.toString() ?? "body") ?? .body
+            return .markdownText(
                 value.forProperty("value")?.toString() ?? "",
                 style: style,
                 color: parseColor(value.forProperty("color")),

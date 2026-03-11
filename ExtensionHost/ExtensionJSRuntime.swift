@@ -512,6 +512,7 @@ final class ExtensionJSRuntime {
               spacer: function(minLength) { return { type: 'spacer', minLength: minLength }; },
               scroll: function(child, opts) { return { type: 'scroll', child: child, axes: (opts && opts.axes) ?? 'vertical', showsIndicators: opts && opts.showsIndicators !== undefined ? !!opts.showsIndicators : true }; },
               text: function(value, opts) { return { type: 'text', value: String(value ?? ''), style: (opts && opts.style) ?? 'body', color: opts && opts.color, lineLimit: opts && opts.lineLimit }; },
+              markdownText: function(value, opts) { return { type: 'markdown-text', value: String(value ?? ''), style: (opts && opts.style) ?? 'body', color: opts && opts.color, lineLimit: opts && opts.lineLimit }; },
               icon: function(name, opts) { return { type: 'icon', name: name, size: (opts && opts.size) ?? 14, color: opts && opts.color }; },
               image: function(url, opts) { return { type: 'image', url: url, width: opts.width, height: opts.height, cornerRadius: opts.cornerRadius }; },
               progress: function(value, opts) { return { type: 'progress', value: value, total: (opts && opts.total) ?? 1, color: opts && opts.color }; },
