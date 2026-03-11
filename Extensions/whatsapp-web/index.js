@@ -272,6 +272,8 @@ function replyComposerView() {
         autoFocus: true,
         minHeight: 46,
         showsEmojiButton: true,
+        showsShortcutHint: false,
+        chrome: false,
         error: replyComposer.error,
         spacing: 2,
         padding: 4

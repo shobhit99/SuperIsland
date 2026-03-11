@@ -35,6 +35,7 @@ struct IslandNotification: Identifiable {
 @MainActor
 final class NotificationManager: ObservableObject {
     private static let accessibilityPromptedDefaultsKey = "notifications.accessibilityPrompted"
+    private static let whatsappExtensionID = "com.workview.whatsapp-web"
 
     private struct WhatsAppLogEvent {
         let eventID: String
@@ -136,9 +137,10 @@ final class NotificationManager: ObservableObject {
         guard name.contains("notification") || name.contains("Notification") else { return }
 
         let extracted = extractNotificationFields(from: notification)
+        let sourceID = "distributed:\(UUID().uuidString)"
 
         let notif = IslandNotification(
-            sourceID: "distributed:\(UUID().uuidString)",
+            sourceID: sourceID,
             appName: extracted.appName,
             bundleIdentifier: extracted.bundleIdentifier,
             appIcon: iconName(for: extracted.appName),
@@ -149,7 +151,14 @@ final class NotificationManager: ObservableObject {
             previewText: extracted.body.isEmpty ? nil : extracted.body,
             avatarURL: extracted.avatarURL,
             timestamp: Date(),
-            tapAction: nil
+            tapAction: extracted.appName.localizedCaseInsensitiveContains("whatsapp")
+                ? whatsappTapAction(
+                    sourceID: sourceID,
+                    senderName: extracted.senderName ?? extracted.title,
+                    previewText: extracted.body,
+                    avatarURL: extracted.avatarURL
+                )
+                : nil
         )
 
         addNotification(notif)
@@ -426,7 +435,12 @@ final class NotificationManager: ObservableObject {
             previewText: previewText,
             avatarURL: event.avatarURL,
             timestamp: event.timestamp,
-            tapAction: nil
+            tapAction: whatsappTapAction(
+                sourceID: "whatsapp-log:\(event.eventID)",
+                senderName: senderName ?? title,
+                previewText: previewText,
+                avatarURL: event.avatarURL
+            )
         )
     }
 
@@ -984,22 +998,27 @@ final class NotificationManager: ObservableObject {
             ])
             let sourceID = "delivered:\(identifier):\(title):\(previewText ?? ""):\(Int(notification.date.timeIntervalSince1970))"
 
-            parsed.append(
-                IslandNotification(
-                    sourceID: sourceID,
-                    appName: "WhatsApp",
-                    bundleIdentifier: bundleIdentifier ?? "net.whatsapp.WhatsApp",
+	            parsed.append(
+	                IslandNotification(
+	                    sourceID: sourceID,
+	                    appName: "WhatsApp",
+	                    bundleIdentifier: bundleIdentifier ?? "net.whatsapp.WhatsApp",
                     appIcon: "message.fill",
                     appIconURL: nil,
                     title: title,
                     body: previewText ?? "",
-                    senderName: senderName,
-                    previewText: previewText,
-                    avatarURL: avatarURL,
-                    timestamp: notification.date,
-                    tapAction: nil
-                )
-            )
+	                    senderName: senderName,
+	                    previewText: previewText,
+	                    avatarURL: avatarURL,
+	                    timestamp: notification.date,
+	                    tapAction: whatsappTapAction(
+	                        sourceID: sourceID,
+	                        senderName: senderName ?? title,
+	                        previewText: previewText,
+	                        avatarURL: avatarURL
+	                    )
+	                )
+	            )
         }
 
         return parsed
@@ -1228,6 +1247,70 @@ final class NotificationManager: ObservableObject {
             payload: payload,
             presentation: tapAction.presentation
         )
+    }
+
+    private func whatsappTapAction(
+        sourceID: String,
+        senderName: String?,
+        previewText: String?,
+        avatarURL: String?
+    ) -> NotificationTapAction? {
+        let normalizedSender = comparisonKey(senderName)
+        let normalizedPreview = comparisonKey(previewText)
+        let recentMessages = WhatsAppWebBridge.shared.recentMessages
+
+        let matchedMessage = recentMessages.first { message in
+            let messageSender = comparisonKey(message.sender)
+            let messagePreview = comparisonKey(message.preview)
+
+            if let normalizedSender, let normalizedPreview {
+                return messageSender == normalizedSender && messagePreview == normalizedPreview
+            }
+
+            if let normalizedSender {
+                return messageSender == normalizedSender
+            }
+
+            if let normalizedPreview {
+                return messagePreview == normalizedPreview
+            }
+
+            return false
+        }
+
+        guard let matchedMessage,
+              let replyTarget = cleanText(matchedMessage.replyTarget) else {
+            return nil
+        }
+
+        var payload: [String: String] = [
+            "messageID": matchedMessage.id,
+            "notificationSourceID": sourceID,
+            "recipient": replyTarget,
+            "sender": cleanText(senderName) ?? matchedMessage.sender,
+            "preview": cleanText(previewText) ?? matchedMessage.preview
+        ]
+
+        if let mediaPreviewURL = cleanText(matchedMessage.mediaPreviewURL) {
+            payload["mediaPreviewURL"] = mediaPreviewURL
+        }
+
+        if let avatarURL = cleanText(avatarURL) ?? cleanText(matchedMessage.avatarURL) {
+            payload["avatarURL"] = avatarURL
+        }
+
+        return NotificationTapAction(
+            extensionID: Self.whatsappExtensionID,
+            actionID: "open-reply",
+            payload: payload,
+            presentation: .fullExpanded
+        )
+    }
+
+    private func comparisonKey(_ value: String?) -> String? {
+        cleanText(value)?
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func duplicateNotificationIndex(for incoming: IslandNotification) -> Int? {

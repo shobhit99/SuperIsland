@@ -692,8 +692,10 @@ function replyComposerView() {
       action: "submit-reply",
       id: replyComposer.commentId || replyComposer.issueId,
       autoFocus: true,
-      minHeight: 64,
+      minHeight: 46,
       showsEmojiButton: true,
+      showsShortcutHint: false,
+      chrome: false,
       error: replyComposer.error
     })
   ], { spacing: 8, align: "leading" });

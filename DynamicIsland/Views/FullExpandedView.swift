@@ -25,7 +25,7 @@ struct FullExpandedView: View {
         case .home:
             HomeScreenView()
         case .module(let module):
-            if appState.fullExpandedModules.contains(module) {
+            if appState.canPresentFullExpandedModule(module) {
                 content(for: module)
             } else {
                 HomeScreenView()
@@ -85,6 +85,7 @@ enum FullExpandedTopBarLayout {
 
 struct FullExpandedTopBarView: View {
     @EnvironmentObject private var appState: AppState
+    @ObservedObject private var notificationManager = NotificationManager.shared
 
     let layout: FullExpandedTopBarLayout
 
@@ -92,7 +93,7 @@ struct FullExpandedTopBarView: View {
     private let shoulderTopPadding: CGFloat = 2
     private let shoulderTabSpacing: CGFloat = 8
     private let iconTabWidth: CGFloat = 34
-    private let settingsButtonSlotWidth: CGFloat = 52
+    private let settingsButtonSlotWidth: CGFloat = 88
     private let shoulderLeadingInset: CGFloat = 24
     private let settingsLeadingInset: CGFloat = 4
 
@@ -130,7 +131,7 @@ struct FullExpandedTopBarView: View {
 
             Spacer(minLength: shoulderGapWidth)
 
-            settingsButton
+            trailingShoulderControls
                 .frame(width: settingsButtonSlotWidth, alignment: .leading)
         }
         .frame(width: shoulderAvailableWidth, alignment: .top)
@@ -196,17 +197,71 @@ struct FullExpandedTopBarView: View {
                         .fill(islandSurfaceFill)
                         .overlay(
                             Circle()
-                                .fill(Color.white.opacity(0.015))
+                                .fill(Color.white.opacity(0.01))
                         )
                 )
                 .overlay(
                     Circle()
-                        .stroke(Color.white.opacity(0.045), lineWidth: 1)
+                        .stroke(Color.white.opacity(0.035), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
         .help("Settings")
+    }
+
+    private var trailingShoulderControls: some View {
+        HStack(spacing: 8) {
+            notificationButton
+            settingsButton
+        }
         .padding(.leading, settingsLeadingInset)
+    }
+
+    private var notificationButton: some View {
+        let isSelected = appState.fullExpandedSelectedTab == .module(.builtIn(.notifications))
+
+        return Button {
+            appState.selectFullExpandedTab(.module(.builtIn(.notifications)))
+        } label: {
+            Image(systemName: "bell.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(isSelected ? 0.88 : 0.74))
+                .frame(width: 32, height: 32)
+                .background(
+                    Circle()
+                        .fill(islandSurfaceFill)
+                        .overlay(
+                            Circle()
+                                .fill(Color.white.opacity(isSelected ? 0.04 : 0.01))
+                        )
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(isSelected ? 0.09 : 0.035), lineWidth: 1)
+                )
+                .overlay(alignment: .topTrailing) {
+                    notificationCountBadge
+                }
+        }
+        .buttonStyle(.plain)
+        .help("Notifications")
+    }
+
+    private var notificationCountBadge: some View {
+        Text(notificationCountText)
+            .font(.system(size: 7, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.14))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+            .offset(x: 6, y: -4)
     }
 
     private var moduleTabs: [FullExpandedTab] {
@@ -247,6 +302,14 @@ struct FullExpandedTopBarView: View {
             startPoint: .top,
             endPoint: .bottom
         )
+    }
+
+    private var notificationCountText: String {
+        let count = notificationManager.recentNotifications.count
+        if count > 99 {
+            return "99+"
+        }
+        return "\(count)"
     }
 
     private func scrollShoulderTabs(with proxy: ScrollViewProxy, animated: Bool) {

@@ -81,14 +81,7 @@ struct IslandContainerView: View {
             surface
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
-            surface.onTapGesture {
-                switch appState.currentState {
-                case .compact, .expanded:
-                    appState.open()
-                case .fullExpanded:
-                    break
-                }
-            }
+            surface.onTapGesture(perform: handleSurfaceTap)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
@@ -215,6 +208,39 @@ struct IslandContainerView: View {
                 appState.dismiss()
             }
         }
+    }
+
+    private func handleSurfaceTap() {
+        if handleNotificationTapIfNeeded() {
+            return
+        }
+
+        switch appState.currentState {
+        case .compact, .expanded:
+            appState.open()
+        case .fullExpanded:
+            break
+        }
+    }
+
+    private func handleNotificationTapIfNeeded() -> Bool {
+        guard appState.activeBuiltInModule == .notifications,
+              let notification = NotificationManager.shared.latestNotification else {
+            return false
+        }
+
+        if notification.tapAction != nil {
+            NotificationManager.shared.activateNotification(notification)
+            return true
+        }
+
+        if appState.currentState != .fullExpanded {
+            appState.setActiveModule(.notifications)
+            appState.fullyExpand()
+            return true
+        }
+
+        return false
     }
 
     private var showModuleCycler: Bool {

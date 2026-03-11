@@ -748,8 +748,19 @@ final class AppState: ObservableObject {
         switch module {
         case .builtIn(.nowPlaying), .builtIn(.connectivity):
             return false
+        case .extension_(let extensionID):
+            return ExtensionManager.shared.installed.first(where: { $0.id == extensionID })?.capabilities.fullExpanded ?? true
         default:
             return true
+        }
+    }
+
+    func canPresentFullExpandedModule(_ module: ActiveModule) -> Bool {
+        switch module {
+        case .extension_(let extensionID):
+            return ExtensionManager.shared.installed.first(where: { $0.id == extensionID })?.capabilities.fullExpanded ?? false
+        default:
+            return fullExpandedModules.contains(module)
         }
     }
 

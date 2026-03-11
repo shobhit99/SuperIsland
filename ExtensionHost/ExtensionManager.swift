@@ -220,7 +220,11 @@ final class ExtensionManager: ObservableObject {
             return false
         }
 
-        AppState.shared.setActiveModule(returnModule)
+        if AppState.shared.currentState == .fullExpanded {
+            AppState.shared.selectFullExpandedTab(.module(returnModule))
+        } else {
+            AppState.shared.setActiveModule(returnModule)
+        }
         AppState.shared.cancelFullExpandedDismiss()
         return true
     }

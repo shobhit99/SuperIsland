@@ -345,7 +345,7 @@ private struct ExtensionInputBoxNode: View {
     let showsEmojiButton: Bool
 
     private var boxHeight: CGFloat {
-        CGFloat(max(64, minHeight))
+        CGFloat(max(46, minHeight))
     }
 
     @ObservedObject private var manager = ExtensionManager.shared
