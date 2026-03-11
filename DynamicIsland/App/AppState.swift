@@ -85,6 +85,45 @@ enum NotchHapticIntensity: Int, CaseIterable, Identifiable {
     }
 }
 
+enum FullExpandedTab: Hashable, Identifiable {
+    case home
+    case module(ActiveModule)
+
+    var id: String {
+        switch self {
+        case .home:
+            return "home"
+        case .module(let module):
+            switch module {
+            case .builtIn(let builtIn):
+                return "module.\(builtIn.rawValue)"
+            case .extension_(let extensionID):
+                return "extension.\(extensionID)"
+            }
+        }
+    }
+
+    @MainActor
+    var iconName: String {
+        switch self {
+        case .home:
+            return "house.fill"
+        case .module(let module):
+            return module.iconName
+        }
+    }
+
+    @MainActor
+    var title: String {
+        switch self {
+        case .home:
+            return "Home"
+        case .module(let module):
+            return module.displayName
+        }
+    }
+}
+
 // MARK: - App State
 @MainActor
 final class AppState: ObservableObject {
@@ -97,6 +136,7 @@ final class AppState: ObservableObject {
     }
     @Published var activeModule: ActiveModule? = nil
     @Published var previousModule: ActiveModule? = nil
+    @Published var fullExpandedSelectedTab: FullExpandedTab = .home
     @Published var isHovering: Bool = false
     // Module enabled states (persisted via UserDefaults)
     @AppStorage("module.nowPlaying.enabled") var nowPlayingEnabled = true
@@ -151,6 +191,7 @@ final class AppState: ObservableObject {
     func open() {
         guard currentState != .fullExpanded else { return }
 
+        prepareFullExpandedPresentation(prefersHome: currentState == .compact)
         cancelAutoDismiss()
         cancelFullExpandedDismiss()
 
@@ -164,6 +205,7 @@ final class AppState: ObservableObject {
     }
 
     func fullyExpand() {
+        prepareFullExpandedPresentation(prefersHome: false)
         withAnimation(Constants.expandedToFull) {
             currentState = .fullExpanded
         }
@@ -314,16 +356,30 @@ final class AppState: ObservableObject {
         let modules = availableModules
         guard !modules.isEmpty else { return }
 
-        if let current = activeModule, let index = modules.firstIndex(of: current) {
+        let currentModule: ActiveModule?
+        if currentState == .fullExpanded, case .module(let selectedModule) = fullExpandedSelectedTab {
+            currentModule = selectedModule
+        } else {
+            currentModule = activeModule
+        }
+
+        let nextModule: ActiveModule
+        if let currentModule, let index = modules.firstIndex(of: currentModule) {
             let nextIndex = forward
                 ? modules.index(after: index) % modules.count
                 : (index - 1 + modules.count) % modules.count
-            withAnimation(Constants.contentSwap) {
-                activeModule = modules[nextIndex]
-            }
+            nextModule = modules[nextIndex]
+        } else if forward {
+            nextModule = modules[0]
         } else {
-            withAnimation(Constants.contentSwap) {
-                activeModule = modules.first
+            nextModule = modules[modules.count - 1]
+        }
+
+        withAnimation(Constants.contentSwap) {
+            previousModule = activeModule
+            activeModule = nextModule
+            if currentState == .fullExpanded {
+                fullExpandedSelectedTab = .module(nextModule)
             }
         }
     }
@@ -339,6 +395,22 @@ final class AppState: ObservableObject {
         withAnimation(Constants.contentSwap) {
             previousModule = activeModule
             activeModule = module
+        }
+    }
+
+    func selectFullExpandedTab(_ tab: FullExpandedTab) {
+        withAnimation(Constants.contentSwap) {
+            fullExpandedSelectedTab = tab
+        }
+
+        if case .module(let module) = tab {
+            setActiveModule(module)
+        }
+    }
+
+    func showHomeTab() {
+        withAnimation(Constants.contentSwap) {
+            fullExpandedSelectedTab = .home
         }
     }
 
@@ -378,6 +450,37 @@ final class AppState: ObservableObject {
             .filter { isCyclableIslandModule($0) && isModuleEnabled($0) }
             .map(ActiveModule.builtIn)
         return builtIns + ExtensionManager.shared.availableModules
+    }
+
+    var fullExpandedTabs: [FullExpandedTab] {
+        var tabs: [FullExpandedTab] = [.home]
+        tabs.append(contentsOf: availableModules.map(FullExpandedTab.module))
+
+        if case .module(let module) = fullExpandedSelectedTab,
+           !tabs.contains(.module(module)) {
+            tabs.append(.module(module))
+        }
+
+        return tabs
+    }
+
+    var hasFullExpandedShoulderBarSpace: Bool {
+        currentState == .fullExpanded && currentContentTopInset > 0 && fullExpandedShoulderGapWidth > 0
+    }
+
+    var fullExpandedShoulderGapWidth: CGFloat {
+        guard currentState == .fullExpanded,
+              let notch = currentNotchRect else {
+            return 0
+        }
+
+        let minimumGap = notch.width + 20
+        let maximumGap = max(160, currentContentSize.width * 0.42)
+        return min(maximumGap, minimumGap)
+    }
+
+    var fullExpandedShoulderSectionWidth: CGFloat {
+        max(0, (currentContentSize.width - fullExpandedShoulderGapWidth) / 2)
     }
 
     // MARK: - Size Helpers
@@ -511,9 +614,9 @@ final class AppState: ObservableObject {
             return 8
         case .fullExpanded:
             if case .extension_ = activeModule {
-                return 8
+                return hasFullExpandedShoulderBarSpace ? 4 : 8
             }
-            return 12
+            return hasFullExpandedShoulderBarSpace ? 4 : 12
         }
     }
 
@@ -606,6 +709,22 @@ final class AppState: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + feedback.delay) {
                 NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
             }
+        }
+    }
+
+    private func prepareFullExpandedPresentation(prefersHome: Bool) {
+        let nextTab: FullExpandedTab
+
+        if prefersHome {
+            nextTab = .home
+        } else if let activeModule {
+            nextTab = .module(activeModule)
+        } else {
+            nextTab = .home
+        }
+
+        if fullExpandedSelectedTab != nextTab {
+            fullExpandedSelectedTab = nextTab
         }
     }
 

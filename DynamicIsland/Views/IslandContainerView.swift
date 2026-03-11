@@ -69,14 +69,9 @@ struct IslandContainerView: View {
                     y: keyShadowYOffset
                 )
 
-            if appState.currentState == .compact {
-                CompactView()
-                    .opacity(compactContentOpacity)
-                    .transition(.opacity)
-            } else {
-                expandedIslandLayout
-                    .opacity(compactContentOpacity)
-            }
+            islandContent
+                .frame(width: appState.currentSize.width, height: appState.currentSize.height, alignment: .top)
+                .clipShape(islandShape)
         }
         .frame(width: appState.currentSize.width, height: appState.currentSize.height)
         .contentShape(islandShape)
@@ -95,6 +90,18 @@ struct IslandContainerView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+
+    @ViewBuilder
+    private var islandContent: some View {
+        if appState.currentState == .compact {
+            CompactView()
+                .opacity(compactContentOpacity)
+                .transition(.opacity)
+        } else {
+            expandedIslandLayout
+                .opacity(compactContentOpacity)
         }
     }
 
@@ -141,8 +148,18 @@ struct IslandContainerView: View {
 
     private var expandedIslandLayout: some View {
         VStack(spacing: 0) {
-            Color.clear
-                .frame(height: appState.currentContentTopInset)
+            if appState.hasFullExpandedShoulderBarSpace {
+                FullExpandedTopBarView(layout: .shoulder)
+                    .environmentObject(appState)
+                    .frame(
+                        width: appState.currentContentSize.width,
+                        height: appState.currentContentTopInset,
+                        alignment: .top
+                    )
+            } else {
+                Color.clear
+                    .frame(height: appState.currentContentTopInset)
+            }
 
             currentExpandedContent
                 .padding(.horizontal, appState.contentHorizontalPadding)

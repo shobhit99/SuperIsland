@@ -22,7 +22,7 @@ enum Constants {
     static let expandedTopInset: CGFloat = 0
     static let compactCornerRadius: CGFloat = 18
     static let expandedCornerRadius: CGFloat = 22
-    static let fullExpandedCornerRadius: CGFloat = 32
+    static let fullExpandedCornerRadius: CGFloat = 40
 
     // MARK: - Animation Springs
     static let compactToExpanded: Animation = .interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0)
