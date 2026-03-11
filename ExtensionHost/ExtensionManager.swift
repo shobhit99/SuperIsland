@@ -208,7 +208,7 @@ final class ExtensionManager: ObservableObject {
         AppState.shared.showHUD(module: .extension_(extensionID), autoDismiss: false)
         if presentation == .fullExpanded {
             AppState.shared.fullyExpand()
-            AppState.shared.cancelFullExpandedCollapse()
+            AppState.shared.cancelFullExpandedDismiss()
         }
 
         handleAction(extensionID: extensionID, actionID: actionID, value: value)
@@ -221,7 +221,7 @@ final class ExtensionManager: ObservableObject {
         }
 
         AppState.shared.setActiveModule(returnModule)
-        AppState.shared.cancelFullExpandedCollapse()
+        AppState.shared.cancelFullExpandedDismiss()
         return true
     }
 

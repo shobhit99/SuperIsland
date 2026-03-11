@@ -37,6 +37,7 @@ enum Constants {
     // MARK: - Timing
     static let hudAutoDismissDelay: TimeInterval = 1.5
     static let hoverPeekDelay: TimeInterval = 0.3
+    static let notificationDisplayDuration: TimeInterval = 2.0
     static let weatherRefreshInterval: TimeInterval = 1800 // 30 minutes
 
     // MARK: - Menu Bar

@@ -119,7 +119,7 @@ struct NotificationExpandedView: View {
             onTap: shouldHandleTap ? {
                 if appState.currentState == .expanded {
                     appState.fullyExpand()
-                    appState.cancelFullExpandedCollapse()
+                    appState.cancelFullExpandedDismiss()
                 } else if notification.tapAction != nil {
                     manager.activateNotification(notification)
                 }

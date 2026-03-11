@@ -122,7 +122,7 @@ final class AppState: ObservableObject {
     @AppStorage("general.notchHapticIntensity") var notchHapticIntensity = NotchHapticIntensity.medium.rawValue
 
     private var autoDismissWorkItem: DispatchWorkItem?
-    private var fullExpandedCollapseWorkItem: DispatchWorkItem?
+    private var fullExpandedDismissWorkItem: DispatchWorkItem?
     private var hoverActivationWorkItem: DispatchWorkItem?
     private init() {}
 
@@ -152,7 +152,7 @@ final class AppState: ObservableObject {
         guard currentState != .fullExpanded else { return }
 
         cancelAutoDismiss()
-        cancelFullExpandedCollapse()
+        cancelFullExpandedDismiss()
 
         let animation: Animation = currentState == .compact
             ? Constants.compactToExpanded
@@ -171,17 +171,10 @@ final class AppState: ObservableObject {
 
     func dismiss() {
         cancelAutoDismiss()
-        cancelFullExpandedCollapse()
+        cancelFullExpandedDismiss()
         cancelHoverActivation()
         withAnimation(Constants.expandedToCompact) {
             currentState = .compact
-        }
-    }
-
-    func collapseToExpanded() {
-        cancelFullExpandedCollapse()
-        withAnimation(Constants.expandedToFull) {
-            currentState = .expanded
         }
     }
 
@@ -191,7 +184,7 @@ final class AppState: ObservableObject {
 
         if hovering {
             cancelAutoDismiss()
-            cancelFullExpandedCollapse()
+            cancelFullExpandedDismiss()
 
             if currentState != .fullExpanded {
                 scheduleHoverActivation(wasHovering: wasHovering)
@@ -204,18 +197,18 @@ final class AppState: ObservableObject {
             if currentState == .expanded {
                 scheduleAutoDismiss()
             } else if currentState == .fullExpanded {
-                scheduleFullExpandedCollapse()
+                scheduleFullExpandedDismiss()
             }
         }
     }
 
     // MARK: - HUD Management
 
-    func showHUD(module: ModuleType, autoDismiss: Bool = true) {
-        showHUD(module: .builtIn(module), autoDismiss: autoDismiss)
+    func showHUD(module: ModuleType, autoDismiss: Bool = true, autoDismissDelay: TimeInterval? = nil) {
+        showHUD(module: .builtIn(module), autoDismiss: autoDismiss, autoDismissDelay: autoDismissDelay)
     }
 
-    func showHUD(module: ActiveModule, autoDismiss: Bool = true) {
+    func showHUD(module: ActiveModule, autoDismiss: Bool = true, autoDismissDelay: TimeInterval? = nil) {
         if case .builtIn(let builtIn) = module, !isModuleEnabled(builtIn) {
             return
         }
@@ -230,15 +223,15 @@ final class AppState: ObservableObject {
         }
 
         if autoDismiss {
-            scheduleAutoDismiss()
+            scheduleAutoDismiss(after: autoDismissDelay)
         } else {
             cancelAutoDismiss()
         }
     }
 
-    func scheduleAutoDismiss() {
+    func scheduleAutoDismiss(after delayOverride: TimeInterval? = nil) {
         cancelAutoDismiss()
-        let delay = expandedAutoDismissDelay
+        let delay = delayOverride ?? expandedAutoDismissDelay
         guard delay > 0 else { return }
         let workItem = DispatchWorkItem { [weak self] in
             self?.dismiss()
@@ -255,21 +248,21 @@ final class AppState: ObservableObject {
         autoDismissWorkItem = nil
     }
 
-    func scheduleFullExpandedCollapse() {
-        cancelFullExpandedCollapse()
+    func scheduleFullExpandedDismiss() {
+        cancelFullExpandedDismiss()
         let delay = expandedAutoDismissDelay
         guard delay > 0 else { return }
         let workItem = DispatchWorkItem { [weak self] in
             guard let self, self.currentState == .fullExpanded, !self.isHovering else { return }
-            self.collapseToExpanded()
+            self.dismiss()
         }
-        fullExpandedCollapseWorkItem = workItem
+        fullExpandedDismissWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
-    func cancelFullExpandedCollapse() {
-        fullExpandedCollapseWorkItem?.cancel()
-        fullExpandedCollapseWorkItem = nil
+    func cancelFullExpandedDismiss() {
+        fullExpandedDismissWorkItem?.cancel()
+        fullExpandedDismissWorkItem = nil
     }
 
     func cancelHoverActivation() {
@@ -305,12 +298,12 @@ final class AppState: ObservableObject {
 
         switch newValue {
         case .expanded:
-            cancelFullExpandedCollapse()
+            cancelFullExpandedDismiss()
             scheduleAutoDismiss()
         case .compact, .fullExpanded:
             cancelAutoDismiss()
             if newValue == .compact {
-                cancelFullExpandedCollapse()
+                cancelFullExpandedDismiss()
             }
         }
     }

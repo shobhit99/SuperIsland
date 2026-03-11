@@ -1051,7 +1051,10 @@ final class NotificationManager: ObservableObject {
             if self.recentNotifications.count > self.maxNotifications {
                 self.recentNotifications.removeLast()
             }
-            AppState.shared.showHUD(module: .notifications)
+            AppState.shared.showHUD(
+                module: .notifications,
+                autoDismissDelay: Constants.notificationDisplayDuration
+            )
         }
     }
 
