@@ -25,27 +25,29 @@ struct FullExpandedView: View {
         case .home:
             HomeScreenView()
         case .module(let module):
-            content(for: module)
+            if appState.fullExpandedModules.contains(module) {
+                content(for: module)
+            } else {
+                HomeScreenView()
+            }
         }
     }
 
     @ViewBuilder
     private func content(for module: ActiveModule) -> some View {
         switch module {
-        case .builtIn(.nowPlaying):
-            NowPlayingExpandedView()
         case .builtIn(.volumeHUD), .builtIn(.brightnessHUD):
             SystemHUDExpandedView()
         case .builtIn(.battery):
             BatteryExpandedView()
-        case .builtIn(.connectivity):
-            ConnectivityExpandedView()
         case .builtIn(.calendar):
             CalendarExpandedView()
         case .builtIn(.weather):
             WeatherExpandedView()
         case .builtIn(.notifications):
             NotificationExpandedView()
+        case .builtIn(.nowPlaying), .builtIn(.connectivity):
+            HomeScreenView()
         case .extension_(let extensionID):
             ExtensionRendererView(extensionID: extensionID, displayMode: .fullExpanded)
         }
@@ -187,19 +189,19 @@ struct FullExpandedTopBarView: View {
         } label: {
             Image(systemName: "gearshape.fill")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.92))
+                .foregroundStyle(.white.opacity(0.72))
                 .frame(width: 32, height: 32)
                 .background(
                     Circle()
                         .fill(islandSurfaceFill)
                         .overlay(
                             Circle()
-                                .fill(Color.white.opacity(0.05))
+                                .fill(Color.white.opacity(0.015))
                         )
                 )
                 .overlay(
                     Circle()
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        .stroke(Color.white.opacity(0.045), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)

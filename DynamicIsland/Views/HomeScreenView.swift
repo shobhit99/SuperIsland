@@ -33,48 +33,31 @@ private struct HomeNowPlayingPanel: View {
                     subtitle: "Start playback to pin controls here."
                 )
             } else {
-                HStack(alignment: .top, spacing: 12) {
-                    albumArt
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 14) {
+                        albumArt
 
-                    VStack(alignment: .leading, spacing: 7) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(manager.title)
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 9) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(manager.title)
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
 
-                            Text(secondaryLine)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.white.opacity(0.62))
-                                .lineLimit(1)
+                                Text(secondaryLine)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.white.opacity(0.62))
+                                    .lineLimit(1)
 
-                            sourceBadge
+                                sourceBadge
+                            }
+
+                            controlsRow
                         }
-
-                        ProgressBar(
-                            progress: manager.progress,
-                            trackHeight: 3,
-                            knobSize: 8
-                        ) { newProgress in
-                            manager.seek(to: manager.duration * newProgress)
-                        }
-                        .frame(height: 14)
-
-                        HStack(spacing: 14) {
-                            transportButton(systemName: "backward.fill", action: manager.previousTrack)
-                            transportButton(
-                                systemName: manager.isPlaying ? "pause.fill" : "play.fill",
-                                action: manager.togglePlayPause
-                            )
-                            transportButton(systemName: "forward.fill", action: manager.nextTrack)
-
-                            Spacer(minLength: 0)
-
-                            Text(durationLine)
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.44))
-                        }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
+
+                    sliderSection
                 }
             }
         }
@@ -82,21 +65,6 @@ private struct HomeNowPlayingPanel: View {
 
     private var albumArt: some View {
         AlbumArtView(image: manager.albumArt, size: 92)
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: sourceIconName)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 22, height: 22)
-                    .background(
-                        Circle()
-                            .fill(Color.accentColor)
-                    )
-                    .overlay(
-                        Circle()
-                            .stroke(Color.black.opacity(0.35), lineWidth: 2)
-                    )
-                    .offset(x: 4, y: 4)
-            }
     }
 
     private var secondaryLine: String {
@@ -115,6 +83,41 @@ private struct HomeNowPlayingPanel: View {
         return "\(manager.formattedElapsedTime) / \(manager.formattedDuration)"
     }
 
+    private var controlsRow: some View {
+        HStack(spacing: 12) {
+            transportButton(systemName: "backward.fill", action: manager.previousTrack)
+            transportButton(
+                systemName: manager.isPlaying ? "pause.fill" : "play.fill",
+                action: manager.togglePlayPause,
+                isPrimary: true
+            )
+            transportButton(systemName: "forward.fill", action: manager.nextTrack)
+        }
+    }
+
+    private var sliderSection: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ProgressBar(
+                progress: manager.progress,
+                trackHeight: 3,
+                knobSize: 8
+            ) { newProgress in
+                manager.seek(to: manager.duration * newProgress)
+            }
+            .frame(height: 14)
+
+            HStack {
+                Text(manager.formattedElapsedTime)
+                Spacer(minLength: 8)
+                Text(manager.formattedDuration)
+            }
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.5))
+            .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+    }
+
     private var sourceBadge: some View {
         Text(sanitized(manager.sourceName) ?? "System Audio")
             .font(.system(size: 9, weight: .semibold))
@@ -131,30 +134,23 @@ private struct HomeNowPlayingPanel: View {
             )
     }
 
-    private var sourceIconName: String {
-        let source = manager.sourceName.lowercased()
-        if source.contains("spotify") {
-            return "waveform"
-        }
-        if source.contains("music") {
-            return "music.note"
-        }
-        return "play.fill"
-    }
-
-    private func transportButton(systemName: String, action: @escaping () -> Void) -> some View {
+    private func transportButton(
+        systemName: String,
+        action: @escaping () -> Void,
+        isPrimary: Bool = false
+    ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: isPrimary ? 14 : 13, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.92))
-                .frame(width: 28, height: 28)
+                .frame(width: isPrimary ? 34 : 28, height: isPrimary ? 34 : 28)
                 .background(
                     Circle()
-                        .fill(Color.white.opacity(0.07))
+                        .fill(Color.white.opacity(isPrimary ? 0.12 : 0.07))
                 )
                 .overlay(
                     Circle()
-                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                        .stroke(Color.white.opacity(isPrimary ? 0.1 : 0.06), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -168,44 +164,31 @@ private struct HomeNowPlayingPanel: View {
 
 private struct HomeCalendarPanel: View {
     @ObservedObject private var manager = CalendarManager.shared
-    private let calendar = Foundation.Calendar.current
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    sectionLabel("Upcoming")
+        VStack(alignment: .leading, spacing: 14) {
+            sectionLabel("Calendar")
 
-                    Text(monthTitle)
-                        .font(.system(size: 26, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(todayTitle)
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
 
-                Spacer(minLength: 0)
-
-                Text("\(upcomingEvents.count) today")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.52))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color.white.opacity(0.05))
-                    )
+                Text(todaySubtitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.5))
             }
-
-            dayStrip
 
             if upcomingEvents.isEmpty {
                 HomeEmptyState(
-                    icon: "calendar.badge.clock",
-                    title: "No events today",
-                    subtitle: "Enjoy the gap while it lasts."
+                    icon: "calendar",
+                    title: "Nothing coming up",
+                    subtitle: "Your schedule is clear for now."
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .padding(.top, 10)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(upcomingEvents.prefix(3).enumerated()), id: \.offset) { _, event in
+                    ForEach(Array(upcomingEvents.prefix(4).enumerated()), id: \.offset) { _, event in
                         HomeEventRow(
                             event: event,
                             countdown: countdown(for: event),
@@ -223,40 +206,18 @@ private struct HomeCalendarPanel: View {
         return manager.todayEvents.filter { $0.endDate > now }
     }
 
-    private var monthTitle: String {
-        Self.monthFormatter.string(from: Date())
+    private var todayTitle: String {
+        Self.todayTitleFormatter.string(from: Date())
     }
 
-    private var dayStrip: some View {
-        HStack(spacing: 8) {
-            ForEach(nextSixDays, id: \.self) { date in
-                VStack(spacing: 3) {
-                    Text(weekdaySymbol(for: date))
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.white.opacity(isToday(date) ? 0.92 : 0.42))
-
-                    Text(dayNumber(for: date))
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white.opacity(isToday(date) ? 0.96 : 0.62))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(isToday(date) ? Color.accentColor.opacity(0.95) : Color.white.opacity(0.04))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.white.opacity(isToday(date) ? 0.08 : 0.05), lineWidth: 1)
-                )
-            }
+    private var todaySubtitle: String {
+        if upcomingEvents.isEmpty {
+            return "No events scheduled today"
         }
-    }
-
-    private var nextSixDays: [Date] {
-        (0..<6).compactMap { offset in
-            calendar.date(byAdding: .day, value: offset, to: Date())
+        if upcomingEvents.count == 1 {
+            return "1 event coming up"
         }
+        return "\(upcomingEvents.count) events coming up"
     }
 
     private func countdown(for event: EKEvent) -> String? {
@@ -266,33 +227,9 @@ private struct HomeCalendarPanel: View {
         return manager.nextEventCountdown
     }
 
-    private func weekdaySymbol(for date: Date) -> String {
-        Self.weekdayFormatter.string(from: date).uppercased()
-    }
-
-    private func dayNumber(for date: Date) -> String {
-        Self.dayFormatter.string(from: date)
-    }
-
-    private func isToday(_ date: Date) -> Bool {
-        calendar.isDateInToday(date)
-    }
-
-    private static let monthFormatter: DateFormatter = {
+    private static let todayTitleFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM"
-        return formatter
-    }()
-
-    private static let weekdayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "E"
-        return formatter
-    }()
-
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "dd"
+        formatter.dateFormat = "EEEE, d MMM"
         return formatter
     }()
 }

@@ -353,18 +353,16 @@ final class AppState: ObservableObject {
     // MARK: - Module Cycling
 
     func cycleModule(forward: Bool) {
+        if currentState == .fullExpanded {
+            cycleFullExpandedTab(forward: forward)
+            return
+        }
+
         let modules = availableModules
         guard !modules.isEmpty else { return }
 
-        let currentModule: ActiveModule?
-        if currentState == .fullExpanded, case .module(let selectedModule) = fullExpandedSelectedTab {
-            currentModule = selectedModule
-        } else {
-            currentModule = activeModule
-        }
-
         let nextModule: ActiveModule
-        if let currentModule, let index = modules.firstIndex(of: currentModule) {
+        if let activeModule, let index = modules.firstIndex(of: activeModule) {
             let nextIndex = forward
                 ? modules.index(after: index) % modules.count
                 : (index - 1 + modules.count) % modules.count
@@ -378,9 +376,6 @@ final class AppState: ObservableObject {
         withAnimation(Constants.contentSwap) {
             previousModule = activeModule
             activeModule = nextModule
-            if currentState == .fullExpanded {
-                fullExpandedSelectedTab = .module(nextModule)
-            }
         }
     }
 
@@ -452,15 +447,16 @@ final class AppState: ObservableObject {
         return builtIns + ExtensionManager.shared.availableModules
     }
 
+    var fullExpandedModules: [ActiveModule] {
+        let builtIns = ModuleType.allCases
+            .filter { isCyclableIslandModule($0) && supportsFullExpandedModule(.builtIn($0)) && isModuleEnabled($0) }
+            .map(ActiveModule.builtIn)
+        return builtIns + ExtensionManager.shared.availableModules.filter(supportsFullExpandedModule)
+    }
+
     var fullExpandedTabs: [FullExpandedTab] {
         var tabs: [FullExpandedTab] = [.home]
-        tabs.append(contentsOf: availableModules.map(FullExpandedTab.module))
-
-        if case .module(let module) = fullExpandedSelectedTab,
-           !tabs.contains(.module(module)) {
-            tabs.append(.module(module))
-        }
-
+        tabs.append(contentsOf: fullExpandedModules.map(FullExpandedTab.module))
         return tabs
     }
 
@@ -717,7 +713,7 @@ final class AppState: ObservableObject {
 
         if prefersHome {
             nextTab = .home
-        } else if let activeModule {
+        } else if let activeModule, supportsFullExpandedModule(activeModule) {
             nextTab = .module(activeModule)
         } else {
             nextTab = .home
@@ -725,6 +721,35 @@ final class AppState: ObservableObject {
 
         if fullExpandedSelectedTab != nextTab {
             fullExpandedSelectedTab = nextTab
+        }
+    }
+
+    private func cycleFullExpandedTab(forward: Bool) {
+        let tabs = fullExpandedTabs
+        guard !tabs.isEmpty else { return }
+
+        let currentTab = tabs.contains(fullExpandedSelectedTab) ? fullExpandedSelectedTab : .home
+        let currentIndex = tabs.firstIndex(of: currentTab) ?? 0
+        let nextIndex = forward
+            ? tabs.index(after: currentIndex) % tabs.count
+            : (currentIndex - 1 + tabs.count) % tabs.count
+        let nextTab = tabs[nextIndex]
+
+        withAnimation(Constants.contentSwap) {
+            fullExpandedSelectedTab = nextTab
+            if case .module(let module) = nextTab {
+                previousModule = activeModule
+                activeModule = module
+            }
+        }
+    }
+
+    private func supportsFullExpandedModule(_ module: ActiveModule) -> Bool {
+        switch module {
+        case .builtIn(.nowPlaying), .builtIn(.connectivity):
+            return false
+        default:
+            return true
         }
     }
 
