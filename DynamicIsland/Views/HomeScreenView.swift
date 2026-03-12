@@ -3,19 +3,28 @@ import EventKit
 
 struct HomeScreenView: View {
     var body: some View {
-        HStack(alignment: .top, spacing: 18) {
+        HStack(alignment: .top, spacing: 14) {
             HomeNowPlayingPanel()
-                .frame(width: 252, alignment: .topLeading)
+                .frame(width: 228, alignment: .topLeading)
 
-            Rectangle()
-                .fill(Color.white.opacity(0.08))
-                .frame(width: 1)
-                .padding(.vertical, 4)
+            homeDivider
 
             HomeCalendarPanel()
                 .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            homeDivider
+
+            HomeWeatherPanel()
+                .frame(width: 150, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var homeDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.08))
+            .frame(width: 1)
+            .padding(.vertical, 4)
     }
 }
 
@@ -23,9 +32,7 @@ private struct HomeNowPlayingPanel: View {
     @ObservedObject private var manager = NowPlayingManager.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionLabel("Now Playing")
-
+        VStack(alignment: .leading, spacing: 8) {
             if manager.title.isEmpty {
                 HomeEmptyState(
                     icon: "music.note.house",
@@ -33,28 +40,24 @@ private struct HomeNowPlayingPanel: View {
                     subtitle: "Start playback to pin controls here."
                 )
             } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(manager.title)
+                            .font(HomeTypography.panelTitleFont)
+                            .foregroundStyle(HomeTypography.primaryText)
+                            .lineLimit(1)
+
+                        Text(secondaryLine)
+                            .font(HomeTypography.secondaryFont)
+                            .foregroundStyle(HomeTypography.secondaryText)
+                            .lineLimit(1)
+                    }
+
+                    HStack(alignment: .center, spacing: 18) {
                         albumArt
 
-                        VStack(alignment: .leading, spacing: 9) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(manager.title)
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-
-                                Text(secondaryLine)
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.white.opacity(0.62))
-                                    .lineLimit(1)
-
-                                sourceBadge
-                            }
-
-                            controlsRow
-                        }
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        controlsRow
+                            .frame(maxWidth: .infinity, alignment: .center)
                     }
 
                     sliderSection
@@ -64,7 +67,26 @@ private struct HomeNowPlayingPanel: View {
     }
 
     private var albumArt: some View {
-        AlbumArtView(image: manager.albumArt, size: 92)
+        ZStack(alignment: .bottomTrailing) {
+            AlbumArtView(image: manager.albumArt, size: 78)
+
+            if let sourceAppIcon = manager.sourceAppIcon {
+                Image(nsImage: sourceAppIcon)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 18, height: 18)
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .stroke(Color.black.opacity(0.55), lineWidth: 1)
+                    )
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.black.opacity(0.9))
+                    )
+                    .offset(x: 4, y: 4)
+            }
+        }
     }
 
     private var secondaryLine: String {
@@ -75,7 +97,7 @@ private struct HomeNowPlayingPanel: View {
             return "\(artist) • \(album)"
         }
 
-        return artist ?? album ?? sanitized(manager.sourceName) ?? "Media"
+        return artist ?? album ?? "Media"
     }
 
     private var durationLine: String {
@@ -84,7 +106,7 @@ private struct HomeNowPlayingPanel: View {
     }
 
     private var controlsRow: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             transportButton(systemName: "backward.fill", action: manager.previousTrack)
             transportButton(
                 systemName: manager.isPlaying ? "pause.fill" : "play.fill",
@@ -96,7 +118,7 @@ private struct HomeNowPlayingPanel: View {
     }
 
     private var sliderSection: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 4) {
             ProgressBar(
                 progress: manager.progress,
                 trackHeight: 3,
@@ -111,27 +133,11 @@ private struct HomeNowPlayingPanel: View {
                 Spacer(minLength: 8)
                 Text(manager.formattedDuration)
             }
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
-            .foregroundStyle(.white.opacity(0.5))
+            .font(HomeTypography.metaFont)
+            .foregroundStyle(HomeTypography.tertiaryText)
             .lineLimit(1)
         }
-        .padding(.horizontal, 10)
-    }
-
-    private var sourceBadge: some View {
-        Text(sanitized(manager.sourceName) ?? "System Audio")
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.72))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.08))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
-            )
+        .padding(.horizontal, 6)
     }
 
     private func transportButton(
@@ -141,9 +147,9 @@ private struct HomeNowPlayingPanel: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: isPrimary ? 14 : 13, weight: .semibold))
+                .font(.system(size: isPrimary ? 13 : 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.92))
-                .frame(width: isPrimary ? 34 : 28, height: isPrimary ? 34 : 28)
+                .frame(width: isPrimary ? 32 : 26, height: isPrimary ? 32 : 26)
                 .background(
                     Circle()
                         .fill(Color.white.opacity(isPrimary ? 0.12 : 0.07))
@@ -167,17 +173,16 @@ private struct HomeCalendarPanel: View {
     @ObservedObject private var manager = CalendarManager.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            sectionLabel("Calendar")
-
+        VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(todayTitle)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .font(HomeTypography.heroFont)
+                    .foregroundStyle(HomeTypography.primaryText)
+                    .lineLimit(2)
 
                 Text(todaySubtitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .font(HomeTypography.secondaryFont)
+                    .foregroundStyle(HomeTypography.secondaryText)
             }
 
             if upcomingEvents.isEmpty {
@@ -188,8 +193,8 @@ private struct HomeCalendarPanel: View {
                 )
                 .padding(.top, 10)
             } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(upcomingEvents.prefix(4).enumerated()), id: \.offset) { _, event in
+                VStack(alignment: .leading, spacing: 9) {
+                    ForEach(Array(upcomingEvents.prefix(3).enumerated()), id: \.offset) { _, event in
                         HomeEventRow(
                             event: event,
                             countdown: countdown(for: event),
@@ -230,9 +235,101 @@ private struct HomeCalendarPanel: View {
 
     private static let todayTitleFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, d MMM"
+        formatter.dateFormat = "EEE, d MMM"
         return formatter
     }()
+}
+
+private struct HomeWeatherPanel: View {
+    @ObservedObject private var manager = WeatherManager.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if isWeatherUnavailable {
+                HomeEmptyState(
+                    icon: "cloud.sun",
+                    title: manager.isLoading ? "Fetching weather" : "Weather unavailable",
+                    subtitle: manager.isLoading ? "Getting your local conditions." : "Current forecast will appear here."
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .center, spacing: 10) {
+                        Image(systemName: manager.weather.conditionIcon)
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .frame(width: 34, height: 34)
+                            .background(
+                                Circle()
+                                    .fill(Color.white.opacity(0.06))
+                            )
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("\(Int(manager.weather.temperature))°")
+                                .font(HomeTypography.temperatureFont)
+                                .foregroundStyle(HomeTypography.primaryText)
+
+                            Text(manager.weather.condition)
+                                .font(HomeTypography.secondaryFont)
+                                .foregroundStyle(HomeTypography.secondaryText)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    if !manager.weather.locationName.isEmpty {
+                        Text(manager.weather.locationName)
+                            .font(HomeTypography.bodyTitleFont)
+                            .foregroundStyle(HomeTypography.secondaryText)
+                            .lineLimit(1)
+                    }
+
+                    HStack(spacing: 8) {
+                        weatherStat(
+                            title: "High",
+                            value: "\(Int(manager.weather.temperatureHigh))°",
+                            icon: "arrow.up.circle.fill",
+                            tint: Color.orange.opacity(0.88)
+                        )
+                        weatherStat(
+                            title: "Low",
+                            value: "\(Int(manager.weather.temperatureLow))°",
+                            icon: "arrow.down.circle.fill",
+                            tint: Color.cyan.opacity(0.88)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var isWeatherUnavailable: Bool {
+        !hasWeatherData
+    }
+
+    private var hasWeatherData: Bool {
+        !manager.weather.locationName.isEmpty ||
+        manager.weather.temperature != 0 ||
+        manager.weather.temperatureHigh != 0 ||
+        manager.weather.temperatureLow != 0
+    }
+
+    private func weatherStat(title: String, value: String, icon: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(tint)
+
+                Text(title)
+                    .font(HomeTypography.badgeFont)
+                    .foregroundStyle(HomeTypography.tertiaryText)
+            }
+
+            Text(value)
+                .font(HomeTypography.valueFont)
+                .foregroundStyle(HomeTypography.secondaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 }
 
 private struct HomeEventRow: View {
@@ -249,20 +346,20 @@ private struct HomeEventRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(event.title ?? "Upcoming event")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .font(HomeTypography.bodyTitleFont)
+                    .foregroundStyle(HomeTypography.secondaryText)
                     .lineLimit(1)
 
                 HStack(spacing: 6) {
                     Text(timeRange)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.56))
+                        .font(HomeTypography.secondaryFont)
+                        .foregroundStyle(HomeTypography.secondaryText)
                         .lineLimit(1)
 
                     if let countdown {
                         Text(countdown)
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.86))
+                            .font(HomeTypography.badgeFont)
+                            .foregroundStyle(HomeTypography.primaryText.opacity(0.92))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(
@@ -314,24 +411,32 @@ private struct HomeEmptyState: View {
         VStack(alignment: .leading, spacing: 6) {
             Image(systemName: icon)
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.34))
+                .foregroundStyle(HomeTypography.tertiaryText)
 
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.82))
+                .font(HomeTypography.bodyTitleFont)
+                .foregroundStyle(HomeTypography.primaryText.opacity(0.9))
 
             Text(subtitle)
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.45))
+                .font(HomeTypography.secondaryFont)
+                .foregroundStyle(HomeTypography.secondaryText)
                 .lineLimit(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-private func sectionLabel(_ title: String) -> some View {
-    Text(title.uppercased())
-        .font(.system(size: 9, weight: .bold))
-        .tracking(1.2)
-        .foregroundStyle(.white.opacity(0.4))
+private enum HomeTypography {
+    static let heroFont = Font.system(size: 18, weight: .semibold)
+    static let temperatureFont = Font.system(size: 24, weight: .semibold)
+    static let panelTitleFont = Font.system(size: 15, weight: .semibold)
+    static let bodyTitleFont = Font.system(size: 14, weight: .semibold)
+    static let valueFont = Font.system(size: 14, weight: .semibold)
+    static let secondaryFont = Font.system(size: 11, weight: .medium)
+    static let badgeFont = Font.system(size: 10, weight: .semibold)
+    static let metaFont = Font.system(size: 10, weight: .medium, design: .monospaced)
+
+    static let primaryText = Color.white.opacity(0.88)
+    static let secondaryText = Color.white.opacity(0.58)
+    static let tertiaryText = Color.white.opacity(0.36)
 }

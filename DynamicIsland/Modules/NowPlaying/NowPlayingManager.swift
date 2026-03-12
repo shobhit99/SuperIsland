@@ -1012,6 +1012,17 @@ final class NowPlayingManager: ObservableObject {
         }
     }
 
+    var sourceAppIcon: NSImage? {
+        guard !currentBundleIdentifier.isEmpty,
+              let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: currentBundleIdentifier) else {
+            return nil
+        }
+
+        let icon = NSWorkspace.shared.icon(forFile: appURL.path)
+        icon.size = NSSize(width: 24, height: 24)
+        return icon
+    }
+
     private func trackSignature(title: String, artist: String, album: String, bundleIdentifier: String) -> String {
         [bundleIdentifier, title, artist, album]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
