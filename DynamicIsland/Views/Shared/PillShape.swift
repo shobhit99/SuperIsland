@@ -52,6 +52,33 @@ struct PillShape: Shape {
         self.topCutoutCornerRadius = topCutoutCornerRadius
     }
 
+    var animatableData: AnimatablePair<
+        AnimatablePair<CGFloat, CGFloat>,
+        AnimatablePair<
+            AnimatablePair<CGFloat, CGFloat>,
+            AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>
+        >
+    > {
+        get {
+            AnimatablePair(
+                AnimatablePair(topLeadingRadius, topTrailingRadius),
+                AnimatablePair(
+                    AnimatablePair(bottomLeadingRadius, bottomTrailingRadius),
+                    AnimatablePair(topCutoutWidth, AnimatablePair(topCutoutDepth, topCutoutCornerRadius))
+                )
+            )
+        }
+        set {
+            topLeadingRadius = newValue.first.first
+            topTrailingRadius = newValue.first.second
+            bottomLeadingRadius = newValue.second.first.first
+            bottomTrailingRadius = newValue.second.first.second
+            topCutoutWidth = newValue.second.second.first
+            topCutoutDepth = newValue.second.second.second.first
+            topCutoutCornerRadius = newValue.second.second.second.second
+        }
+    }
+
     func path(in rect: CGRect) -> Path {
         let maxOuterRadius = min(rect.width, rect.height) / 2
         let topLeading = min(topLeadingRadius, maxOuterRadius)

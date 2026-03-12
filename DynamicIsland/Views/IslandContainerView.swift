@@ -1,10 +1,18 @@
 import SwiftUI
 
 struct IslandContainerView: View {
+    private struct SurfaceTransition {
+        let fromState: IslandState
+        let toState: IslandState
+    }
+
     @EnvironmentObject var appState: AppState
     @State private var isHoveringIslandSurface = false
     @State private var isHoveringPreviousButton = false
     @State private var isHoveringNextButton = false
+    @State private var surfaceScale: CGFloat = 1.0
+    @State private var surfaceTransition: SurfaceTransition?
+    @State private var surfaceTransitionResetWorkItem: DispatchWorkItem?
 
     var body: some View {
         islandBody
@@ -13,7 +21,7 @@ struct IslandContainerView: View {
     private var islandBody: some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
-                islandSurface
+                islandSurface(in: geometry.size)
 
                 if showModuleCycler {
                     moduleCyclerOverlay
@@ -24,6 +32,9 @@ struct IslandContainerView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .animation(.spring(response: 0.48, dampingFraction: 0.8), value: appState.activeModule)
+        .onChange(of: appState.currentState) { oldValue, newValue in
+            handleStateAnimation(from: oldValue, to: newValue)
+        }
         .onChange(of: showModuleCycler) { _, isVisible in
             guard !isVisible else { return }
             setCycleButtonHover(false, forward: false)
@@ -44,7 +55,8 @@ struct IslandContainerView: View {
     }
 
     @ViewBuilder
-    private var islandSurface: some View {
+    private func islandSurface(in availableSize: CGSize) -> some View {
+        let surfaceSize = displayedSurfaceSize(in: availableSize)
         let surface = ZStack(alignment: .top) {
             islandShape
                 .fill(
@@ -69,11 +81,12 @@ struct IslandContainerView: View {
                     y: keyShadowYOffset
                 )
 
-            islandContent
-                .frame(width: appState.currentSize.width, height: appState.currentSize.height, alignment: .top)
+            islandContent(in: surfaceSize)
+                .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .top)
                 .clipShape(islandShape)
         }
-        .frame(width: appState.currentSize.width, height: appState.currentSize.height)
+        .frame(width: surfaceSize.width, height: surfaceSize.height)
+        .scaleEffect(surfaceScale, anchor: .top)
         .contentShape(islandShape)
         .onHover(perform: setIslandSurfaceHover)
 
@@ -87,13 +100,13 @@ struct IslandContainerView: View {
     }
 
     @ViewBuilder
-    private var islandContent: some View {
+    private func islandContent(in surfaceSize: CGSize) -> some View {
         if appState.currentState == .compact {
             CompactView()
                 .opacity(compactContentOpacity)
                 .transition(.opacity)
         } else {
-            expandedIslandLayout
+            expandedIslandLayout(in: surfaceSize)
                 .opacity(compactContentOpacity)
         }
     }
@@ -139,19 +152,23 @@ struct IslandContainerView: View {
         appState.currentState == .compact ? 6 : 8
     }
 
-    private var expandedIslandLayout: some View {
-        VStack(spacing: 0) {
+    private func expandedIslandLayout(in surfaceSize: CGSize) -> some View {
+        let shoulderHeight = min(appState.currentContentTopInset, surfaceSize.height)
+        let contentWidth = min(appState.currentContentSize.width, surfaceSize.width)
+        let contentHeight = max(0, surfaceSize.height - shoulderHeight)
+
+        return VStack(spacing: 0) {
             if appState.hasFullExpandedShoulderBarSpace {
                 FullExpandedTopBarView(layout: .shoulder)
                     .environmentObject(appState)
                     .frame(
-                        width: appState.currentContentSize.width,
-                        height: appState.currentContentTopInset,
+                        width: contentWidth,
+                        height: shoulderHeight,
                         alignment: .top
                     )
             } else {
                 Color.clear
-                    .frame(height: appState.currentContentTopInset)
+                    .frame(height: shoulderHeight)
             }
 
             currentExpandedContent
@@ -159,15 +176,15 @@ struct IslandContainerView: View {
                 .padding(.top, appState.contentTopPadding)
                 .padding(.bottom, appState.contentBottomPadding)
                 .frame(
-                    width: appState.currentContentSize.width,
-                    height: appState.currentContentFrameHeight,
+                    width: contentWidth,
+                    height: contentHeight,
                     alignment: .top
                 )
                 .clipped()
 
             Spacer(minLength: 0)
         }
-        .frame(width: appState.currentSize.width, height: appState.currentSize.height, alignment: .top)
+        .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .top)
     }
 
     @ViewBuilder
@@ -314,5 +331,103 @@ struct IslandContainerView: View {
         appState.handleHoverChange(
             isHoveringIslandSurface || isHoveringPreviousButton || isHoveringNextButton
         )
+    }
+
+    private func handleStateAnimation(from oldValue: IslandState, to newValue: IslandState) {
+        guard oldValue != newValue else { return }
+        surfaceTransition = SurfaceTransition(fromState: oldValue, toState: newValue)
+        surfaceTransitionResetWorkItem?.cancel()
+
+        let resetWorkItem = DispatchWorkItem {
+            surfaceTransition = nil
+        }
+        surfaceTransitionResetWorkItem = resetWorkItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: resetWorkItem)
+
+        if oldValue == .compact && newValue != .compact {
+            surfaceScale = 0.992
+            withAnimation(Constants.overshootBounce) {
+                surfaceScale = 1.008
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
+                    surfaceScale = 1.0
+                }
+            }
+            return
+        }
+
+        withAnimation(.easeOut(duration: 0.24)) {
+            surfaceScale = 1.0
+        }
+    }
+
+    private func displayedSurfaceSize(in availableSize: CGSize) -> CGSize {
+        guard let surfaceTransition else {
+            return appState.currentSize
+        }
+
+        let fromWindowSize = appState.windowSize(for: surfaceTransition.fromState)
+        let toWindowSize = appState.windowSize(for: surfaceTransition.toState)
+        let fromSurfaceSize = appState.size(for: surfaceTransition.fromState)
+        let toSurfaceSize = appState.size(for: surfaceTransition.toState)
+
+        let progress = transitionProgress(
+            currentSize: availableSize,
+            fromSize: fromWindowSize,
+            toSize: toWindowSize
+        )
+
+        return CGSize(
+            width: interpolatedValue(
+                from: fromSurfaceSize.width,
+                to: toSurfaceSize.width,
+                progress: progress
+            ),
+            height: interpolatedValue(
+                from: fromSurfaceSize.height,
+                to: toSurfaceSize.height,
+                progress: progress
+            )
+        )
+    }
+
+    private func transitionProgress(
+        currentSize: CGSize,
+        fromSize: CGSize,
+        toSize: CGSize
+    ) -> CGFloat {
+        let widthProgress = normalizedProgress(
+            current: currentSize.width,
+            from: fromSize.width,
+            to: toSize.width
+        )
+        let heightProgress = normalizedProgress(
+            current: currentSize.height,
+            from: fromSize.height,
+            to: toSize.height
+        )
+
+        let hasWidthChange = abs(toSize.width - fromSize.width) > 0.5
+        let hasHeightChange = abs(toSize.height - fromSize.height) > 0.5
+
+        if hasWidthChange && hasHeightChange {
+            return max(widthProgress, heightProgress)
+        }
+        if hasWidthChange {
+            return widthProgress
+        }
+        return heightProgress
+    }
+
+    private func normalizedProgress(current: CGFloat, from: CGFloat, to: CGFloat) -> CGFloat {
+        let delta = to - from
+        guard abs(delta) > 0.5 else { return 1 }
+        let progress = (current - from) / delta
+        return min(max(progress, 0), 1)
+    }
+
+    private func interpolatedValue(from: CGFloat, to: CGFloat, progress: CGFloat) -> CGFloat {
+        from + ((to - from) * progress)
     }
 }

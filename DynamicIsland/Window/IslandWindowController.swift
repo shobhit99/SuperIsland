@@ -82,7 +82,7 @@ final class IslandWindowController {
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = appState.currentState == .compact ? 0.45 : 0.38
+                context.duration = appState.currentState == .compact ? 0.54 : 0.48
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 panel.animator().setFrame(frame, display: true)
             }

@@ -560,19 +560,28 @@ final class AppState: ObservableObject {
     // MARK: - Size Helpers
 
     var currentSize: CGSize {
-        switch currentState {
+        size(for: currentState)
+    }
+
+    var currentContentSize: CGSize {
+        contentSize(for: currentState)
+    }
+
+    func size(for state: IslandState) -> CGSize {
+        let contentSize = self.contentSize(for: state)
+        switch state {
         case .compact:
-            return currentContentSize
+            return contentSize
         case .expanded, .fullExpanded:
             return CGSize(
-                width: currentContentSize.width,
-                height: currentContentSize.height + currentContentTopInset
+                width: contentSize.width,
+                height: contentSize.height + contentTopInset(for: state)
             )
         }
     }
 
-    var currentContentSize: CGSize {
-        switch currentState {
+    func contentSize(for state: IslandState) -> CGSize {
+        switch state {
         case .compact:
             return compactIslandMetrics?.size ?? Constants.compactSize
         case .expanded:
@@ -583,13 +592,18 @@ final class AppState: ObservableObject {
     }
 
     var windowSize: CGSize {
-        switch currentState {
+        windowSize(for: currentState)
+    }
+
+    func windowSize(for state: IslandState) -> CGSize {
+        let islandSize = size(for: state)
+        switch state {
         case .compact:
-            return currentSize
+            return islandSize
         case .expanded, .fullExpanded:
             return CGSize(
-                width: currentSize.width + (Constants.moduleCyclerGutterWidth * 2),
-                height: currentSize.height + Constants.expandedShadowBottomPadding
+                width: islandSize.width + (Constants.moduleCyclerGutterWidth * 2),
+                height: islandSize.height + Constants.expandedShadowBottomPadding
             )
         }
     }
@@ -627,7 +641,7 @@ final class AppState: ObservableObject {
     var currentTopCornerRadius: CGFloat {
         switch currentState {
         case .compact:
-            return compactIslandMetrics == nil ? Constants.compactCornerRadius : 0
+            return compactIslandMetrics?.bottomCornerRadius ?? Constants.compactCornerRadius
         case .expanded:
             return Constants.expandedCornerRadius
         case .fullExpanded:
@@ -659,10 +673,7 @@ final class AppState: ObservableObject {
     }
 
     var currentContentTopInset: CGFloat {
-        guard shouldUseSquaredTopCorners, let notch = currentNotchRect else {
-            return 0
-        }
-        return notch.height + Constants.expandedNotchHeightBoost
+        contentTopInset(for: currentState)
     }
 
     var currentContentFrameHeight: CGFloat {
@@ -744,11 +755,22 @@ final class AppState: ObservableObject {
     }
 
     var usesOutwardTopCorners: Bool {
-        shouldUseSquaredTopCorners
+        presentationHasNotch
     }
 
     private var shouldUseSquaredTopCorners: Bool {
-        currentState != .compact && presentationHasNotch
+        shouldUseSquaredTopCorners(for: currentState)
+    }
+
+    private func contentTopInset(for state: IslandState) -> CGFloat {
+        guard shouldUseSquaredTopCorners(for: state), let notch = currentNotchRect else {
+            return 0
+        }
+        return notch.height + Constants.expandedNotchHeightBoost
+    }
+
+    private func shouldUseSquaredTopCorners(for state: IslandState) -> Bool {
+        state != .compact && presentationHasNotch
     }
 
     private var notchedExpandedShoulderRadius: CGFloat {
