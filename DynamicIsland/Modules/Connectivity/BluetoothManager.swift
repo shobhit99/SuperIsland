@@ -71,7 +71,10 @@ final class BluetoothManager: ObservableObject {
                     batteryLevel: nil
                 )
                 self?.lastConnectedDevice = info
-                AppState.shared.showHUD(module: .connectivity)
+                AppState.shared.showHUD(
+                    module: .connectivity,
+                    autoDismissDelay: Constants.hudAutoDismissDelay
+                )
             }
         }
 
@@ -83,7 +86,10 @@ final class BluetoothManager: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             self?.lastDisconnectedDeviceName = device.name
             self?.updateDevices()
-            AppState.shared.showHUD(module: .connectivity)
+            AppState.shared.showHUD(
+                module: .connectivity,
+                autoDismissDelay: Constants.hudAutoDismissDelay
+            )
         }
     }
 
