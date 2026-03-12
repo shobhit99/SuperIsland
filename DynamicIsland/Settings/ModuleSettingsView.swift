@@ -23,6 +23,10 @@ struct ModuleSettingsView: View {
                 ) {
                     Toggle("Battery", isOn: $appState.batteryEnabled)
                     Divider().opacity(0.2)
+                    Toggle("Shelf", isOn: $appState.shelfEnabled)
+                    Divider().opacity(0.2)
+                    Toggle("Auto-open Shelf on Drop", isOn: $appState.shelfAutoOpenOnDrop)
+                    Divider().opacity(0.2)
                     Toggle("Connectivity", isOn: $appState.connectivityEnabled)
                 }
 

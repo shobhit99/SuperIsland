@@ -40,6 +40,8 @@ struct FullExpandedView: View {
             SystemHUDExpandedView()
         case .builtIn(.battery):
             BatteryExpandedView()
+        case .builtIn(.shelf):
+            ShelfFullExpandedView()
         case .builtIn(.calendar):
             CalendarExpandedView()
         case .builtIn(.weather):
@@ -93,7 +95,7 @@ struct FullExpandedTopBarView: View {
     private let shoulderHorizontalPadding: CGFloat = 8
     private let shoulderTopPadding: CGFloat = 2
     private let shoulderTabSpacing: CGFloat = 8
-    private let iconTabWidth: CGFloat = 34
+    private let iconTabWidth: CGFloat = 36
     private let trailingControlsSlotWidth: CGFloat = 128
     private let shoulderLeadingInset: CGFloat = 24
     private let settingsLeadingInset: CGFloat = 4

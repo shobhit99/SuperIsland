@@ -173,6 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .volumeHUD: AppState.shared.volumeHUDEnabled = newState
         case .brightnessHUD: AppState.shared.brightnessHUDEnabled = newState
         case .battery: AppState.shared.batteryEnabled = newState
+        case .shelf: AppState.shared.shelfEnabled = newState
         case .connectivity: AppState.shared.connectivityEnabled = newState
         case .calendar: AppState.shared.calendarEnabled = newState
         case .weather: AppState.shared.weatherEnabled = newState

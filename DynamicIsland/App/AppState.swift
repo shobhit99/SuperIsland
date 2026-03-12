@@ -15,6 +15,7 @@ enum ModuleType: String, CaseIterable, Identifiable {
     case volumeHUD
     case brightnessHUD
     case battery
+    case shelf
     case connectivity
     case calendar
     case weather
@@ -27,6 +28,7 @@ enum ModuleType: String, CaseIterable, Identifiable {
         case .volumeHUD: return "Volume"
         case .brightnessHUD: return "Brightness"
         case .battery: return "Battery"
+        case .shelf: return "Shelf"
         case .connectivity: return "Connectivity"
         case .calendar: return "Calendar"
         case .weather: return "Weather"
@@ -40,6 +42,7 @@ enum ModuleType: String, CaseIterable, Identifiable {
         case .volumeHUD: return "speaker.wave.2.fill"
         case .brightnessHUD: return "sun.max.fill"
         case .battery: return "battery.100"
+        case .shelf: return "tray.full.fill"
         case .connectivity: return "wifi"
         case .calendar: return "calendar"
         case .weather: return "cloud.sun.fill"
@@ -146,10 +149,13 @@ final class AppState: ObservableObject {
     @AppStorage("module.volumeHUD.enabled") var volumeHUDEnabled = true
     @AppStorage("module.brightnessHUD.enabled") var brightnessHUDEnabled = true
     @AppStorage("module.battery.enabled") var batteryEnabled = true
+    @AppStorage("module.shelf.enabled") var shelfEnabled = true
     @AppStorage("module.connectivity.enabled") var connectivityEnabled = true
     @AppStorage("module.calendar.enabled") var calendarEnabled = true
     @AppStorage("module.weather.enabled") var weatherEnabled = true
     @AppStorage("module.notifications.enabled") var notificationsEnabled = true
+    @AppStorage("module.shelf.autoOpenOnDrop") var shelfAutoOpenOnDrop = true
+    @AppStorage("module.shelf.defaultToShelf") var shelfDefaultToShelf = false
 
     // Appearance settings
     @AppStorage("appearance.cornerRadius") var cornerRadius: Double = 18.0
@@ -476,6 +482,8 @@ final class AppState: ObservableObject {
             fullExpandedSelectedTab = tab
         }
 
+        updateShelfDefaultSelection(for: tab)
+
         if case .module(let module) = tab {
             setActiveModule(module)
         }
@@ -485,6 +493,7 @@ final class AppState: ObservableObject {
         withAnimation(Constants.contentSwap) {
             fullExpandedSelectedTab = .home
         }
+        shelfDefaultToShelf = false
     }
 
     // MARK: - Module Status
@@ -495,6 +504,7 @@ final class AppState: ObservableObject {
         case .volumeHUD: return volumeHUDEnabled
         case .brightnessHUD: return brightnessHUDEnabled
         case .battery: return batteryEnabled
+        case .shelf: return shelfEnabled
         case .connectivity: return connectivityEnabled
         case .calendar: return calendarEnabled
         case .weather: return weatherEnabled
@@ -813,7 +823,9 @@ final class AppState: ObservableObject {
     private func prepareFullExpandedPresentation(prefersHome: Bool) {
         let nextTab: FullExpandedTab
 
-        if prefersHome {
+        if shouldDefaultToShelf {
+            nextTab = .module(.builtIn(.shelf))
+        } else if prefersHome {
             nextTab = .home
         } else if let activeModule, supportsFullExpandedModule(activeModule) {
             nextTab = .module(activeModule)
@@ -823,6 +835,11 @@ final class AppState: ObservableObject {
 
         if fullExpandedSelectedTab != nextTab {
             fullExpandedSelectedTab = nextTab
+        }
+
+        if case .module(let module) = nextTab {
+            previousModule = activeModule
+            activeModule = module
         }
     }
 
@@ -844,6 +861,8 @@ final class AppState: ObservableObject {
                 activeModule = module
             }
         }
+
+        updateShelfDefaultSelection(for: nextTab)
     }
 
     private func supportsFullExpandedModule(_ module: ActiveModule) -> Bool {
@@ -861,10 +880,43 @@ final class AppState: ObservableObject {
         switch module {
         case .extension_(let extensionID):
             return ExtensionManager.shared.installed.first(where: { $0.id == extensionID })?.capabilities.fullExpanded ?? false
-        case .builtIn(.battery):
+        case .builtIn(.battery), .builtIn(.shelf):
             return true
         default:
             return fullExpandedModules.contains(module)
+        }
+    }
+
+    func presentShelfAfterDrop() {
+        rememberShelfAsDefault()
+        guard shelfEnabled, shelfAutoOpenOnDrop else { return }
+
+        cancelAutoDismiss()
+        cancelFullExpandedDismiss()
+        previousModule = activeModule
+        activeModule = .builtIn(.shelf)
+        fullExpandedSelectedTab = .module(.builtIn(.shelf))
+
+        withAnimation(currentState == .compact ? Constants.expandedToFull : Constants.contentSwap) {
+            currentState = .fullExpanded
+        }
+    }
+
+    func rememberShelfAsDefault() {
+        guard shelfEnabled, !ShelfStore.shared.isEmpty else { return }
+        shelfDefaultToShelf = true
+    }
+
+    private var shouldDefaultToShelf: Bool {
+        shelfEnabled && shelfDefaultToShelf && !ShelfStore.shared.isEmpty
+    }
+
+    private func updateShelfDefaultSelection(for tab: FullExpandedTab) {
+        switch tab {
+        case .module(.builtIn(.shelf)):
+            shelfDefaultToShelf = !ShelfStore.shared.isEmpty
+        default:
+            shelfDefaultToShelf = false
         }
     }
 

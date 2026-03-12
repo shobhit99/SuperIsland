@@ -15,6 +15,8 @@ struct CompactView: View {
                     SystemHUDCompactView()
                 case .builtIn(.battery):
                     BatteryCompactView()
+                case .builtIn(.shelf):
+                    ShelfCompactView()
                 case .builtIn(.connectivity):
                     ConnectivityCompactView()
                 case .builtIn(.calendar):

@@ -13,6 +13,8 @@ struct ExpandedView: View {
                     SystemHUDExpandedView()
                 case .builtIn(.battery):
                     BatteryExpandedView()
+                case .builtIn(.shelf):
+                    ShelfExpandedView()
                 case .builtIn(.connectivity):
                     ConnectivityExpandedView()
                 case .builtIn(.calendar):
@@ -30,6 +32,7 @@ struct ExpandedView: View {
                     ModuleSummaryItem(icon: "battery.100", label: "Battery")
                     ModuleSummaryItem(icon: "music.note", label: "Music")
                     ModuleSummaryItem(icon: "calendar", label: "Calendar")
+                    ModuleSummaryItem(icon: "tray.full.fill", label: "Shelf")
                 }
                 .foregroundColor(.white)
             }

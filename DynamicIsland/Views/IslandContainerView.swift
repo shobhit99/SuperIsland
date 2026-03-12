@@ -10,6 +10,7 @@ struct IslandContainerView: View {
     @State private var isHoveringIslandSurface = false
     @State private var isHoveringPreviousButton = false
     @State private var isHoveringNextButton = false
+    @State private var isShelfDropTargeted = false
     @State private var surfaceScale: CGFloat = 1.0
     @State private var surfaceTransition: SurfaceTransition?
     @State private var surfaceTransitionResetWorkItem: DispatchWorkItem?
@@ -34,6 +35,9 @@ struct IslandContainerView: View {
         .animation(.spring(response: 0.48, dampingFraction: 0.8), value: appState.activeModule)
         .onChange(of: appState.currentState) { oldValue, newValue in
             handleStateAnimation(from: oldValue, to: newValue)
+        }
+        .onChange(of: isShelfDropTargeted) { _, isTargeted in
+            handleShelfDropTargetChange(isTargeted)
         }
         .onChange(of: showModuleCycler) { _, isVisible in
             guard !isVisible else { return }
@@ -87,8 +91,22 @@ struct IslandContainerView: View {
         }
         .frame(width: surfaceSize.width, height: surfaceSize.height)
         .scaleEffect(surfaceScale, anchor: .top)
+        .overlay {
+            if appState.shelfEnabled && isShelfDropTargeted {
+                islandShape
+                    .stroke(Color.accentColor.opacity(0.92), style: StrokeStyle(lineWidth: 3, dash: [10]))
+                    .padding(1)
+            }
+        }
         .contentShape(islandShape)
         .onHover(perform: setIslandSurfaceHover)
+        .onDrop(of: ShelfStore.acceptedDropTypes, isTargeted: $isShelfDropTargeted) { providers in
+            guard appState.shelfEnabled else { return false }
+            return ShelfStore.shared.handleDrop(providers: providers) { addedCount in
+                guard addedCount > 0 else { return }
+                appState.presentShelfAfterDrop()
+            }
+        }
 
         if appState.currentState == .fullExpanded {
             surface
@@ -258,6 +276,25 @@ struct IslandContainerView: View {
         }
 
         return false
+    }
+
+    private func handleShelfDropTargetChange(_ isTargeted: Bool) {
+        guard appState.shelfEnabled else { return }
+
+        if isTargeted {
+            appState.cancelAutoDismiss()
+            appState.cancelFullExpandedDismiss()
+
+            if appState.currentState == .compact {
+                appState.expand()
+            }
+
+            return
+        }
+
+        if appState.currentState == .expanded && !appState.isHovering {
+            appState.scheduleAutoDismiss()
+        }
     }
 
     private var showModuleCycler: Bool {
