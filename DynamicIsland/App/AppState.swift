@@ -271,6 +271,11 @@ final class AppState: ObservableObject {
             return
         }
 
+        if shouldDirectlyOpenNotificationsOnHover(for: module) {
+            presentNotificationsFullExpanded()
+            return
+        }
+
         cancelAutoDismiss()
 
         withAnimation(Constants.hudAppear) {
@@ -393,10 +398,7 @@ final class AppState: ObservableObject {
             }
 
             if self.shouldHoverExpandNotifications(from: startingState) {
-                withAnimation(Constants.compactToExpanded) {
-                    self.currentState = .expanded
-                }
-                self.cancelAutoDismiss()
+                self.presentNotificationsFullExpanded()
                 return
             }
 
@@ -411,12 +413,35 @@ final class AppState: ObservableObject {
     }
 
     private func shouldHoverExpandNotifications(from startingState: IslandState) -> Bool {
-        guard startingState == .compact,
+        guard startingState == .compact || startingState == .expanded,
               activeBuiltInModule == .notifications,
-              NotificationManager.shared.latestNotification != nil else {
+              hasFreshNotificationForHover else {
             return false
         }
         return true
+    }
+
+    private func shouldDirectlyOpenNotificationsOnHover(for module: ActiveModule) -> Bool {
+        guard currentState != .fullExpanded,
+              isHover,
+              case .builtIn(.notifications) = module,
+              hasFreshNotificationForHover else {
+            return false
+        }
+
+        return true
+    }
+
+    private var hasFreshNotificationForHover: Bool {
+        guard let notification = NotificationManager.shared.latestNotification else {
+            return false
+        }
+
+        return Date().timeIntervalSince(notification.timestamp) <= Constants.notificationHoverFullExpandWindow
+    }
+
+    private var isHover: Bool {
+        isHovering
     }
 
     private func handleStateTransition(from oldValue: IslandState, to newValue: IslandState) {
@@ -898,6 +923,22 @@ final class AppState: ObservableObject {
         fullExpandedSelectedTab = .module(.builtIn(.shelf))
 
         withAnimation(currentState == .compact ? Constants.expandedToFull : Constants.contentSwap) {
+            currentState = .fullExpanded
+        }
+    }
+
+    func presentNotificationsFullExpanded() {
+        guard notificationsEnabled, NotificationManager.shared.latestNotification != nil else { return }
+
+        cancelAutoDismiss()
+        cancelFullExpandedDismiss()
+        cancelHoverActivation()
+
+        previousModule = activeModule
+        activeModule = .builtIn(.notifications)
+        fullExpandedSelectedTab = .module(.builtIn(.notifications))
+
+        withAnimation(Constants.expandedToFull) {
             currentState = .fullExpanded
         }
     }

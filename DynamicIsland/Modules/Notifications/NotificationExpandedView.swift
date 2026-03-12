@@ -4,6 +4,7 @@ import AppKit
 struct NotificationExpandedView: View {
     @ObservedObject private var manager = NotificationManager.shared
     @EnvironmentObject var appState: AppState
+    @State private var fullExpandedTopNotificationID: String?
 
     var body: some View {
         Group {
@@ -20,6 +21,12 @@ struct NotificationExpandedView: View {
             maxHeight: .infinity,
             alignment: appState.currentState == .fullExpanded ? .top : .center
         )
+        .onAppear {
+            syncFullExpandedTopNotificationIfNeeded()
+        }
+        .onChange(of: allNotifications.map(\.id)) { _, _ in
+            syncFullExpandedTopNotificationIfNeeded()
+        }
     }
 
     private var emptyState: some View {
@@ -53,21 +60,26 @@ struct NotificationExpandedView: View {
 
     private var fullExpandedNotificationContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let latestNotification = manager.latestNotification {
-                featuredNotification(latestNotification, chrome: .card)
-            }
-
-            if !previousNotifications.isEmpty {
+            if !allNotifications.isEmpty {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 6) {
-                        ForEach(previousNotifications) { notification in
-                            notificationRow(notification, featured: false, chrome: .card)
+                        ForEach(allNotifications) { notification in
+                            notificationRow(
+                                notification,
+                                featured: notification.id == selectedFullExpandedNotificationID,
+                                chrome: .card
+                            )
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .coordinateSpace(name: "notification-scroll")
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .clipped()
+                .onPreferenceChange(NotificationRowFramePreferenceKey.self) { frames in
+                    guard appState.currentState == .fullExpanded else { return }
+                    updateTopNotification(using: frames)
+                }
             } else {
                 Spacer(minLength: 0)
             }
@@ -79,8 +91,24 @@ struct NotificationExpandedView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private var previousNotifications: [IslandNotification] {
-        Array(manager.recentNotifications.dropFirst())
+    private var allNotifications: [IslandNotification] {
+        if !manager.recentNotifications.isEmpty {
+            return manager.recentNotifications
+        }
+
+        if let latestNotification = manager.latestNotification {
+            return [latestNotification]
+        }
+
+        return []
+    }
+
+    private var selectedFullExpandedNotificationID: String? {
+        let availableIDs = Set(allNotifications.map(\.id))
+        if let fullExpandedTopNotificationID, availableIDs.contains(fullExpandedTopNotificationID) {
+            return fullExpandedTopNotificationID
+        }
+        return allNotifications.first?.id
     }
 
     private var footerBar: some View {
@@ -165,7 +193,45 @@ struct NotificationExpandedView: View {
                 }
             }
         }
+        .background {
+            if appState.currentState == .fullExpanded {
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: NotificationRowFramePreferenceKey.self,
+                        value: [notification.id: geometry.frame(in: .named("notification-scroll"))]
+                    )
+                }
+            }
+        }
         .id(notification.id)
+    }
+
+    private func syncFullExpandedTopNotificationIfNeeded() {
+        let availableIDs = Set(allNotifications.map(\.id))
+        guard let currentID = fullExpandedTopNotificationID, availableIDs.contains(currentID) else {
+            fullExpandedTopNotificationID = allNotifications.first?.id
+            return
+        }
+    }
+
+    private func updateTopNotification(using frames: [String: CGRect]) {
+        let visibleFrames = frames
+            .filter { _, frame in frame.maxY > 0 }
+            .sorted { lhs, rhs in lhs.value.minY < rhs.value.minY }
+
+        guard let firstVisible = visibleFrames.first else {
+            return
+        }
+
+        // Delay the featured-row handoff until the incoming row has moved
+        // farther into view, which keeps the zoom transition feeling smoother.
+        let activationLineY = max(0, firstVisible.value.height * 0.5)
+        let nextTopID =
+            visibleFrames.first(where: { $0.value.minY <= activationLineY && $0.value.maxY >= activationLineY })?.key
+            ?? firstVisible.key
+
+        guard fullExpandedTopNotificationID != nextTopID else { return }
+        fullExpandedTopNotificationID = nextTopID
     }
 
     private func headline(for notification: IslandNotification) -> String {
@@ -268,6 +334,14 @@ struct NotificationExpandedView: View {
         if interval < 60 { return "just now" }
         if interval < 3600 { return "\(Int(interval / 60))m ago" }
         return "\(Int(interval / 3600))h ago"
+    }
+}
+
+private struct NotificationRowFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 

@@ -284,6 +284,7 @@ struct IslandContainerView: View {
         if isTargeted {
             appState.cancelAutoDismiss()
             appState.cancelFullExpandedDismiss()
+            appState.cancelHoverActivation()
 
             if appState.currentState == .compact {
                 appState.expand()
