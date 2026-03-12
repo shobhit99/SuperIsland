@@ -138,6 +138,9 @@ final class AppState: ObservableObject {
     @Published var previousModule: ActiveModule? = nil
     @Published var fullExpandedSelectedTab: FullExpandedTab = .home
     @Published var isHovering: Bool = false
+    @Published private(set) var presentationScreenFrame: NSRect = .zero
+    @Published private(set) var presentationHasNotch: Bool = false
+    @Published private(set) var presentationNotchRect: NSRect? = nil
     // Module enabled states (persisted via UserDefaults)
     @AppStorage("module.nowPlaying.enabled") var nowPlayingEnabled = true
     @AppStorage("module.volumeHUD.enabled") var volumeHUDEnabled = true
@@ -355,6 +358,19 @@ final class AppState: ObservableObject {
         systemEmojiInteractionWorkItem?.cancel()
         systemEmojiInteractionWorkItem = nil
         systemEmojiInteractionExpiry = nil
+    }
+
+    func updatePresentationContext(screen: NSScreen?) {
+        guard let screen else {
+            presentationScreenFrame = .zero
+            presentationHasNotch = false
+            presentationNotchRect = nil
+            return
+        }
+
+        presentationScreenFrame = screen.frame
+        presentationHasNotch = ScreenDetector.hasNotch(screen: screen)
+        presentationNotchRect = ScreenDetector.notchRect(screen: screen)
     }
 
     private func scheduleHoverActivation(wasHovering: Bool) {
@@ -707,10 +723,24 @@ final class AppState: ObservableObject {
     }
 
     private var compactIslandMetrics: ScreenDetector.CompactIslandMetrics? {
-        guard let screen = currentScreen else {
+        guard let notch = presentationNotchRect else {
             return nil
         }
-        return ScreenDetector.compactIslandMetrics(screen: screen)
+
+        let width = max(
+            Constants.compactNotchMinimumWidth,
+            notch.width - (Constants.compactNotchHorizontalInset * 2)
+        )
+        let height = max(
+            Constants.compactNotchMinimumHeight,
+            notch.height - Constants.compactNotchHeightInset
+        )
+        let bottomCornerRadius = min(Constants.compactNotchBottomCornerRadius, height / 2)
+
+        return ScreenDetector.CompactIslandMetrics(
+            size: CGSize(width: width, height: height),
+            bottomCornerRadius: bottomCornerRadius
+        )
     }
 
     var usesOutwardTopCorners: Bool {
@@ -718,14 +748,11 @@ final class AppState: ObservableObject {
     }
 
     private var shouldUseSquaredTopCorners: Bool {
-        guard currentState != .compact, let screen = currentScreen else {
-            return false
-        }
-        return ScreenDetector.hasNotch(screen: screen)
+        currentState != .compact && presentationHasNotch
     }
 
     private var notchedExpandedShoulderRadius: CGFloat {
-        guard let notch = currentNotchRect else {
+        guard let notch = presentationNotchRect else {
             return currentTopCornerRadius
         }
 
@@ -734,20 +761,11 @@ final class AppState: ObservableObject {
     }
 
     private var currentNotchRect: NSRect? {
-        guard let screen = currentScreen else {
-            return nil
-        }
-        return ScreenDetector.notchRect(screen: screen)
-    }
-
-    private var currentScreen: NSScreen? {
-        ScreenDetector.activeScreen
-            ?? ScreenDetector.primaryScreen
-            ?? NSScreen.screens.first
+        presentationNotchRect
     }
 
     private func performNotchEntryHapticIfNeeded() {
-        guard let screen = currentScreen, ScreenDetector.hasNotch(screen: screen) else {
+        guard presentationHasNotch else {
             return
         }
 

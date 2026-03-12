@@ -56,6 +56,7 @@ final class IslandWindowController {
             ?? ScreenDetector.activeScreen
             ?? ScreenDetector.primaryScreen
             ?? NSScreen.screens.first else { return }
+        appState.updatePresentationContext(screen: screen)
         let screenFrame = screen.frame
         let hasNotch = ScreenDetector.hasNotch(screen: screen)
         let notchRect = ScreenDetector.notchRect(screen: screen)
