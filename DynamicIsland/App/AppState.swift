@@ -495,7 +495,7 @@ final class AppState: ObservableObject {
 
     private func isCyclableIslandModule(_ module: ModuleType) -> Bool {
         switch module {
-        case .volumeHUD, .brightnessHUD:
+        case .volumeHUD, .brightnessHUD, .battery:
             return false
         default:
             return true
@@ -821,6 +821,8 @@ final class AppState: ObservableObject {
         switch module {
         case .extension_(let extensionID):
             return ExtensionManager.shared.installed.first(where: { $0.id == extensionID })?.capabilities.fullExpanded ?? false
+        case .builtIn(.battery):
+            return true
         default:
             return fullExpandedModules.contains(module)
         }

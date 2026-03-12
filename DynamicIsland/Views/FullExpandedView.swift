@@ -85,6 +85,7 @@ enum FullExpandedTopBarLayout {
 
 struct FullExpandedTopBarView: View {
     @EnvironmentObject private var appState: AppState
+    @ObservedObject private var batteryManager = BatteryManager.shared
     @ObservedObject private var notificationManager = NotificationManager.shared
 
     let layout: FullExpandedTopBarLayout
@@ -93,7 +94,7 @@ struct FullExpandedTopBarView: View {
     private let shoulderTopPadding: CGFloat = 2
     private let shoulderTabSpacing: CGFloat = 8
     private let iconTabWidth: CGFloat = 34
-    private let settingsButtonSlotWidth: CGFloat = 88
+    private let trailingControlsSlotWidth: CGFloat = 128
     private let shoulderLeadingInset: CGFloat = 24
     private let settingsLeadingInset: CGFloat = 4
 
@@ -108,19 +109,25 @@ struct FullExpandedTopBarView: View {
     }
 
     private var inlineBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(appState.fullExpandedTabs) { tab in
-                    FullExpandedTabButton(
-                        tab: tab,
-                        isSelected: tab == appState.fullExpandedSelectedTab
-                    ) {
-                        appState.selectFullExpandedTab(tab)
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(visibleTabs) { tab in
+                        FullExpandedTabButton(
+                            tab: tab,
+                            isSelected: tab == appState.fullExpandedSelectedTab
+                        ) {
+                            appState.selectFullExpandedTab(tab)
+                        }
                     }
                 }
+                .padding(.horizontal, 2)
+                .padding(.bottom, 10)
             }
-            .padding(.horizontal, 2)
-            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            trailingShoulderControls
+                .padding(.bottom, 10)
         }
     }
 
@@ -132,7 +139,7 @@ struct FullExpandedTopBarView: View {
             Spacer(minLength: shoulderGapWidth)
 
             trailingShoulderControls
-                .frame(width: settingsButtonSlotWidth, alignment: .leading)
+                .frame(width: trailingControlsSlotWidth, alignment: .leading)
         }
         .frame(width: shoulderAvailableWidth, alignment: .top)
         .padding(.horizontal, shoulderHorizontalPadding)
@@ -210,8 +217,37 @@ struct FullExpandedTopBarView: View {
         .help("Settings")
     }
 
+    private var batteryButton: some View {
+        let isSelected = appState.fullExpandedSelectedTab == .module(.builtIn(.battery))
+
+        return Button {
+            appState.selectFullExpandedTab(.module(.builtIn(.battery)))
+        } label: {
+            Image(systemName: batteryManager.batteryIconName)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(batteryButtonTint(isSelected: isSelected))
+                .frame(width: 32, height: 32)
+                .background(
+                    Circle()
+                        .fill(islandSurfaceFill)
+                        .overlay(
+                            Circle()
+                                .fill(Color.white.opacity(isSelected ? 0.04 : 0.01))
+                        )
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(isSelected ? 0.09 : 0.035), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .hoverPointer()
+        .help("Battery")
+    }
+
     private var trailingShoulderControls: some View {
         HStack(spacing: 8) {
+            batteryButton
             notificationButton
             settingsButton
         }
@@ -271,7 +307,16 @@ struct FullExpandedTopBarView: View {
     }
 
     private var moduleTabs: [FullExpandedTab] {
-        appState.fullExpandedTabs.filter { $0 != .home }
+        visibleTabs.filter { $0 != .home }
+    }
+
+    private var visibleTabs: [FullExpandedTab] {
+        appState.fullExpandedTabs.filter { tab in
+            if case .module(.builtIn(.notifications)) = tab {
+                return false
+            }
+            return true
+        }
     }
 
     private var shoulderModuleViewportWidth: CGFloat {
@@ -287,12 +332,12 @@ struct FullExpandedTopBarView: View {
     private var shoulderGapWidth: CGFloat {
         min(
             appState.fullExpandedShoulderGapWidth,
-            max(0, shoulderAvailableWidth - settingsButtonSlotWidth - settingsLeadingInset)
+            max(0, shoulderAvailableWidth - trailingControlsSlotWidth - settingsLeadingInset)
         )
     }
 
     private var leadingShoulderWidth: CGFloat {
-        max(0, shoulderAvailableWidth - shoulderGapWidth - settingsButtonSlotWidth - shoulderLeadingInset)
+        max(0, shoulderAvailableWidth - shoulderGapWidth - trailingControlsSlotWidth - shoulderLeadingInset)
     }
 
     private var leadingScrollableWidth: CGFloat {
@@ -320,7 +365,9 @@ struct FullExpandedTopBarView: View {
 
     private func scrollShoulderTabs(with proxy: ScrollViewProxy, animated: Bool) {
         guard case .module(let module) = appState.fullExpandedSelectedTab else { return }
-        let target = FullExpandedTab.module(module).id
+        let targetTab = FullExpandedTab.module(module)
+        guard moduleTabs.contains(targetTab) else { return }
+        let target = targetTab.id
 
         if animated {
             withAnimation(.easeInOut(duration: 0.22)) {
@@ -329,6 +376,19 @@ struct FullExpandedTopBarView: View {
         } else {
             proxy.scrollTo(target, anchor: .leading)
         }
+    }
+
+    private func batteryButtonTint(isSelected: Bool) -> Color {
+        if batteryManager.isCharging {
+            return Color.green.opacity(isSelected ? 0.96 : 0.84)
+        }
+        if batteryManager.batteryLevel <= 10 {
+            return Color.red.opacity(isSelected ? 0.96 : 0.82)
+        }
+        if batteryManager.batteryLevel <= 20 {
+            return Color.yellow.opacity(isSelected ? 0.96 : 0.82)
+        }
+        return Color.white.opacity(isSelected ? 0.9 : 0.74)
     }
 }
 

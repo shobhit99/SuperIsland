@@ -48,8 +48,6 @@ final class BatteryManager: ObservableObject {
         startInsightsMonitoring()
     }
 
-    // MARK: - Monitoring
-
     private func startMonitoring() {
         let context = Unmanaged.passUnretained(self).toOpaque()
 
@@ -85,8 +83,6 @@ final class BatteryManager: ObservableObject {
         }
     }
 
-    // MARK: - Battery Info
-
     func updateBatteryInfo() {
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [Any],
@@ -99,7 +95,6 @@ final class BatteryManager: ObservableObject {
             batteryLevel = capacity
             isLowBattery = capacity <= 20
 
-            // Trigger HUD on significant changes
             if hasLoadedInitialSnapshot && (abs(oldLevel - capacity) >= 5 || (oldLevel > 20 && capacity <= 20)) {
                 AppState.shared.showHUD(module: .battery)
             }
@@ -138,10 +133,10 @@ final class BatteryManager: ObservableObject {
         let now = Date()
 
         guard force || batteryHistory.isEmpty else {
-            if let last = batteryHistory.last {
-                if now.timeIntervalSince(last.timestamp) < historySampleInterval && last.level == batteryLevel {
-                    return
-                }
+            if let last = batteryHistory.last,
+               now.timeIntervalSince(last.timestamp) < historySampleInterval,
+               last.level == batteryLevel {
+                return
             }
             batteryHistory.append(BatteryHistorySample(timestamp: now, level: batteryLevel))
             if batteryHistory.count > maxHistorySamples {
@@ -185,8 +180,7 @@ final class BatteryManager: ObservableObject {
 
         guard let outputData = try? pipe.fileHandleForReading.readToEnd(),
               let output = String(data: outputData, encoding: .utf8),
-              !output.isEmpty
-        else {
+              !output.isEmpty else {
             return fallbackRunningApps()
         }
 
@@ -339,8 +333,6 @@ final class BatteryManager: ObservableObject {
             )
         }
     }
-
-    // MARK: - Helpers
 
     var batteryIconName: String {
         if isCharging {
