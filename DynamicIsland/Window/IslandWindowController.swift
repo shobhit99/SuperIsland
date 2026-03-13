@@ -198,11 +198,13 @@ final class IslandWindowController {
         }
     }
 
-    /// Shrinking: ramp blur from 0 → max as the island collapses.
+    /// Shrinking: start with immediate blur, then ramp up as island collapses.
     private func applyShrinkBlur() {
-        guard panel?.contentView != nil else { return }
+        guard let contentView = panel?.contentView else { return }
         clearBlur()
-        animateBlur(from: 0, to: 18.0, duration: 0.36, easeOut: false)
+        // Apply an immediate blur so content overflow is hidden from the first frame.
+        setBlurRadius(12.0, on: contentView)
+        animateBlur(from: 12.0, to: 22.0, duration: 0.32, easeOut: false)
     }
 
     private func animateBlur(from: CGFloat, to: CGFloat, duration: TimeInterval, easeOut: Bool) {

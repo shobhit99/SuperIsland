@@ -90,6 +90,8 @@ struct IslandContainerView: View {
                 .clipShape(islandShape)
         }
         .frame(width: surfaceSize.width, height: surfaceSize.height)
+        .clipped()
+        .clipShape(islandShape)
         .scaleEffect(surfaceScale, anchor: .top)
         .overlay {
             if appState.shelfEnabled && isShelfDropTargeted {
