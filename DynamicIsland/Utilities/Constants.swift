@@ -25,7 +25,7 @@ enum Constants {
     static let fullExpandedCornerRadius: CGFloat = 40
 
     // MARK: - Animation Springs
-    static let compactToExpanded: Animation = .interactiveSpring(response: 0.52, dampingFraction: 0.9, blendDuration: 0.08)
+    static let compactToExpanded: Animation = .interactiveSpring(response: 0.46, dampingFraction: 0.78, blendDuration: 0.08)
     static let expandedToCompact: Animation = .interactiveSpring(response: 0.5, dampingFraction: 0.96, blendDuration: 0.06)
     static let expandedToFull: Animation = .interactiveSpring(response: 0.5, dampingFraction: 0.88, blendDuration: 0.08)
     static let hudAppear: Animation = compactToExpanded
@@ -33,6 +33,8 @@ enum Constants {
     static let progressBar: Animation = .easeInOut(duration: 0.15)
     static let contentSwap: Animation = .smooth(duration: 0.22)
     static let overshootBounce: Animation = .spring(response: 0.36, dampingFraction: 0.68)
+    static let expansionOvershoot: Animation = .interactiveSpring(response: 0.26, dampingFraction: 0.6, blendDuration: 0.08)
+    static let expansionSettle: Animation = .interactiveSpring(response: 0.3, dampingFraction: 0.82, blendDuration: 0.06)
 
     // MARK: - Timing
     static let hudAutoDismissDelay: TimeInterval = 1.5

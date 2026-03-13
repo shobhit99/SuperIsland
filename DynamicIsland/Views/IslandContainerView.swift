@@ -214,10 +214,8 @@ struct IslandContainerView: View {
             ExpandedView()
                 .scaleEffect(appState.expandedContentScale, anchor: .top)
                 .padding(.top, appState.expandedContentTopOffset)
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
         case .fullExpanded:
             FullExpandedView()
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
         }
     }
 
@@ -376,45 +374,29 @@ struct IslandContainerView: View {
         surfaceTransition = SurfaceTransition(fromState: oldValue, toState: newValue)
         surfaceTransitionResetWorkItem?.cancel()
 
-        let resetWorkItem = DispatchWorkItem {
-            surfaceTransition = nil
-        }
+        let resetWorkItem = DispatchWorkItem { surfaceTransition = nil }
         surfaceTransitionResetWorkItem = resetWorkItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: resetWorkItem)
 
         if oldValue == .compact && newValue != .compact {
-            surfaceScale = 0.992
-            withAnimation(Constants.overshootBounce) {
-                surfaceScale = 1.008
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
-                    surfaceScale = 1.0
-                }
+            surfaceScale = 0.968
+            withAnimation(Constants.expansionOvershoot) { surfaceScale = 1.034 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                withAnimation(Constants.expansionSettle) { surfaceScale = 1.0 }
             }
             return
         }
 
-        withAnimation(.easeOut(duration: 0.24)) {
-            surfaceScale = 1.0
-        }
+        withAnimation(.easeOut(duration: 0.24)) { surfaceScale = 1.0 }
     }
 
     private func displayedSurfaceSize(in availableSize: CGSize) -> CGSize {
         guard let surfaceTransition else {
             return appState.currentSize
         }
-
-        let fromWindowSize = appState.windowSize(for: surfaceTransition.fromState)
-        let toWindowSize = appState.windowSize(for: surfaceTransition.toState)
         let fromSurfaceSize = appState.size(for: surfaceTransition.fromState)
         let toSurfaceSize = appState.size(for: surfaceTransition.toState)
-
-        let progress = transitionProgress(
-            currentSize: availableSize,
-            fromSize: fromWindowSize,
-            toSize: toWindowSize
-        )
+        let progress = currentTransitionProgress(in: availableSize)
 
         return CGSize(
             width: interpolatedValue(
@@ -427,6 +409,18 @@ struct IslandContainerView: View {
                 to: toSurfaceSize.height,
                 progress: progress
             )
+        )
+    }
+
+    private func currentTransitionProgress(in availableSize: CGSize) -> CGFloat {
+        guard let surfaceTransition else {
+            return 1
+        }
+
+        return transitionProgress(
+            currentSize: availableSize,
+            fromSize: appState.windowSize(for: surfaceTransition.fromState),
+            toSize: appState.windowSize(for: surfaceTransition.toState)
         )
     }
 
