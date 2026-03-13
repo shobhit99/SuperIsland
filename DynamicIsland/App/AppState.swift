@@ -141,6 +141,9 @@ final class AppState: ObservableObject {
     @Published var previousModule: ActiveModule? = nil
     @Published var fullExpandedSelectedTab: FullExpandedTab = .home
     @Published var isHovering: Bool = false
+    /// Set by IslandWindowController during overshoot animations to prevent
+    /// hover-triggered dismiss from firing while the window frame is resizing.
+    var suppressDismissScheduling: Bool = false
     @Published private(set) var presentationScreenFrame: NSRect = .zero
     @Published private(set) var presentationHasNotch: Bool = false
     @Published private(set) var presentationNotchRect: NSRect? = nil
@@ -223,6 +226,8 @@ final class AppState: ObservableObject {
     }
 
     func dismiss() {
+        print("[AppState] dismiss() called from state=\(currentState)")
+        Thread.callStackSymbols.prefix(8).forEach { print("  \($0)") }
         cancelAutoDismiss()
         cancelFullExpandedDismiss()
         cancelHoverActivation()
@@ -251,6 +256,10 @@ final class AppState: ObservableObject {
             if isSystemEmojiInteractionActive {
                 return
             }
+
+            // Don't schedule dismiss during overshoot window-resize animations —
+            // onHover can glitch as tracking areas recalculate.
+            guard !suppressDismissScheduling else { return }
 
             if currentState == .expanded {
                 scheduleAutoDismiss()
@@ -450,7 +459,9 @@ final class AppState: ObservableObject {
         switch newValue {
         case .expanded:
             cancelFullExpandedDismiss()
-            scheduleAutoDismiss()
+            if !suppressDismissScheduling {
+                scheduleAutoDismiss()
+            }
         case .compact, .fullExpanded:
             cancelAutoDismiss()
             if newValue == .compact {

@@ -33,8 +33,8 @@ enum Constants {
     static let progressBar: Animation = .easeInOut(duration: 0.15)
     static let contentSwap: Animation = .smooth(duration: 0.22)
     static let overshootBounce: Animation = .spring(response: 0.36, dampingFraction: 0.68)
-    static let expansionOvershoot: Animation = .interactiveSpring(response: 0.26, dampingFraction: 0.6, blendDuration: 0.08)
-    static let expansionSettle: Animation = .interactiveSpring(response: 0.3, dampingFraction: 0.82, blendDuration: 0.06)
+    static let expansionOvershoot: Animation = .spring(response: 0.32, dampingFraction: 0.72)
+    static let expansionSettle: Animation = .spring(response: 0.38, dampingFraction: 0.86)
 
     // MARK: - Timing
     static let hudAutoDismissDelay: TimeInterval = 1.5

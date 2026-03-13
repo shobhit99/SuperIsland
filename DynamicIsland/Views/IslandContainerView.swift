@@ -378,16 +378,8 @@ struct IslandContainerView: View {
         surfaceTransitionResetWorkItem = resetWorkItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: resetWorkItem)
 
-        if oldValue == .compact && newValue != .compact {
-            surfaceScale = 0.968
-            withAnimation(Constants.expansionOvershoot) { surfaceScale = 1.034 }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                withAnimation(Constants.expansionSettle) { surfaceScale = 1.0 }
-            }
-            return
-        }
-
-        withAnimation(.easeOut(duration: 0.24)) { surfaceScale = 1.0 }
+        // Overshoot + settle is driven by the AppKit window frame animation
+        // in IslandWindowController — no SwiftUI scaleEffect needed.
     }
 
     private func displayedSurfaceSize(in availableSize: CGSize) -> CGSize {
@@ -456,7 +448,7 @@ struct IslandContainerView: View {
         let delta = to - from
         guard abs(delta) > 0.5 else { return 1 }
         let progress = (current - from) / delta
-        return min(max(progress, 0), 1)
+        return max(progress, 0) // Allow > 1.0 so the surface follows window overshoot
     }
 
     private func interpolatedValue(from: CGFloat, to: CGFloat, progress: CGFloat) -> CGFloat {

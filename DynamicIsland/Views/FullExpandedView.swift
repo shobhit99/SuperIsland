@@ -363,7 +363,7 @@ struct FullExpandedTopBarView: View {
             return "99+"
         }
         return "\(count)"
-    }
+    } 
 
     private func scrollShoulderTabs(with proxy: ScrollViewProxy, animated: Bool) {
         guard case .module(let module) = appState.fullExpandedSelectedTab else { return }

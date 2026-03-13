@@ -15,6 +15,7 @@ final class IslandWindowController {
     private var cancellables = Set<AnyCancellable>()
     private var previousState: IslandState = .compact
     private var blurTimer: Timer?
+    private var settleWorkItem: DispatchWorkItem?
 
     func showIsland() {
         let panel = IslandPanel()
@@ -53,7 +54,13 @@ final class IslandWindowController {
         applyFrame(size: size, to: panel, animated: false)
     }
 
-    private func applyFrame(size: CGSize, to panel: IslandPanel, animated: Bool) {
+    private func applyFrame(
+        size: CGSize,
+        to panel: IslandPanel,
+        animated: Bool,
+        duration: TimeInterval? = nil,
+        timing: CAMediaTimingFunctionName = .easeInEaseOut
+    ) {
         guard let screen = panel.screen
             ?? ScreenDetector.activeScreen
             ?? ScreenDetector.primaryScreen
@@ -84,8 +91,8 @@ final class IslandWindowController {
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = appState.currentState == .compact ? 0.54 : 0.48
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                context.duration = duration ?? (appState.currentState == .compact ? 0.54 : 0.48)
+                context.timingFunction = CAMediaTimingFunction(name: timing)
                 panel.animator().setFrame(frame, display: true)
             }
         } else {
@@ -101,17 +108,72 @@ final class IslandWindowController {
                 guard let self, let panel = self.panel else { return }
                 let oldState = self.previousState
                 self.previousState = newState
-                self.applyFrame(size: self.appState.windowSize, to: panel, animated: true)
+
+                print("[IslandWC] State: \(oldState) → \(newState)")
+
+                // Cancel any pending overshoot settle from a previous transition.
+                self.settleWorkItem?.cancel()
+                self.settleWorkItem = nil
 
                 let oldSize = self.appState.windowSize(for: oldState)
                 let newSize = self.appState.windowSize(for: newState)
                 let isGrowing = newSize.width > oldSize.width || newSize.height > oldSize.height
                 let isShrinking = newSize.width < oldSize.width || newSize.height < oldSize.height
 
+                print("[IslandWC] oldSize=\(oldSize) newSize=\(newSize) growing=\(isGrowing) shrinking=\(isShrinking)")
+
                 if isGrowing {
+                    // Suppress dismiss/hover scheduling for the entire overshoot
+                    // animation window. The window resize causes SwiftUI onHover
+                    // to glitch, toggling hover state and creating expand/collapse loops.
+                    self.appState.suppressDismissScheduling = true
+                    self.appState.cancelAutoDismiss()
+                    self.appState.cancelFullExpandedDismiss()
+
+                    // Two-step animation: overshoot 7% past target, then settle back.
+                    let targetSize = self.appState.windowSize
+                    let expectedState = newState
+                    let overshootSize = CGSize(
+                        width: targetSize.width * 1.07,
+                        height: targetSize.height * 1.07
+                    )
+                    self.applyFrame(size: overshootSize, to: panel, animated: true,
+                                    duration: 0.34, timing: .easeOut)
+
+                    let settle = DispatchWorkItem { [weak self] in
+                        guard let self, let panel = self.panel,
+                              self.appState.currentState == expectedState else {
+                            self?.appState.suppressDismissScheduling = false
+                            return
+                        }
+                        self.applyFrame(size: targetSize, to: panel, animated: true,
+                                        duration: 0.40, timing: .easeInEaseOut)
+
+                        // Re-enable dismiss logic after the settle animation finishes.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) { [weak self] in
+                            guard let self else { return }
+                            self.appState.suppressDismissScheduling = false
+
+                            guard self.appState.currentState == expectedState,
+                                  !self.appState.isHovering else { return }
+                            if expectedState == .expanded {
+                                self.appState.scheduleAutoDismiss()
+                            } else if expectedState == .fullExpanded {
+                                self.appState.scheduleFullExpandedDismiss()
+                            }
+                        }
+                    }
+                    self.settleWorkItem = settle
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.26, execute: settle)
+
                     self.applyExpansionBlur()
                 } else if isShrinking {
+                    self.appState.suppressDismissScheduling = false
+                    self.applyFrame(size: self.appState.windowSize, to: panel, animated: true)
                     self.applyShrinkBlur()
+                } else {
+                    self.appState.suppressDismissScheduling = false
+                    self.applyFrame(size: self.appState.windowSize, to: panel, animated: true)
                 }
             }
             .store(in: &cancellables)
