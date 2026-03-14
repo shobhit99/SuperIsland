@@ -191,7 +191,6 @@ private struct HomeCalendarPanel: View {
                     title: "Nothing coming up",
                     subtitle: "Your schedule is clear for now."
                 )
-                .padding(.top, 10)
             } else {
                 VStack(alignment: .leading, spacing: 9) {
                     ForEach(Array(upcomingEvents.prefix(3).enumerated()), id: \.offset) { _, event in
@@ -408,10 +407,11 @@ private struct HomeEmptyState: View {
     let subtitle: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 20, weight: .medium))
                 .foregroundStyle(HomeTypography.tertiaryText)
+                .padding(.bottom, 2)
 
             Text(title)
                 .font(HomeTypography.bodyTitleFont)
@@ -420,9 +420,10 @@ private struct HomeEmptyState: View {
             Text(subtitle)
                 .font(HomeTypography.secondaryFont)
                 .foregroundStyle(HomeTypography.secondaryText)
+                .multilineTextAlignment(.center)
                 .lineLimit(2)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

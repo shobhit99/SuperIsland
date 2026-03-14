@@ -10,6 +10,11 @@ struct WeatherData {
     var conditionIcon: String = "sun.max.fill"
     var locationName: String = ""
     var hourlyForecast: [HourlyWeather] = []
+    var feelsLike: Double = 0
+    var humidity: Int = 0
+    var windSpeed: Double = 0
+    var uvIndex: Double = 0
+    var aqi: Int = 0
 }
 
 struct HourlyWeather: Identifiable {
@@ -56,7 +61,7 @@ final class WeatherManager: NSObject, ObservableObject {
 
         isLoading = true
 
-        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(latitude)&longitude=\(longitude)&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&forecast_days=1"
+        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(latitude)&longitude=\(longitude)&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,uv_index_max&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=1"
 
         guard let url = URL(string: urlString) else {
             isLoading = false
@@ -79,6 +84,25 @@ final class WeatherManager: NSObject, ObservableObject {
                 print("Weather parse error: \(error)")
             }
         }.resume()
+
+        // Fetch AQI from Open-Meteo Air Quality API
+        let aqiURLString = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=\(latitude)&longitude=\(longitude)&current=us_aqi"
+        if let aqiURL = URL(string: aqiURLString) {
+            URLSession.shared.dataTask(with: aqiURL) { [weak self] data, _, error in
+                guard let data, error == nil else { return }
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let current = json["current"] as? [String: Any],
+                       let aqi = current["us_aqi"] as? Int {
+                        DispatchQueue.main.async {
+                            self?.weather.aqi = aqi
+                        }
+                    }
+                } catch {
+                    print("AQI parse error: \(error)")
+                }
+            }.resume()
+        }
 
         // Reverse geocode for location name
         let location = CLLocation(latitude: latitude, longitude: longitude)
@@ -103,15 +127,27 @@ final class WeatherManager: NSObject, ObservableObject {
                 weather.condition = conditionName(for: code)
                 weather.conditionIcon = conditionIcon(for: code)
             }
+            if let feelsLike = current["apparent_temperature"] as? Double {
+                weather.feelsLike = feelsLike
+            }
+            if let humidity = current["relative_humidity_2m"] as? Int {
+                weather.humidity = humidity
+            }
+            if let wind = current["wind_speed_10m"] as? Double {
+                weather.windSpeed = wind
+            }
         }
 
-        // Daily high/low
+        // Daily high/low + UV
         if let daily = json["daily"] as? [String: Any] {
             if let maxTemps = daily["temperature_2m_max"] as? [Double], let first = maxTemps.first {
                 weather.temperatureHigh = first
             }
             if let minTemps = daily["temperature_2m_min"] as? [Double], let first = minTemps.first {
                 weather.temperatureLow = first
+            }
+            if let uvMax = daily["uv_index_max"] as? [Double], let first = uvMax.first {
+                weather.uvIndex = first
             }
         }
 

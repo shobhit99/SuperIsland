@@ -14,6 +14,9 @@ final class CalendarManager: ObservableObject {
     @Published var nextEvent: EKEvent?
     @Published var hasAccess: Bool = false
     @Published var displayedMonthStart: Date = startOfMonth(for: Date())
+    @Published var selectedDate: Date = Date()
+    @Published var selectedDateEvents: [EKEvent] = []
+    @Published var upcomingWeekEvents: [(date: Date, events: [EKEvent])] = []
 
     private let store = EKEventStore()
     private var refreshTimer: Timer?
@@ -63,6 +66,8 @@ final class CalendarManager: ObservableObject {
             self.todayEvents = events
             self.nextEvent = events.first { $0.startDate > Date() }
             self.schedulePreEventNotification()
+            self.fetchEventsForSelectedDate()
+            self.fetchUpcomingWeekEvents()
         }
     }
 
@@ -159,6 +164,61 @@ final class CalendarManager: ObservableObject {
             }
         }
         return nil
+    }
+
+    func selectDate(_ date: Date) {
+        selectedDate = date
+        fetchEventsForSelectedDate()
+    }
+
+    func fetchEventsForSelectedDate() {
+        guard hasAccess else { return }
+        let calendar = Foundation.Calendar.current
+        let startOfDay = calendar.startOfDay(for: selectedDate)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        let predicate = store.predicateForEvents(withStart: startOfDay, end: endOfDay, calendars: nil)
+        selectedDateEvents = store.events(matching: predicate).sorted { $0.startDate < $1.startDate }
+    }
+
+    func fetchUpcomingWeekEvents() {
+        guard hasAccess else { return }
+        let cal = Foundation.Calendar.current
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date()))!
+        let weekEnd = cal.date(byAdding: .day, value: 7, to: tomorrow)!
+
+        let predicate = store.predicateForEvents(withStart: tomorrow, end: weekEnd, calendars: nil)
+        let allEvents = store.events(matching: predicate).sorted { $0.startDate < $1.startDate }
+
+        var grouped: [(date: Date, events: [EKEvent])] = []
+        var currentDay: Date?
+        var currentEvents: [EKEvent] = []
+
+        for event in allEvents {
+            let day = cal.startOfDay(for: event.startDate)
+            if day != currentDay {
+                if let prev = currentDay, !currentEvents.isEmpty {
+                    grouped.append((date: prev, events: currentEvents))
+                }
+                currentDay = day
+                currentEvents = [event]
+            } else {
+                currentEvents.append(event)
+            }
+        }
+        if let last = currentDay, !currentEvents.isEmpty {
+            grouped.append((date: last, events: currentEvents))
+        }
+
+        upcomingWeekEvents = grouped
+    }
+
+    func hasEvents(on date: Date) -> Bool {
+        guard hasAccess else { return false }
+        let calendar = Foundation.Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        let predicate = store.predicateForEvents(withStart: startOfDay, end: endOfDay, calendars: nil)
+        return !store.events(matching: predicate).isEmpty
     }
 
     private func changeDisplayedMonth(by offset: Int) {

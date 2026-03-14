@@ -112,19 +112,32 @@ struct FullExpandedTopBarView: View {
 
     private var inlineBar: some View {
         HStack(spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(visibleTabs) { tab in
-                        FullExpandedTabButton(
-                            tab: tab,
-                            isSelected: tab == appState.fullExpandedSelectedTab
-                        ) {
-                            appState.selectFullExpandedTab(tab)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(visibleTabs) { tab in
+                            FullExpandedTabButton(
+                                tab: tab,
+                                isSelected: tab == appState.fullExpandedSelectedTab
+                            ) {
+                                appState.selectFullExpandedTab(tab)
+                            }
+                            .id(tab.id)
                         }
                     }
+                    .padding(.horizontal, 2)
+                    .padding(.bottom, 10)
                 }
-                .padding(.horizontal, 2)
-                .padding(.bottom, 10)
+                .onChange(of: appState.fullExpandedSelectedTab) { _, newTab in
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        proxy.scrollTo(newTab.id, anchor: .leading)
+                    }
+                }
+                .onChange(of: appState.currentState) { _, newState in
+                    if newState == .fullExpanded {
+                        proxy.scrollTo(appState.fullExpandedSelectedTab.id, anchor: .leading)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -185,6 +198,11 @@ struct FullExpandedTopBarView: View {
                 }
                 .onChange(of: appState.fullExpandedSelectedTab) { _, _ in
                     scrollShoulderTabs(with: proxy, animated: true)
+                }
+                .onChange(of: appState.currentState) { _, newState in
+                    if newState == .fullExpanded {
+                        scrollShoulderTabs(with: proxy, animated: false)
+                    }
                 }
             }
         }

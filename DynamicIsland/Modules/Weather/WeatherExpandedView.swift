@@ -41,30 +41,101 @@ struct WeatherExpandedView: View {
                     .foregroundColor(.white.opacity(0.4))
             }
 
-            // Hourly forecast (full expanded only)
-            if appState.currentState == .fullExpanded && !manager.weather.hourlyForecast.isEmpty {
+            if appState.currentState == .fullExpanded {
                 Divider().background(.white.opacity(0.2))
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
-                        ForEach(manager.weather.hourlyForecast) { hour in
-                            VStack(spacing: 4) {
-                                Text(hour.hour)
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.white.opacity(0.6))
+                // Hourly forecast + details side by side
+                HStack(alignment: .top, spacing: 0) {
+                    // Hourly forecast (left)
+                    if !manager.weather.hourlyForecast.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 16) {
+                                ForEach(manager.weather.hourlyForecast) { hour in
+                                    VStack(spacing: 4) {
+                                        Text(hour.hour)
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.white.opacity(0.6))
 
-                                Image(systemName: hour.conditionIcon)
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.white)
+                                        Image(systemName: hour.conditionIcon)
+                                            .font(.system(size: 14))
+                                            .foregroundColor(.white)
 
-                                Text("\(Int(hour.temperature))°")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(.white)
+                                        Text("\(Int(hour.temperature))°")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.white)
+                                    }
+                                }
                             }
                         }
                     }
+
+                    Spacer(minLength: 16)
+
+                    // Weather details grid (right)
+                    weatherDetailsGrid
                 }
             }
         }
+    }
+
+    private var weatherDetailsGrid: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 16) {
+                weatherDetailCell(icon: "thermometer.medium", title: "Feels Like", value: "\(Int(manager.weather.feelsLike))°")
+                weatherDetailCell(icon: "humidity.fill", title: "Humidity", value: "\(manager.weather.humidity)%")
+                weatherDetailCell(icon: "aqi.medium", title: "AQI", value: aqiLabel)
+            }
+            HStack(spacing: 16) {
+                weatherDetailCell(icon: "wind", title: "Wind", value: "\(Int(manager.weather.windSpeed)) mph")
+                weatherDetailCell(icon: "sun.max.trianglebadge.exclamationmark.fill", title: "UV Index", value: uvLabel)
+                Spacer()
+            }
+        }
+    }
+
+    private func weatherDetailCell(icon: String, title: String, value: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.45))
+                .frame(width: 16, alignment: .center)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.white.opacity(0.4))
+                Text(value)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.85))
+            }
+        }
+    }
+
+    private var uvLabel: String {
+        let uv = manager.weather.uvIndex
+        let level: String
+        switch uv {
+        case ..<3: level = "Low"
+        case ..<6: level = "Mod"
+        case ..<8: level = "High"
+        case ..<11: level = "Very High"
+        default: level = "Extreme"
+        }
+        return "\(Int(uv)) \(level)"
+    }
+
+    private var aqiLabel: String {
+        let aqi = manager.weather.aqi
+        if aqi == 0 { return "—" }
+        let level: String
+        switch aqi {
+        case ..<51: level = "Good"
+        case ..<101: level = "Moderate"
+        case ..<151: level = "Unhealthy*"
+        case ..<201: level = "Unhealthy"
+        case ..<301: level = "Very Poor"
+        default: level = "Hazardous"
+        }
+        return "\(aqi) \(level)"
     }
 }
