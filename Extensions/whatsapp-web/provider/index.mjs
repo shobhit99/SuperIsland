@@ -63,6 +63,10 @@ function isBroadcastJid(value) {
   return sanitizeText(value).endsWith("@broadcast");
 }
 
+function isNewsletterJid(value) {
+  return sanitizeText(value).endsWith("@newsletter");
+}
+
 function isAvatarEligibleJid(value) {
   const normalized = normalizeJid(value);
   if (!normalized) {
@@ -337,6 +341,7 @@ class WhatsAppSocketProvider {
     this.avatarCache = new Map();
     this.pendingAvatarLookups = new Map();
     this.messagePreviewCache = new Map();
+    this.mutedChats = new Map();
   }
 
   emitState(state, statusText, extra = {}) {
@@ -504,6 +509,45 @@ class WhatsAppSocketProvider {
     return extractPreview(message);
   }
 
+  isChatMuted(jid) {
+    const normalized = normalizeJid(jid);
+    if (!normalized) {
+      return false;
+    }
+    const muteExpiration = this.mutedChats.get(normalized);
+    if (!muteExpiration) {
+      return false;
+    }
+    // -1 or very large values mean muted indefinitely; otherwise check expiry
+    if (muteExpiration === -1 || muteExpiration === 0) {
+      return true;
+    }
+    return muteExpiration > Date.now() / 1000;
+  }
+
+  trackChatMuteStatus(chats) {
+    for (const chat of chats) {
+      const jid = normalizeJid(chat.id);
+      if (!jid) {
+        continue;
+      }
+      if (chat.muteExpiration !== undefined && chat.muteExpiration !== null) {
+        if (chat.muteExpiration === 0) {
+          // 0 can mean unmuted in some Baileys versions
+          this.mutedChats.delete(jid);
+        } else {
+          this.mutedChats.set(jid, chat.muteExpiration);
+        }
+      } else if (chat.mute !== undefined) {
+        if (chat.mute) {
+          this.mutedChats.set(jid, -1);
+        } else {
+          this.mutedChats.delete(jid);
+        }
+      }
+    }
+  }
+
   async createSocket() {
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -546,6 +590,14 @@ class WhatsAppSocketProvider {
 
     sock.ev.on("messages.upsert", (upsert) => {
       void this.handleMessagesUpsert(sock, upsert);
+    });
+
+    sock.ev.on("chats.upsert", (chats) => {
+      this.trackChatMuteStatus(chats);
+    });
+
+    sock.ev.on("chats.update", (chats) => {
+      this.trackChatMuteStatus(chats);
     });
 
     if (sock.ws && typeof sock.ws.on === "function") {
@@ -774,7 +826,24 @@ class WhatsAppSocketProvider {
       if (isStatusUpdateMessage(message)) {
         continue;
       }
+      const remoteJid = sanitizeText(message.key?.remoteJid);
+      // Skip WhatsApp channels/newsletters
+      if (isNewsletterJid(remoteJid)) {
+        continue;
+      }
+      // Skip muted chats and groups
+      if (this.isChatMuted(remoteJid)) {
+        continue;
+      }
       const isReaction = isReactionMessage(message.message);
+      // For reactions in groups, only show if the reacted message was ours
+      if (isReaction && isGroupJid(remoteJid)) {
+        const normalized = unwrapMessage(message.message);
+        const reactedKey = normalized?.reactionMessage?.key;
+        if (!reactedKey?.fromMe) {
+          continue;
+        }
+      }
       const preview = this.previewForMessage(message.message);
       if (!preview) {
         continue;
