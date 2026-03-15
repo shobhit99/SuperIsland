@@ -113,9 +113,11 @@ function isFullExpanded() {
 
 function revealIsland() {
   if (isFullExpanded()) return;
+  var revealSettleDelay = 120;
+  var visibleDuration = 2000;
   DynamicIsland.island.activate(false);
-  setTimeout(function() { DynamicIsland.island.activate(false); }, 120);
-  setTimeout(function() { DynamicIsland.island.dismiss(); }, 2000);
+  setTimeout(function() { DynamicIsland.island.activate(false); }, revealSettleDelay);
+  setTimeout(function() { DynamicIsland.island.dismiss(); }, visibleDuration + revealSettleDelay);
 }
 
 function setRunning(nextRunning) {

@@ -175,20 +175,7 @@ struct ExtensionSettingsRenderer: View {
             Toggle(field.label, isOn: boolBinding(for: field))
 
         case "slider":
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(field.label)
-                    Spacer()
-                    Text(String(format: "%.0f", doubleBinding(for: field).wrappedValue))
-                        .font(.caption.monospacedDigit())
-                        .foregroundColor(.secondary)
-                }
-                Slider(
-                    value: doubleBinding(for: field),
-                    in: (field.min ?? 0)...(field.max ?? 100),
-                    step: field.step ?? 1
-                )
-            }
+            ExtensionSliderSettingsField(extensionID: extensionID, field: field)
 
         case "stepper":
             Stepper(
@@ -263,5 +250,52 @@ struct ExtensionSettingsRenderer: View {
                 ExtensionSettingsStore.set(newValue, extensionID: extensionID, key: field.key)
             }
         )
+    }
+}
+
+private struct ExtensionSliderSettingsField: View {
+    let extensionID: String
+    let field: SettingsField
+
+    @State private var value: Double
+
+    init(extensionID: String, field: SettingsField) {
+        self.extensionID = extensionID
+        self.field = field
+
+        let storedValue = ExtensionSettingsStore.value(extensionID: extensionID, key: field.key)
+        let resolvedValue: Double
+        if let storedValue = storedValue as? Double {
+            resolvedValue = storedValue
+        } else if let storedValue = storedValue as? Int {
+            resolvedValue = Double(storedValue)
+        } else {
+            resolvedValue = field.defaultDouble
+        }
+
+        let minimum = field.min ?? 0
+        let maximum = field.max ?? 100
+        _value = State(initialValue: min(max(resolvedValue, minimum), maximum))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(field.label)
+                Spacer()
+                Text(String(format: "%.0f", value))
+                    .font(.caption.monospacedDigit())
+                    .foregroundColor(.secondary)
+            }
+
+            Slider(
+                value: $value,
+                in: (field.min ?? 0)...(field.max ?? 100),
+                step: field.step ?? 1
+            )
+            .onChange(of: value) { _, newValue in
+                ExtensionSettingsStore.set(newValue, extensionID: extensionID, key: field.key)
+            }
+        }
     }
 }

@@ -617,21 +617,23 @@ private struct WhatsAppWebBridgeSettingsView: View {
                 .foregroundColor(.secondary)
 
             HStack(spacing: 8) {
-                Button("Start Login") {
-                    bridge.start()
-                }
-                .buttonStyle(.borderedProminent)
+                if bridge.connectionState == .loggedIn {
+                    Button("Log Out") {
+                        bridge.logout()
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+                } else {
+                    Button("Start Login") {
+                        bridge.start()
+                    }
+                    .buttonStyle(.borderedProminent)
 
-                Button("Refresh QR") {
-                    bridge.refreshQRCode()
+                    Button("Refresh QR") {
+                        bridge.refreshQRCode()
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
-
-                Button("Log Out") {
-                    bridge.logout()
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
             }
 
             if bridge.connectionState == .loggedIn {
