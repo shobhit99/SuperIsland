@@ -264,6 +264,11 @@ final class AppState: ObservableObject {
             cancelAutoDismiss()
             cancelFullExpandedDismiss()
 
+            if isSystemEmojiInteractionActive {
+                cancelHoverActivation()
+                return
+            }
+
             if currentState != .fullExpanded {
                 scheduleHoverActivation(wasHovering: wasHovering)
             } else {
@@ -415,6 +420,10 @@ final class AppState: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: workItem)
     }
 
+    func beginCompactControlInteraction(timeout: TimeInterval = 1.2) {
+        beginSystemEmojiInteraction(timeout: timeout)
+    }
+
     func endSystemEmojiInteraction() {
         systemEmojiInteractionWorkItem?.cancel()
         systemEmojiInteractionWorkItem = nil
@@ -436,6 +445,7 @@ final class AppState: ObservableObject {
 
     private func scheduleHoverActivation(wasHovering: Bool) {
         guard !wasHovering else { return }
+        guard !isSystemEmojiInteractionActive else { return }
 
         cancelHoverActivation()
 
@@ -449,6 +459,18 @@ final class AppState: ObservableObject {
 
             if self.shouldHoverExpandNotifications(from: startingState) {
                 self.presentNotificationsFullExpanded()
+                return
+            }
+
+             if startingState == .compact,
+                let module = self.compactPresentationModule,
+                case .extension_ = module,
+                self.canPresentFullExpandedModule(module) {
+                self.cancelAutoDismiss()
+                self.cancelFullExpandedDismiss()
+                self.previousModule = self.activeModule
+                self.activeModule = module
+                self.fullyExpand()
                 return
             }
 
@@ -644,6 +666,39 @@ final class AppState: ObservableObject {
         max(0, (currentContentSize.width - fullExpandedShoulderGapWidth) / 2)
     }
 
+    var compactPresentationModule: ActiveModule? {
+        let mediaModule: ActiveModule? = !NowPlayingManager.shared.title.isEmpty
+            ? .builtIn(.nowPlaying)
+            : nil
+
+        guard let activeModule else {
+            return mediaModule
+        }
+
+        guard case .extension_(let extensionID) = activeModule,
+              supportsMinimalCompactLayout(activeModule),
+              let mediaModule else {
+            return activeModule
+        }
+
+        let precedence = ExtensionManager.shared.extensionStates[extensionID]?.minimalCompactPrecedence ?? 1
+        return precedence > 1 ? mediaModule : activeModule
+    }
+
+    var shouldUseMinimalCompactLayout: Bool {
+        guard presentationHasNotch,
+              compactMinimalSideExpansion > 0,
+              let module = compactPresentationModule else {
+            return false
+        }
+
+        return supportsMinimalCompactLayout(module)
+    }
+
+    var compactMinimalCenterGapWidth: CGFloat {
+        compactBaseSize.width
+    }
+
     // MARK: - Size Helpers
 
     var currentSize: CGSize {
@@ -670,7 +725,15 @@ final class AppState: ObservableObject {
     func contentSize(for state: IslandState) -> CGSize {
         switch state {
         case .compact:
-            return compactIslandMetrics?.size ?? Constants.compactSize
+            let baseSize = compactBaseSize
+            guard shouldUseMinimalCompactLayout else {
+                return baseSize
+            }
+
+            return CGSize(
+                width: baseSize.width + (compactMinimalSideExpansion * 2),
+                height: baseSize.height
+            )
         case .expanded:
             return Constants.expandedSize
         case .fullExpanded:
@@ -820,6 +883,27 @@ final class AppState: ObservableObject {
         return 4
     }
 
+    private var compactBaseSize: CGSize {
+        compactIslandMetrics?.size ?? Constants.compactSize
+    }
+
+    private var compactMinimalSideExpansion: CGFloat {
+        guard let notch = presentationNotchRect,
+              presentationScreenFrame != .zero else {
+            return 0
+        }
+
+        let leftSideWidth = notch.minX - presentationScreenFrame.minX
+        let rightSideWidth = presentationScreenFrame.maxX - notch.maxX
+        let safeSideWidth = min(leftSideWidth, rightSideWidth) - Constants.compactMinimalSafeSideMargin
+
+        guard safeSideWidth > 0 else {
+            return 0
+        }
+
+        return min(Constants.compactMinimalSideExpansion, safeSideWidth)
+    }
+
     private var compactIslandMetrics: ScreenDetector.CompactIslandMetrics? {
         guard let notch = presentationNotchRect else {
             return nil
@@ -950,6 +1034,17 @@ final class AppState: ObservableObject {
             return ExtensionManager.shared.installed.first(where: { $0.id == extensionID })?.capabilities.fullExpanded ?? true
         default:
             return true
+        }
+    }
+
+    private func supportsMinimalCompactLayout(_ module: ActiveModule) -> Bool {
+        switch module {
+        case .builtIn(.nowPlaying):
+            return true
+        case .extension_(let extensionID):
+            return ExtensionManager.shared.installed.first(where: { $0.id == extensionID })?.capabilities.minimalCompact ?? false
+        default:
+            return false
         }
     }
 

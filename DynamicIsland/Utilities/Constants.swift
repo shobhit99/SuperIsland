@@ -2,7 +2,7 @@ import SwiftUI
 
 enum Constants {
     // MARK: - Island Sizes
-    static let compactSize = CGSize(width: 188, height: 34)
+    static let compactSize = CGSize(width: 200, height: 36)
     static let expandedSize = CGSize(width: 408, height: 88)
     static let fullExpandedSize = CGSize(width: 658, height: 180)
 
@@ -13,12 +13,15 @@ enum Constants {
     static let moduleCyclerButtonSize: CGFloat = 24
     static let expandedShadowBottomPadding: CGFloat = 40
     static let expandedNotchHeightBoost: CGFloat = 5
-    static let compactNotchHorizontalInset: CGFloat = 4
-    static let compactNotchHeightInset: CGFloat = 0
+    static let compactNotchHorizontalInset: CGFloat = 1
+    static let compactNotchHeightInset: CGFloat = -2
     static let compactNotchBottomCornerRadius: CGFloat = 12
-    static let compactNotchMinimumWidth: CGFloat = 160
-    static let compactNotchMinimumHeight: CGFloat = 30
+    static let compactNotchMinimumWidth: CGFloat = 168
+    static let compactNotchMinimumHeight: CGFloat = 32
     static let compactNotchVerticalOffset: CGFloat = 0
+    static let compactMinimalSideExpansion: CGFloat = 56
+    static let compactMinimalHorizontalPadding: CGFloat = 14
+    static let compactMinimalSafeSideMargin: CGFloat = 24
     static let expandedTopInset: CGFloat = 0
     static let compactCornerRadius: CGFloat = 18
     static let expandedCornerRadius: CGFloat = 22

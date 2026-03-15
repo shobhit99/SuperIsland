@@ -111,6 +111,7 @@ DynamicIsland.registerModule({
 - `expanded()` -> rendered in expanded island.
 - `fullExpanded()` -> rendered in full panel; if missing, expanded is reused.
 - `minimalCompact.leading()/trailing()` -> rendered on notched compact variant when available.
+- `minimalCompact.precedence` -> optional number or callback. `1` matches media priority, `2` lets music take precedence when media is active.
 
 ## 5. `DynamicIsland` Global API
 

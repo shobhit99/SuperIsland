@@ -189,6 +189,9 @@ final class ExtensionManager: ObservableObject {
     }
 
     func handleAction(extensionID: String, actionID: String, value: Any? = nil) {
+        if AppState.shared.currentState == .compact {
+            AppState.shared.beginCompactControlInteraction()
+        }
         runtimes[extensionID]?.handleAction(actionID: actionID, value: value)
         refreshState(extensionID: extensionID)
     }

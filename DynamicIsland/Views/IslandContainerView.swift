@@ -102,7 +102,9 @@ struct IslandContainerView: View {
             }
         }
         .contentShape(islandShape)
-        .onHover(perform: setIslandSurfaceHover)
+        .onContinuousHover(coordinateSpace: .local) { phase in
+            handleSurfaceHover(phase: phase, surfaceSize: surfaceSize)
+        }
         .onDrop(of: ShelfStore.acceptedDropTypes, isTargeted: $isShelfDropTargeted) { providers in
             guard appState.shelfEnabled else { return false }
             return ShelfStore.shared.handleDrop(providers: providers) { addedCount in
@@ -116,6 +118,9 @@ struct IslandContainerView: View {
         if appState.currentState == .fullExpanded {
             surface
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else if appState.currentState == .compact && appState.shouldUseMinimalCompactLayout {
+            surface
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             surface.onTapGesture(perform: handleSurfaceTap)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -126,6 +131,7 @@ struct IslandContainerView: View {
     private func islandContent(in surfaceSize: CGSize) -> some View {
         if appState.currentState == .compact {
             CompactView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .opacity(compactContentOpacity)
                 .transition(.opacity)
         } else {
@@ -355,6 +361,25 @@ struct IslandContainerView: View {
         guard isHoveringIslandSurface != hovering else { return }
         isHoveringIslandSurface = hovering
         syncHoverState()
+    }
+
+    private func handleSurfaceHover(phase: HoverPhase, surfaceSize: CGSize) {
+        switch phase {
+        case .active(let location):
+            guard appState.currentState == .compact,
+                  appState.shouldUseMinimalCompactLayout else {
+                setIslandSurfaceHover(true)
+                return
+            }
+
+            let centerGapWidth = appState.compactMinimalCenterGapWidth
+            let centerMinX = max(0, (surfaceSize.width - centerGapWidth) / 2)
+            let centerMaxX = min(surfaceSize.width, centerMinX + centerGapWidth)
+            let hoveringCenter = location.x >= centerMinX && location.x <= centerMaxX
+            setIslandSurfaceHover(hoveringCenter)
+        case .ended:
+            setIslandSurfaceHover(false)
+        }
     }
 
     private func setCycleButtonHover(_ hovering: Bool, forward: Bool) {

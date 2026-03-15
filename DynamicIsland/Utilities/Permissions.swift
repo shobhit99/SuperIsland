@@ -1,6 +1,7 @@
 import AppKit
 import EventKit
 import CoreLocation
+import CoreGraphics
 import UserNotifications
 
 enum PermissionType: CaseIterable {
@@ -53,6 +54,17 @@ final class PermissionsManager {
         AXIsProcessTrustedWithOptions(options)
     }
 
+    // MARK: - Screen Recording
+
+    func checkScreenRecording() -> Bool {
+        CGPreflightScreenCaptureAccess()
+    }
+
+    @discardableResult
+    func requestScreenRecordingAccess() -> Bool {
+        CGRequestScreenCaptureAccess()
+    }
+
     // MARK: - Calendar
 
     func requestCalendarAccess() async -> Bool {
@@ -78,6 +90,11 @@ final class PermissionsManager {
 
     func openAccessibilitySettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+        NSWorkspace.shared.open(url)
+    }
+
+    func openScreenRecordingSettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
         NSWorkspace.shared.open(url)
     }
 

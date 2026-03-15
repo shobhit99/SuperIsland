@@ -41,6 +41,7 @@ final class IslandWindowController {
         observeScreenChanges()
         observeSettingsChanges()
         observeStateChanges()
+        observeCompactLayoutChanges()
     }
 
     func hideIsland() {
@@ -169,14 +170,53 @@ final class IslandWindowController {
                     self.applyExpansionBlur()
                 } else if isShrinking {
                     self.appState.suppressDismissScheduling = false
-                    self.applyFrame(size: self.appState.windowSize, to: panel, animated: true)
-                    self.applyShrinkBlur()
+                    self.clearBlur()
+                    self.applyFrame(
+                        size: self.appState.windowSize,
+                        to: panel,
+                        animated: true,
+                        duration: newState == .compact ? 0.22 : 0.3,
+                        timing: newState == .compact ? .easeInEaseOut : .easeOut
+                    )
+
+                    if newState != .compact {
+                        self.applyShrinkBlur()
+                    }
                 } else {
                     self.appState.suppressDismissScheduling = false
                     self.applyFrame(size: self.appState.windowSize, to: panel, animated: true)
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func observeCompactLayoutChanges() {
+        appState.$activeModule
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateCompactFrameIfNeeded()
+            }
+            .store(in: &cancellables)
+
+        NowPlayingManager.shared.$title
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateCompactFrameIfNeeded()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func updateCompactFrameIfNeeded() {
+        guard let panel, appState.currentState == .compact else { return }
+        applyFrame(
+            size: appState.windowSize,
+            to: panel,
+            animated: true,
+            duration: 0.22,
+            timing: .easeInEaseOut
+        )
     }
 
     // MARK: - Transition Blur

@@ -253,17 +253,22 @@ function coloredCircle(size, color) {
 }
 
 // The 3D glowing avatar orb
-function buildAvatarOrb() {
+function buildAvatarOrb(size, animationKind) {
+  var orbSize = size || 60;
+  var glowSize = orbSize;
+  var midSize = orbSize * 0.8;
+  var coreSize = orbSize * 0.63;
+  var iconSize = orbSize * 0.43;
   var sym = avatarSymbol();
-  var anim = avatarAnim();
+  var anim = animationKind === undefined ? avatarAnim() : animationKind;
 
-  var iconView = View.icon(sym, { size: 26, color: iconTint() });
+  var iconView = View.icon(sym, { size: iconSize, color: iconTint() });
   var animatedIcon = anim ? View.animate(iconView, anim) : iconView;
 
   return View.zstack([
-    coloredCircle(60, glowColor()),
-    coloredCircle(48, { r: ac().r * 0.2, g: ac().g * 0.2, b: ac().b * 0.2, a: 0.8 }),
-    coloredCircle(38, coreColor()),
+    coloredCircle(glowSize, glowColor()),
+    coloredCircle(midSize, { r: ac().r * 0.2, g: ac().g * 0.2, b: ac().b * 0.2, a: 0.8 }),
+    coloredCircle(coreSize, coreColor()),
     animatedIcon
   ]);
 }
@@ -328,10 +333,13 @@ DynamicIsland.registerModule({
 
   minimalCompact: {
     leading: function() {
-      return View.circularProgress(progressRatio(), { total: 1, lineWidth: 3, color: progressColor() });
+      return View.frame(buildAvatarOrb(28, null), { width: 28, height: 28, alignment: "center" });
     },
     trailing: function() {
-      return View.button(View.icon(isRunning ? "pause.fill" : "play.fill", { size: 11, color: "white" }), "toggle");
+      return View.text(formatTime(remainingSeconds), { style: "monospacedSmall", color: "white" });
+    },
+    precedence: function() {
+      return isRunning ? 1 : 2;
     }
   },
 

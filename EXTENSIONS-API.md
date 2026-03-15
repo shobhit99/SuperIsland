@@ -282,6 +282,7 @@ declare namespace DynamicIsland {
     minimalCompact?: {
       leading: () => ViewNode;
       trailing: () => ViewNode;
+      precedence?: number | (() => number);
     };
     /** Render the expanded view (360×80pt drawer). */
     expanded: () => ViewNode;

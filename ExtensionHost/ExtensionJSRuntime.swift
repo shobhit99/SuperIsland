@@ -95,9 +95,11 @@ final class ExtensionJSRuntime {
 
         var minimalLeading: ViewNode?
         var minimalTrailing: ViewNode?
+        var minimalCompactPrecedenceValue = 1
         if let minimalCompact = config.forProperty("minimalCompact"), !minimalCompact.isUndefined, !minimalCompact.isNull {
             minimalLeading = renderNode(from: minimalCompact, key: "leading")
             minimalTrailing = renderNode(from: minimalCompact, key: "trailing")
+            minimalCompactPrecedenceValue = resolveMinimalCompactPrecedence(from: minimalCompact)
         }
 
         return ExtensionViewState(
@@ -105,7 +107,8 @@ final class ExtensionJSRuntime {
             expanded: expanded,
             fullExpanded: fullExpanded,
             minimalLeading: minimalLeading,
-            minimalTrailing: minimalTrailing
+            minimalTrailing: minimalTrailing,
+            minimalCompactPrecedence: minimalCompactPrecedenceValue
         )
     }
 
@@ -149,6 +152,25 @@ final class ExtensionJSRuntime {
             ExtensionLogger.shared.log(self.extensionID, .info, "Module registered")
         }
         dynamicIsland.setObject(registerModule, forKeyedSubscript: "registerModule" as NSString)
+    }
+
+    private func resolveMinimalCompactPrecedence(from config: JSValue) -> Int {
+        guard let rawValue = config.forProperty("precedence"), !rawValue.isUndefined, !rawValue.isNull else {
+            return 1
+        }
+
+        if rawValue.isNumber {
+            return max(1, Int(rawValue.toInt32()))
+        }
+
+        if rawValue.isObject,
+           let result = rawValue.call(withArguments: []),
+           !result.isUndefined,
+           !result.isNull {
+            return max(1, Int(result.toInt32()))
+        }
+
+        return 1
     }
 
     private func injectStore(into dynamicIsland: JSValue) {

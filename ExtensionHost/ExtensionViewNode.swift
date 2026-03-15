@@ -7,6 +7,7 @@ struct ExtensionViewState {
     var fullExpanded: ViewNode?
     var minimalLeading: ViewNode?
     var minimalTrailing: ViewNode?
+    var minimalCompactPrecedence: Int
 }
 
 enum DisplayMode {

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct NowPlayingCompactView: View {
@@ -31,8 +32,8 @@ struct NowPlayingCompactView: View {
     @ViewBuilder
     private var playbackHint: some View {
         if manager.isPlaying {
-            EqualizerBarsView()
-                .frame(width: 16, height: 16)
+            EqualizerBarsView(isPlaying: manager.isPlaying)
+                .frame(width: 20, height: 16)
         } else {
             Image(systemName: "play.fill")
                 .font(.system(size: 10, weight: .bold))
@@ -44,32 +45,122 @@ struct NowPlayingCompactView: View {
 
 // MARK: - Equalizer Bars Animation
 
-struct EqualizerBarsView: View {
-    @State private var heights: [CGFloat] = [0.3, 0.6, 0.4]
+final class CompactAudioSpectrumView: NSView {
+    private var barLayers: [CAShapeLayer] = []
+    private var barScales: [CGFloat] = []
+    private var animationTimer: Timer?
 
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<3, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(.white)
-                    .frame(width: 3)
-                    .scaleEffect(y: heights[index], anchor: .bottom)
-            }
-        }
-        .onAppear {
-            animate()
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        setupBars()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        setupBars()
+    }
+
+    deinit {
+        animationTimer?.invalidate()
+    }
+
+    private func setupBars() {
+        let barWidth: CGFloat = 2
+        let barCount = 4
+        let spacing: CGFloat = barWidth
+        let totalWidth = CGFloat(barCount) * (barWidth + spacing)
+        let totalHeight: CGFloat = 14
+
+        frame.size = CGSize(width: totalWidth, height: totalHeight)
+
+        for index in 0..<barCount {
+            let xPosition = CGFloat(index) * (barWidth + spacing)
+            let barLayer = CAShapeLayer()
+            barLayer.frame = CGRect(x: xPosition, y: 0, width: barWidth, height: totalHeight)
+            barLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            barLayer.position = CGPoint(x: xPosition + (barWidth / 2), y: totalHeight / 2)
+            barLayer.fillColor = NSColor.white.cgColor
+            barLayer.backgroundColor = NSColor.white.cgColor
+            barLayer.allowsGroupOpacity = false
+            barLayer.masksToBounds = true
+            barLayer.path = NSBezierPath(
+                roundedRect: CGRect(x: 0, y: 0, width: barWidth, height: totalHeight),
+                xRadius: barWidth / 2,
+                yRadius: barWidth / 2
+            ).cgPath
+
+            barLayers.append(barLayer)
+            barScales.append(0.35)
+            layer?.addSublayer(barLayer)
         }
     }
 
-    private func animate() {
-        withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true)) {
-            heights = [0.8, 0.4, 0.9]
+    func setPlaying(_ isPlaying: Bool) {
+        if isPlaying {
+            startAnimating()
+        } else {
+            stopAnimating()
         }
-        withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true).delay(0.1)) {
-            heights[1] = 0.9
+    }
+
+    private func startAnimating() {
+        guard animationTimer == nil else { return }
+
+        animationTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            self?.updateBars()
         }
-        withAnimation(.easeInOut(duration: 0.35).repeatForever(autoreverses: true).delay(0.2)) {
-            heights[2] = 0.6
+        updateBars()
+    }
+
+    private func stopAnimating() {
+        animationTimer?.invalidate()
+        animationTimer = nil
+        resetBars()
+    }
+
+    private func updateBars() {
+        for (index, barLayer) in barLayers.enumerated() {
+            let currentScale = barScales[index]
+            let targetScale = CGFloat.random(in: 0.35...1.0)
+            barScales[index] = targetScale
+
+            let animation = CABasicAnimation(keyPath: "transform.scale.y")
+            animation.fromValue = currentScale
+            animation.toValue = targetScale
+            animation.duration = 0.3
+            animation.autoreverses = true
+            animation.fillMode = .forwards
+            animation.isRemovedOnCompletion = false
+
+            if #available(macOS 13.0, *) {
+                animation.preferredFrameRateRange = CAFrameRateRange(minimum: 24, maximum: 24, preferred: 24)
+            }
+
+            barLayer.add(animation, forKey: "scaleY")
         }
+    }
+
+    private func resetBars() {
+        for (index, barLayer) in barLayers.enumerated() {
+            barLayer.removeAllAnimations()
+            barLayer.transform = CATransform3DMakeScale(1, 0.35, 1)
+            barScales[index] = 0.35
+        }
+    }
+}
+
+struct EqualizerBarsView: NSViewRepresentable {
+    let isPlaying: Bool
+
+    func makeNSView(context: Context) -> CompactAudioSpectrumView {
+        let spectrumView = CompactAudioSpectrumView()
+        spectrumView.setPlaying(isPlaying)
+        return spectrumView
+    }
+
+    func updateNSView(_ nsView: CompactAudioSpectrumView, context: Context) {
+        nsView.setPlaying(isPlaying)
     }
 }
