@@ -667,7 +667,12 @@ final class AppState: ObservableObject {
     }
 
     var compactPresentationModule: ActiveModule? {
-        let mediaModule: ActiveModule? = !NowPlayingManager.shared.title.isEmpty
+        let nowPlaying = NowPlayingManager.shared
+        let hasCompactMediaCandidate =
+            !nowPlaying.title.isEmpty ||
+            nowPlaying.albumArt != nil ||
+            !nowPlaying.sourceName.isEmpty
+        let mediaModule: ActiveModule? = hasCompactMediaCandidate
             ? .builtIn(.nowPlaying)
             : nil
 
@@ -675,14 +680,21 @@ final class AppState: ObservableObject {
             return mediaModule
         }
 
-        guard case .extension_(let extensionID) = activeModule,
-              supportsMinimalCompactLayout(activeModule),
-              let mediaModule else {
+        guard let mediaModule else {
             return activeModule
         }
 
-        let precedence = ExtensionManager.shared.extensionStates[extensionID]?.minimalCompactPrecedence ?? 1
-        return precedence > 1 ? mediaModule : activeModule
+        switch activeModule {
+        case .builtIn(.nowPlaying):
+            return activeModule
+        case .extension_(let extensionID) where supportsMinimalCompactLayout(activeModule):
+            let precedence = ExtensionManager.shared.extensionStates[extensionID]?.minimalCompactPrecedence ?? 1
+            return precedence > 1 ? mediaModule : activeModule
+        case .extension_:
+            return activeModule
+        default:
+            return mediaModule
+        }
     }
 
     var shouldUseMinimalCompactLayout: Bool {

@@ -291,11 +291,14 @@ DynamicIsland.registerModule({
     trailing() {
       const usage = usageSnapshot();
       const claude = claudeModel(usage);
-      return View.circularProgress(claude.progress, {
-        total: 1,
-        lineWidth: 3,
-        color: claude.color
-      });
+      return View.frame(
+        View.circularProgress(claude.progress, {
+          total: 1,
+          lineWidth: 3,
+          color: claude.color
+        }),
+        { maxWidth: 1000, alignment: "trailing" }
+      );
     }
   },
 
