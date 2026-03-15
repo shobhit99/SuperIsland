@@ -449,17 +449,8 @@ final class ExtensionJSRuntime {
 
     private func injectFeedback(into dynamicIsland: JSValue) {
         let playFeedback: @convention(block) (String) -> Void = { type in
-            switch type {
-            case "success":
-                NSSound(named: "Glass")?.play()
-            case "warning":
-                NSSound(named: "Funk")?.play()
-            case "error":
-                NSSound(named: "Basso")?.play()
-            case "selection":
-                NSSound(named: "Pop")?.play()
-            default:
-                NSSound.beep()
+            DispatchQueue.main.async {
+                HapticFeedbackController.play(named: type)
             }
         }
 

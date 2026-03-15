@@ -88,6 +88,86 @@ enum NotchHapticIntensity: Int, CaseIterable, Identifiable {
     }
 }
 
+@MainActor
+enum HapticFeedbackController {
+    private static var pendingWorkItems: [UUID: DispatchWorkItem] = [:]
+
+    static func play(sequence: [(delay: TimeInterval, pattern: NSHapticFeedbackManager.FeedbackPattern)], cancelPending: Bool = true) {
+        guard !sequence.isEmpty else { return }
+
+        if cancelPending {
+            cancelPendingFeedback()
+        }
+
+        for feedback in sequence {
+            schedule(pattern: feedback.pattern, after: feedback.delay)
+        }
+    }
+
+    static func play(named type: String) {
+        let soundName: String?
+        let sequence: [(delay: TimeInterval, pattern: NSHapticFeedbackManager.FeedbackPattern)]
+
+        switch type {
+        case "success":
+            soundName = "Glass"
+            sequence = [
+                (delay: 0, pattern: .alignment),
+                (delay: 0.045, pattern: .generic)
+            ]
+        case "warning":
+            soundName = "Funk"
+            sequence = [
+                (delay: 0, pattern: .levelChange),
+                (delay: 0.05, pattern: .alignment)
+            ]
+        case "error":
+            soundName = "Basso"
+            sequence = [
+                (delay: 0, pattern: .levelChange),
+                (delay: 0.06, pattern: .levelChange)
+            ]
+        case "selection":
+            soundName = "Pop"
+            sequence = [(delay: 0, pattern: .generic)]
+        default:
+            soundName = nil
+            sequence = [(delay: 0, pattern: .generic)]
+        }
+
+        play(sequence: sequence, cancelPending: false)
+
+        if let soundName {
+            NSSound(named: soundName)?.play()
+        } else {
+            NSSound.beep()
+        }
+    }
+
+    private static func schedule(pattern: NSHapticFeedbackManager.FeedbackPattern, after delay: TimeInterval) {
+        let workItemID = UUID()
+        var workItem: DispatchWorkItem!
+        workItem = DispatchWorkItem {
+            pendingWorkItems.removeValue(forKey: workItemID)
+            guard !workItem.isCancelled else { return }
+            NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
+        }
+
+        pendingWorkItems[workItemID] = workItem
+
+        if delay <= 0 {
+            DispatchQueue.main.async(execute: workItem)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+        }
+    }
+
+    private static func cancelPendingFeedback() {
+        pendingWorkItems.values.forEach { $0.cancel() }
+        pendingWorkItems.removeAll()
+    }
+}
+
 enum FullExpandedTab: Hashable, Identifiable {
     case home
     case module(ActiveModule)
@@ -180,6 +260,7 @@ final class AppState: ObservableObject {
     private var hoverActivationWorkItem: DispatchWorkItem?
     private var systemEmojiInteractionWorkItem: DispatchWorkItem?
     private var systemEmojiInteractionExpiry: Date?
+    private var lastNotchEntryHapticDate: Date = .distantPast
     private init() {}
 
     // MARK: - State Transitions
@@ -261,6 +342,10 @@ final class AppState: ObservableObject {
         }
 
         if hovering {
+            if !wasHovering {
+                performNotchEntryHapticIfNeeded()
+            }
+
             cancelAutoDismiss()
             cancelFullExpandedDismiss()
 
@@ -452,10 +537,6 @@ final class AppState: ObservableObject {
         let startingState = currentState
         let workItem = DispatchWorkItem { [weak self] in
             guard let self, self.isHovering, self.currentState != .fullExpanded else { return }
-
-            if startingState == .compact {
-                self.performNotchEntryHapticIfNeeded()
-            }
 
             if self.shouldHoverExpandNotifications(from: startingState) {
                 self.presentNotificationsFullExpanded()
@@ -970,27 +1051,17 @@ final class AppState: ObservableObject {
     }
 
     private func performNotchEntryHapticIfNeeded() {
-        guard presentationHasNotch else {
+        guard presentationHasNotch,
+              currentState == .compact,
+              Date().timeIntervalSince(lastNotchEntryHapticDate) > 0.35 else {
             return
         }
 
         let intensity = NotchHapticIntensity(rawValue: notchHapticIntensity) ?? .medium
-        let feedbackSequence = intensity.feedbackSequence
-        guard !feedbackSequence.isEmpty else { return }
+        guard intensity != .off else { return }
 
-        for feedback in feedbackSequence {
-            let performer = NSHapticFeedbackManager.defaultPerformer
-
-            if feedback.delay == 0 {
-                performer.perform(feedback.pattern, performanceTime: .default)
-                continue
-            }
-
-            let pattern = feedback.pattern
-            DispatchQueue.main.asyncAfter(deadline: .now() + feedback.delay) {
-                NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
-            }
-        }
+        lastNotchEntryHapticDate = Date()
+        HapticFeedbackController.play(sequence: intensity.feedbackSequence)
     }
 
     private func prepareFullExpandedPresentation(prefersHome: Bool) {
