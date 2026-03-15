@@ -110,56 +110,62 @@ struct CalendarExpandedView: View {
     // MARK: - Calendar Grid (Left)
 
     private var calendarGridPanel: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                monthButton(icon: "chevron.left") {
-                    manager.showPreviousMonth()
-                }
+        GeometryReader { geometry in
+            let metrics = calendarGridMetrics(for: geometry.size.height)
 
-                Text(monthTitle)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white)
-
-                Spacer(minLength: 4)
-
-                if !isCurrentMonthVisible {
-                    Button("Today") {
-                        manager.resetDisplayedMonthToCurrent()
-                        manager.selectDate(Date())
+            VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
+                HStack(spacing: 6) {
+                    monthButton(icon: "chevron.left") {
+                        manager.showPreviousMonth()
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.white.opacity(0.82))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color.white.opacity(0.1))
-                    .clipShape(Capsule())
-                }
 
-                monthButton(icon: "chevron.right") {
-                    manager.showNextMonth()
-                }
-            }
+                    Text(monthTitle)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
 
-            LazyVGrid(columns: dayColumns, spacing: 3) {
-                ForEach(Array(orderedWeekdaySymbols.enumerated()), id: \.offset) { _, symbol in
-                    Text(symbol)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.white.opacity(0.55))
-                        .frame(maxWidth: .infinity)
-                }
-            }
+                    Spacer(minLength: 4)
 
-            LazyVGrid(columns: dayColumns, spacing: 3) {
-                ForEach(Array(gridDays.enumerated()), id: \.offset) { _, day in
-                    if let date = day {
-                        dayCell(for: date)
-                    } else {
-                        Color.clear
-                            .frame(height: 22)
+                    if !isCurrentMonthVisible {
+                        Button("Today") {
+                            manager.resetDisplayedMonthToCurrent()
+                            manager.selectDate(Date())
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white.opacity(0.82))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.white.opacity(0.1))
+                        .clipShape(Capsule())
+                    }
+
+                    monthButton(icon: "chevron.right") {
+                        manager.showNextMonth()
                     }
                 }
+                .frame(height: metrics.headerHeight)
+
+                LazyVGrid(columns: dayColumns, spacing: metrics.gridSpacing) {
+                    ForEach(Array(orderedWeekdaySymbols.enumerated()), id: \.offset) { _, symbol in
+                        Text(symbol)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.white.opacity(0.55))
+                            .frame(maxWidth: .infinity, minHeight: metrics.weekdayHeight)
+                    }
+                }
+
+                LazyVGrid(columns: dayColumns, spacing: metrics.gridSpacing) {
+                    ForEach(Array(gridDays.enumerated()), id: \.offset) { _, day in
+                        if let date = day {
+                            dayCell(for: date, height: metrics.dayCellHeight)
+                        } else {
+                            Color.clear
+                                .frame(height: metrics.dayCellHeight)
+                        }
+                    }
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
@@ -337,26 +343,30 @@ struct CalendarExpandedView: View {
 
     // MARK: - Day Cell
 
-    private func dayCell(for date: Date) -> some View {
+    private func dayCell(for date: Date, height: CGFloat) -> some View {
         let dayNumber = calendar.component(.day, from: date)
         let isToday = calendar.isDateInToday(date)
         let isSelected = calendar.isDate(date, inSameDayAs: manager.selectedDate)
         let isInDisplayedMonth = calendar.isDate(date, equalTo: manager.displayedMonthStart, toGranularity: .month)
         let hasEvents = manager.hasEvents(on: date)
+        let indicatorSize = height >= 18 ? CGFloat(4) : CGFloat(3)
+        let contentSpacing = height >= 18 ? CGFloat(2) : CGFloat(1)
 
         return Button {
             manager.selectDate(date)
         } label: {
-            VStack(spacing: 2) {
+            VStack(spacing: contentSpacing) {
                 Text("\(dayNumber)")
                     .font(.system(size: 11, weight: isToday || isSelected ? .semibold : .regular))
                     .foregroundColor(dayForeground(isInDisplayedMonth: isInDisplayedMonth, isToday: isToday, isSelected: isSelected))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
 
                 Circle()
                     .fill(hasEvents && isInDisplayedMonth ? Color.white.opacity(0.4) : Color.clear)
-                    .frame(width: 4, height: 4)
+                    .frame(width: indicatorSize, height: indicatorSize)
             }
-            .frame(maxWidth: .infinity, minHeight: 22)
+            .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(dayCellBackground(isToday: isToday, isSelected: isSelected))
@@ -458,6 +468,30 @@ struct CalendarExpandedView: View {
         Array(repeating: GridItem(.flexible(minimum: 0), spacing: 3), count: 7)
     }
 
+    private var calendarRowCount: Int {
+        max(1, gridDays.count / 7)
+    }
+
+    private func calendarGridMetrics(for availableHeight: CGFloat) -> CalendarGridMetrics {
+        let headerHeight: CGFloat = 22
+        let weekdayHeight: CGFloat = 12
+        let sectionSpacing: CGFloat = 5
+        let gridSpacing: CGFloat = 3
+        let verticalPadding: CGFloat = 2
+        let rowCount = CGFloat(calendarRowCount)
+        let totalSpacing = (sectionSpacing * 2) + (gridSpacing * max(0, rowCount - 1))
+        let usableHeight = max(0, availableHeight - headerHeight - weekdayHeight - totalSpacing - verticalPadding)
+        let dayCellHeight = max(14, floor(usableHeight / rowCount))
+
+        return CalendarGridMetrics(
+            headerHeight: headerHeight,
+            weekdayHeight: weekdayHeight,
+            sectionSpacing: sectionSpacing,
+            gridSpacing: gridSpacing,
+            dayCellHeight: dayCellHeight
+        )
+    }
+
     private var headerDate: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE, MMMM d"
@@ -481,4 +515,12 @@ struct CalendarExpandedView: View {
         formatter.dateFormat = "EEEE, d MMM"
         return formatter
     }()
+}
+
+private struct CalendarGridMetrics {
+    let headerHeight: CGFloat
+    let weekdayHeight: CGFloat
+    let sectionSpacing: CGFloat
+    let gridSpacing: CGFloat
+    let dayCellHeight: CGFloat
 }
