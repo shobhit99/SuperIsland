@@ -121,26 +121,7 @@ private struct NowPlayingMinimalCompactAlbumView: View {
 }
 
 private struct NowPlayingMinimalCompactPlaybackView: View {
-    @ObservedObject private var manager = NowPlayingManager.shared
-
     var body: some View {
-        Button {
-            AppState.shared.beginCompactControlInteraction()
-            manager.togglePlayPause()
-        } label: {
-            Group {
-                if manager.isPlaying {
-                    EqualizerBarsView(isPlaying: manager.isPlaying)
-                        .frame(width: 20, height: 16)
-                } else {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white.opacity(0.9))
-                        .frame(width: 18, height: 18)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .hoverPointer()
+        NowPlayingPlaybackCompactButton()
     }
 }

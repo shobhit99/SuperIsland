@@ -31,15 +31,7 @@ struct NowPlayingCompactView: View {
 
     @ViewBuilder
     private var playbackHint: some View {
-        if manager.isPlaying {
-            EqualizerBarsView(isPlaying: manager.isPlaying)
-                .frame(width: 20, height: 16)
-        } else {
-            Image(systemName: "play.fill")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.white.opacity(0.9))
-                .frame(width: 18, height: 18)
-        }
+        NowPlayingPlaybackCompactButton()
     }
 }
 
@@ -162,5 +154,42 @@ struct EqualizerBarsView: NSViewRepresentable {
 
     func updateNSView(_ nsView: CompactAudioSpectrumView, context: Context) {
         nsView.setPlaying(isPlaying)
+    }
+}
+
+struct NowPlayingPlaybackCompactButton: View {
+    @ObservedObject private var manager = NowPlayingManager.shared
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            AppState.shared.beginCompactControlInteraction()
+            manager.togglePlayPause()
+        } label: {
+            Group {
+                if manager.isPlaying {
+                    if isHovering {
+                        Image(systemName: "pause.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.white.opacity(0.95))
+                            .frame(width: 18, height: 18)
+                    } else {
+                        EqualizerBarsView(isPlaying: true)
+                            .frame(width: 20, height: 16)
+                    }
+                } else {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white.opacity(0.9))
+                        .frame(width: 18, height: 18)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverPointer()
+        .onHover { hovering in
+            isHovering = hovering
+        }
     }
 }
