@@ -60,8 +60,7 @@ struct SettingsView: View {
     }
 
     private var topNavigation: some View {
-        HStack(spacing: 0) {
-            Spacer(minLength: 0)
+        ZStack {
             HStack(spacing: 6) {
                 ForEach(SettingsPane.allCases) { pane in
                     topPaneButton(for: pane)
@@ -77,7 +76,12 @@ struct SettingsView: View {
                 Capsule(style: .continuous)
                     .stroke(Color.primary.opacity(0.10), lineWidth: 1)
             )
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .center)
+
+            HStack {
+                Spacer(minLength: 0)
+                quitButton
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -140,6 +144,26 @@ struct SettingsView: View {
         colorScheme == .light
             ? Color(nsColor: .selectedControlColor).opacity(0.42)
             : Color.white.opacity(0.18)
+    }
+
+    private var quitButton: some View {
+        Button {
+            NSApp.terminate(nil)
+        } label: {
+            Label("Quit App", systemImage: "power")
+                .font(.system(size: 12, weight: .semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.78))
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
