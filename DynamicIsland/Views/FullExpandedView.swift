@@ -96,7 +96,7 @@ struct FullExpandedTopBarView: View {
     private let shoulderTopPadding: CGFloat = 2
     private let shoulderTabSpacing: CGFloat = 8
     private let iconTabWidth: CGFloat = 36
-    private let trailingControlsSlotWidth: CGFloat = 128
+    private let trailingControlsSlotWidth: CGFloat = 168
     private let shoulderLeadingInset: CGFloat = 24
     private let settingsLeadingInset: CGFloat = 4
 
@@ -265,8 +265,37 @@ struct FullExpandedTopBarView: View {
         .help("Battery")
     }
 
+    private var lockButton: some View {
+        let isLocked = appState.lockFullExpandedInPlace
+
+        return Button {
+            appState.toggleFullExpandedLock()
+        } label: {
+            Image(systemName: isLocked ? "lock.fill" : "lock.open")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(isLocked ? 0.92 : 0.72))
+                .frame(width: 32, height: 32)
+                .background(
+                    Circle()
+                        .fill(islandSurfaceFill)
+                        .overlay(
+                            Circle()
+                                .fill(Color.white.opacity(isLocked ? 0.05 : 0.01))
+                        )
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(isLocked ? 0.11 : 0.035), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .hoverPointer()
+        .help(isLocked ? "Unlock island" : "Lock island open")
+    }
+
     private var trailingShoulderControls: some View {
         HStack(spacing: 8) {
+            lockButton
             batteryButton
             notificationButton
             settingsButton

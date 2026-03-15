@@ -173,6 +173,7 @@ final class AppState: ObservableObject {
     @AppStorage("general.showInScreenRecordings") var showInScreenRecordings = false
     @AppStorage("general.expandedAutoDismissDelay") var expandedAutoDismissDelay: Double = 1.0
     @AppStorage("general.notchHapticIntensity") var notchHapticIntensity = NotchHapticIntensity.medium.rawValue
+    @AppStorage("general.lockFullExpandedInPlace") var lockFullExpandedInPlace = false
 
     private var autoDismissWorkItem: DispatchWorkItem?
     private var fullExpandedDismissWorkItem: DispatchWorkItem?
@@ -231,6 +232,10 @@ final class AppState: ObservableObject {
             cancelAutoDismiss()
             cancelFullExpandedDismiss()
             cancelHoverActivation()
+            return
+        }
+        if currentState == .fullExpanded, lockFullExpandedInPlace {
+            cancelFullExpandedDismiss()
             return
         }
         print("[AppState] dismiss() called from state=\(currentState)")
@@ -339,6 +344,7 @@ final class AppState: ObservableObject {
     func scheduleFullExpandedDismiss() {
         cancelFullExpandedDismiss()
         guard !isShelfDragActive else { return }
+        guard !(currentState == .fullExpanded && lockFullExpandedInPlace) else { return }
         guard !isSystemEmojiInteractionActive else { return }
         let delay = expandedAutoDismissDelay
         guard delay > 0 else { return }
@@ -353,6 +359,25 @@ final class AppState: ObservableObject {
     func cancelFullExpandedDismiss() {
         fullExpandedDismissWorkItem?.cancel()
         fullExpandedDismissWorkItem = nil
+    }
+
+    func toggleFullExpandedLock() {
+        lockFullExpandedInPlace.toggle()
+
+        if lockFullExpandedInPlace {
+            cancelFullExpandedDismiss()
+            return
+        }
+
+        guard currentState == .fullExpanded,
+              !isHovering,
+              !suppressDismissScheduling,
+              !isShelfDragActive,
+              !isSystemEmojiInteractionActive else {
+            return
+        }
+
+        scheduleFullExpandedDismiss()
     }
 
     func cancelHoverActivation() {
