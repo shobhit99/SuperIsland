@@ -141,6 +141,7 @@ final class AppState: ObservableObject {
     @Published var previousModule: ActiveModule? = nil
     @Published var fullExpandedSelectedTab: FullExpandedTab = .home
     @Published var isHovering: Bool = false
+    @Published private(set) var isShelfDragActive = false
     /// Set by IslandWindowController during overshoot animations to prevent
     /// hover-triggered dismiss from firing while the window frame is resizing.
     var suppressDismissScheduling: Bool = false
@@ -226,6 +227,12 @@ final class AppState: ObservableObject {
     }
 
     func dismiss() {
+        if isShelfDragActive {
+            cancelAutoDismiss()
+            cancelFullExpandedDismiss()
+            cancelHoverActivation()
+            return
+        }
         print("[AppState] dismiss() called from state=\(currentState)")
         Thread.callStackSymbols.prefix(8).forEach { print("  \($0)") }
         cancelAutoDismiss()
@@ -240,6 +247,13 @@ final class AppState: ObservableObject {
     func handleHoverChange(_ hovering: Bool) {
         let wasHovering = isHovering
         isHovering = hovering
+
+        if isShelfDragActive {
+            cancelAutoDismiss()
+            cancelFullExpandedDismiss()
+            cancelHoverActivation()
+            return
+        }
 
         if hovering {
             cancelAutoDismiss()
@@ -303,6 +317,7 @@ final class AppState: ObservableObject {
 
     func scheduleAutoDismiss(after delayOverride: TimeInterval? = nil) {
         cancelAutoDismiss()
+        guard !isShelfDragActive else { return }
         guard !isSystemEmojiInteractionActive else { return }
         let delay = delayOverride ?? expandedAutoDismissDelay
         guard delay > 0 else { return }
@@ -323,6 +338,7 @@ final class AppState: ObservableObject {
 
     func scheduleFullExpandedDismiss() {
         cancelFullExpandedDismiss()
+        guard !isShelfDragActive else { return }
         guard !isSystemEmojiInteractionActive else { return }
         let delay = expandedAutoDismissDelay
         guard delay > 0 else { return }
@@ -459,7 +475,7 @@ final class AppState: ObservableObject {
         switch newValue {
         case .expanded:
             cancelFullExpandedDismiss()
-            if !suppressDismissScheduling {
+            if !suppressDismissScheduling && !isShelfDragActive {
                 scheduleAutoDismiss()
             }
         case .compact, .fullExpanded:
@@ -924,6 +940,7 @@ final class AppState: ObservableObject {
     }
 
     func presentShelfAfterDrop() {
+        isShelfDragActive = false
         rememberShelfAsDefault()
         guard shelfEnabled, shelfAutoOpenOnDrop else { return }
 
@@ -935,6 +952,34 @@ final class AppState: ObservableObject {
 
         withAnimation(currentState == .compact ? Constants.expandedToFull : Constants.contentSwap) {
             currentState = .fullExpanded
+        }
+    }
+
+    func beginShelfDragPresentation() {
+        guard shelfEnabled else { return }
+
+        isShelfDragActive = true
+        cancelAutoDismiss()
+        cancelFullExpandedDismiss()
+        cancelHoverActivation()
+
+        previousModule = activeModule
+        activeModule = .builtIn(.shelf)
+        fullExpandedSelectedTab = .module(.builtIn(.shelf))
+
+        withAnimation(currentState == .compact ? Constants.expandedToFull : Constants.contentSwap) {
+            currentState = .fullExpanded
+        }
+    }
+
+    func endShelfDragPresentation() {
+        isShelfDragActive = false
+
+        guard !isHovering else { return }
+        if currentState == .fullExpanded {
+            scheduleFullExpandedDismiss()
+        } else if currentState == .expanded {
+            scheduleAutoDismiss()
         }
     }
 

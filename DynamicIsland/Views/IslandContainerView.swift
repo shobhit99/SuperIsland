@@ -11,6 +11,7 @@ struct IslandContainerView: View {
     @State private var isHoveringPreviousButton = false
     @State private var isHoveringNextButton = false
     @State private var isShelfDropTargeted = false
+    @State private var shelfDragEndWorkItem: DispatchWorkItem?
     @State private var surfaceScale: CGFloat = 1.0
     @State private var surfaceTransition: SurfaceTransition?
     @State private var surfaceTransitionResetWorkItem: DispatchWorkItem?
@@ -106,6 +107,8 @@ struct IslandContainerView: View {
             guard appState.shelfEnabled else { return false }
             return ShelfStore.shared.handleDrop(providers: providers) { addedCount in
                 guard addedCount > 0 else { return }
+                shelfDragEndWorkItem?.cancel()
+                shelfDragEndWorkItem = nil
                 appState.presentShelfAfterDrop()
             }
         }
@@ -282,20 +285,20 @@ struct IslandContainerView: View {
         guard appState.shelfEnabled else { return }
 
         if isTargeted {
-            appState.cancelAutoDismiss()
-            appState.cancelFullExpandedDismiss()
-            appState.cancelHoverActivation()
-
-            if appState.currentState == .compact {
-                appState.expand()
-            }
-
+            shelfDragEndWorkItem?.cancel()
+            shelfDragEndWorkItem = nil
+            appState.beginShelfDragPresentation()
             return
         }
 
-        if appState.currentState == .expanded && !appState.isHovering {
-            appState.scheduleAutoDismiss()
+        let workItem = DispatchWorkItem {
+            guard !isShelfDropTargeted else { return }
+            appState.endShelfDragPresentation()
+            shelfDragEndWorkItem = nil
         }
+        shelfDragEndWorkItem?.cancel()
+        shelfDragEndWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: workItem)
     }
 
     private var showModuleCycler: Bool {
