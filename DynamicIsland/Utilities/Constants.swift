@@ -14,7 +14,7 @@ enum Constants {
     static let expandedShadowBottomPadding: CGFloat = 40
     static let expandedNotchHeightBoost: CGFloat = 5
     static let compactNotchHorizontalInset: CGFloat = 1
-    static let compactNotchHeightInset: CGFloat = 2
+    static let compactNotchHeightInset: CGFloat = -4
     static let compactNotchBottomCornerRadius: CGFloat = 12
     static let compactNotchMinimumWidth: CGFloat = 168
     static let compactNotchMinimumHeight: CGFloat = 32

@@ -123,7 +123,16 @@ function revealIsland() {
 function setRunning(nextRunning) {
   isRunning = nextRunning;
   if (isRunning) { startTimer(); } else { stopTimer(); }
+  updateMascotExpression();
   saveState();
+}
+
+function updateMascotExpression() {
+  if (!isRunning || phase === PHASE_BREAK) {
+    DynamicIsland.mascot.setExpression("idle");
+    return;
+  }
+  DynamicIsland.mascot.setExpression("working");
 }
 
 function switchPhase() {
@@ -146,6 +155,7 @@ function switchPhase() {
   DynamicIsland.playFeedback("success");
   if (wasFocus) { setRunning(true); revealIsland(); }
   else { setRunning(false); revealIsland(); }
+  updateMascotExpression();
   saveState();
 }
 
@@ -306,6 +316,7 @@ DynamicIsland.registerModule({
   onActivate: function() {
     loadState();
     if (isRunning) startTimer();
+    updateMascotExpression();
   },
 
   onDeactivate: function() {
@@ -335,7 +346,7 @@ DynamicIsland.registerModule({
 
   minimalCompact: {
     leading: function() {
-      return View.frame(buildAvatarOrb(28, null), { width: 28, height: 28, alignment: "center" });
+      return View.frame(View.mascot({ size: 28 }), { width: 28, height: 28, alignment: "center" });
     },
     trailing: function() {
       return View.text(formatTime(remainingSeconds), { style: "monospacedSmall", color: "white" });
@@ -347,7 +358,7 @@ DynamicIsland.registerModule({
 
   expanded: function() {
     return View.hstack([
-      View.circularProgress(progressRatio(), { total: 1, lineWidth: 4, color: progressColor() }),
+      View.mascot({ size: 50 }),
       View.vstack([
         View.text(phase === PHASE_FOCUS ? "Focus" : "Break", { style: "title", color: "white" }),
         View.text(formatTime(remainingSeconds), { style: "monospaced", color: "white" }),
@@ -365,19 +376,22 @@ DynamicIsland.registerModule({
     var label = statusLabel();
     var minsLeft = Math.ceil(remainingSeconds / 60);
 
-    return View.vstack([
+    // Left: mascot ~35%
+    var leftPanel = View.frame(
+      View.mascot({ size: 130 }),
+      { width: 150, maxHeight: 9999, alignment: "center" }
+    );
 
-      // ===== Top row: Avatar + Timer =====
-      View.hstack([
-        buildAvatarOrb(),
-        View.spacer(),
-        View.vstack([
-          View.text(time, { style: "largeTitle", color: "white" }),
-          View.text(label, { style: "caption", color: a })
-        ], { spacing: 2, align: "trailing" })
-      ], { spacing: 12, align: "center" }),
+    // Right: timer + progress + controls ~80%
+    var rightPanel = View.vstack([
 
-      // ===== Progress =====
+      // Timer + status
+      View.vstack([
+        View.text(time, { style: "largeTitle", color: "white" }),
+        View.text(label, { style: "caption", color: a })
+      ], { spacing: 2, align: "center" }),
+
+      // Progress
       View.progress(ratio, { total: 1, color: a }),
       View.hstack([
         View.text(phase === PHASE_FOCUS ? "Focus" : "Break", { style: "footnote", color: { r: 1, g: 1, b: 1, a: 0.35 } }),
@@ -385,7 +399,7 @@ DynamicIsland.registerModule({
         View.text(minsLeft + "m left", { style: "footnote", color: { r: 1, g: 1, b: 1, a: 0.35 } })
       ], { spacing: 4, align: "center" }),
 
-      // ===== Controls + sessions in one row =====
+      // Controls + sessions
       View.hstack([
         View.spacer(),
         controlBtn("arrow.counterclockwise", "reset", 15, false),
@@ -397,5 +411,10 @@ DynamicIsland.registerModule({
       ], { spacing: 14, align: "center" })
 
     ], { spacing: 6, align: "leading" });
+
+    return View.hstack([
+      leftPanel,
+      View.frame(rightPanel, { maxWidth: 9999, maxHeight: 9999 })
+    ], { spacing: 8, align: "center" });
   }
 });

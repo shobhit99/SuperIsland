@@ -221,6 +221,9 @@ struct ViewNodeRenderer: View {
                 ViewNodeRenderer(node: child, extensionID: extensionID)
             }
 
+        case .mascot(let size, let expression):
+            MascotRendererView(size: size, expressionOverride: expression)
+
         case .empty:
             EmptyView()
         }

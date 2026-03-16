@@ -1,7 +1,89 @@
 import SwiftUI
 
+private struct MascotGridPicker: View {
+    @ObservedObject private var manager = MascotManager.shared
+    @State private var downloadingSlug: String?
+
+    private let columns = [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 8)]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 8) {
+            ForEach(manager.availableMascots) { entry in
+                mascotCell(entry)
+            }
+        }
+    }
+
+    private func mascotCell(_ entry: MascotCatalogEntry) -> some View {
+        let isSelected = manager.selectedSlug == entry.slug
+        let isDownloaded = manager.isMascotDownloaded(entry.slug)
+        let isDownloading = downloadingSlug == entry.slug
+
+        return Button {
+            if isDownloaded {
+                manager.selectMascot(entry.slug)
+            } else {
+                downloadingSlug = entry.slug
+                Task {
+                    await manager.downloadMascot(entry.slug)
+                    downloadingSlug = nil
+                    manager.selectMascot(entry.slug)
+                }
+            }
+        } label: {
+            VStack(spacing: 4) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.04))
+                        .frame(height: 80)
+
+                    AsyncImage(url: URL(string: entry.thumbnailURL)) { image in
+                        image.resizable().scaledToFit()
+                    } placeholder: {
+                        ProgressView().controlSize(.small)
+                    }
+                    .frame(width: 60, height: 60)
+
+                    if !isDownloaded {
+                        VStack {
+                            Spacer()
+                            HStack {
+                                Spacer()
+                                if isDownloading {
+                                    ProgressView()
+                                        .controlSize(.mini)
+                                        .padding(4)
+                                } else {
+                                    Image(systemName: "arrow.down.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(.accentColor)
+                                        .padding(4)
+                                }
+                            }
+                        }
+                        .frame(height: 80)
+                    }
+                }
+
+                Text(entry.name)
+                    .font(.caption)
+                    .foregroundColor(isSelected ? .accentColor : .primary)
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                .frame(height: 80)
+                .offset(y: -10)
+        )
+    }
+}
+
 struct GeneralSettingsView: View {
     @EnvironmentObject var appState: AppState
+    @ObservedObject private var mascotManager = MascotManager.shared
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
 
     var body: some View {
@@ -93,6 +175,16 @@ struct GeneralSettingsView: View {
                             .buttonStyle(.borderedProminent)
                         }
                     }
+                }
+
+                SettingsCard(
+                    title: "Mascot",
+                    subtitle: "Choose an animated mascot companion from masko.ai."
+                ) {
+                    MascotGridPicker()
+
+                    Divider().opacity(0.2)
+                    Toggle("Show mascot in Pomodoro", isOn: $mascotManager.showInPomodoro)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)

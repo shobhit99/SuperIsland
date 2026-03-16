@@ -113,6 +113,7 @@ indirect enum ViewNode: Equatable {
     case background(child: ViewNode, color: ColorValue)
     case cornerRadius(child: ViewNode, radius: Double)
     case animation(child: ViewNode, kind: String)
+    case mascot(size: Double, expression: String?)
 
     case empty
 
@@ -304,6 +305,14 @@ indirect enum ViewNode: Equatable {
             return .animation(
                 child: ViewNode.from(value.forProperty("child")) ?? .empty,
                 kind: value.forProperty("kind")?.toString() ?? "pulse"
+            )
+
+        case "mascot":
+            let expr = value.forProperty("expression")?.toString()
+            let resolvedExpr = (expr == nil || expr == "undefined" || expr == "null") ? nil : expr
+            return .mascot(
+                size: value.forProperty("size")?.toDouble() ?? 60,
+                expression: resolvedExpr
             )
 
         case "if":

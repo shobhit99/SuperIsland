@@ -230,6 +230,28 @@ Notes:
 
 Opens URL in default browser.
 
+### `DynamicIsland.mascot`
+
+Control the shared mascot companion that users can configure in Settings.
+
+- `setExpression(expression)` — Set the mascot's current expression. Supported expressions:
+  - `"idle"` — default neutral state
+  - `"working"` — active/focused (animated pulse)
+  - `"alert"` — attention needed (animated blink)
+  - `"happy"` — positive/celebration (animated bounce)
+  - `"tired"` — low energy/paused
+  - `"clicked"` — user interaction feedback (animated spin, auto-resets to idle)
+- `getExpression()` — Returns the current expression string.
+- `getSelected()` — Returns `{ id, name, previewIcon }` of the user's selected mascot character.
+- `list()` — Returns an array of all available mascot characters: `[{ id, name, previewIcon }]`.
+- `setInput(name, value)` — Set a state machine input (forward-compatible with masko-code style inputs).
+
+Notes:
+
+- The mascot is a shared resource — all extensions write to the same expression state.
+- Users select their mascot character in **Settings -> General -> Mascot**.
+- Use `View.mascot()` to render the mascot in your extension UI.
+
 ## 6. Global Timer and Console APIs
 
 Available in extension JS context:
@@ -305,6 +327,14 @@ Action payloads:
 - `View.background(child, color)`
 - `View.cornerRadius(child, radius)`
 - `View.animate(child, kind)` where kind is commonly `pulse | bounce | spin | blink`
+
+### Mascot
+
+- `View.mascot({ size?, expression? })`
+  - `size` (number, default 60): diameter of the mascot orb in points
+  - `expression` (string, optional): override expression (`"idle"`, `"working"`, `"alert"`, `"happy"`, `"tired"`, `"clicked"`). If omitted, uses the global expression set via `DynamicIsland.mascot.setExpression()`.
+
+The mascot renders as an animated orb with the user's selected character. Each character has unique symbols, colors, and animations per expression.
 
 ### Conditional and Utilities
 

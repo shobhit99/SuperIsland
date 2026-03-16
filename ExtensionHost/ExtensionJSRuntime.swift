@@ -139,6 +139,7 @@ final class ExtensionJSRuntime {
         injectHTTP(into: dynamicIsland)
         injectSystem(into: dynamicIsland)
         injectFeedback(into: dynamicIsland)
+        injectMascot(into: dynamicIsland)
         injectConsole(into: dynamicIsland)
         injectTimers()
         injectViewHelpers()
@@ -463,6 +464,59 @@ final class ExtensionJSRuntime {
         dynamicIsland.setObject(openURL, forKeyedSubscript: "openURL" as NSString)
     }
 
+    private func injectMascot(into dynamicIsland: JSValue) {
+        let mascot = JSValue(newObjectIn: context)!
+
+        let setExpression: @convention(block) (String) -> Void = { expression in
+            let trimmed = expression.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            DispatchQueue.main.async {
+                MascotManager.shared.setExpression(trimmed)
+            }
+        }
+
+        let getExpression: @convention(block) () -> String = {
+            return MainActor.assumeIsolated {
+                MascotManager.shared.currentExpression
+            }
+        }
+
+        let getSelected: @convention(block) () -> JSValue? = { [weak self] in
+            guard let self else { return nil }
+            let info = MainActor.assumeIsolated {
+                let mgr = MascotManager.shared
+                return ["slug": mgr.selectedSlug, "name": mgr.currentTemplateName] as [String: Any]
+            }
+            return JSValue(object: info, in: self.context)
+        }
+
+        let list: @convention(block) () -> JSValue? = { [weak self] in
+            guard let self else { return nil }
+            let mascots = MainActor.assumeIsolated {
+                MascotManager.shared.availableMascots.map { entry in
+                    ["slug": entry.slug, "name": entry.name] as [String: Any]
+                }
+            }
+            return JSValue(object: mascots, in: self.context)
+        }
+
+        let setInput: @convention(block) (String, JSValue) -> Void = { name, value in
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            let converted: Any = value.toBool()
+            DispatchQueue.main.async {
+                MascotManager.shared.setInput(trimmed, converted)
+            }
+        }
+
+        mascot.setObject(setExpression, forKeyedSubscript: "setExpression" as NSString)
+        mascot.setObject(getExpression, forKeyedSubscript: "getExpression" as NSString)
+        mascot.setObject(getSelected, forKeyedSubscript: "getSelected" as NSString)
+        mascot.setObject(list, forKeyedSubscript: "list" as NSString)
+        mascot.setObject(setInput, forKeyedSubscript: "setInput" as NSString)
+        dynamicIsland.setObject(mascot, forKeyedSubscript: "mascot" as NSString)
+    }
+
     private func injectConsole(into dynamicIsland: JSValue) {
         let logInfo: @convention(block) (String) -> Void = { [weak self] message in
             guard let self else { return }
@@ -542,6 +596,7 @@ final class ExtensionJSRuntime {
               background: function(child, color) { return { type: 'background', child: child, color: color }; },
               cornerRadius: function(child, radius) { return { type: 'cornerRadius', child: child, radius: radius }; },
               animate: function(child, kind) { return { type: 'animation', child: child, kind: kind }; },
+              mascot: function(opts) { return { type: 'mascot', size: (opts && opts.size) ?? 60, expression: opts && opts.expression }; },
               when: function(condition, thenNode, elseNode) { return condition ? thenNode : (elseNode ?? null); },
               timerText: function(seconds, opts) {
                 var safe = Math.max(0, Math.floor(seconds));
