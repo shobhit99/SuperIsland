@@ -171,16 +171,19 @@ final class IslandWindowController {
                 } else if isShrinking {
                     self.appState.suppressDismissScheduling = false
                     self.clearBlur()
+                    self.applyShrinkBlur()
+                    let shrinkDuration: TimeInterval = newState == .compact ? 0.32 : 0.3
                     self.applyFrame(
                         size: self.appState.windowSize,
                         to: panel,
                         animated: true,
-                        duration: newState == .compact ? 0.22 : 0.3,
-                        timing: newState == .compact ? .easeInEaseOut : .easeOut
+                        duration: shrinkDuration,
+                        timing: .easeInEaseOut
                     )
 
-                    if newState != .compact {
-                        self.applyShrinkBlur()
+                    // Clear blur after shrink animation completes
+                    DispatchQueue.main.asyncAfter(deadline: .now() + shrinkDuration + 0.05) { [weak self] in
+                        self?.clearBlur()
                     }
                 } else {
                     self.appState.suppressDismissScheduling = false
@@ -243,8 +246,8 @@ final class IslandWindowController {
         guard let contentView = panel?.contentView else { return }
         clearBlur()
         // Apply an immediate blur so content overflow is hidden from the first frame.
-        setBlurRadius(12.0, on: contentView)
-        animateBlur(from: 12.0, to: 22.0, duration: 0.32, easeOut: false)
+        setBlurRadius(14.0, on: contentView)
+        animateBlur(from: 14.0, to: 24.0, duration: 0.28, easeOut: false)
     }
 
     private func animateBlur(from: CGFloat, to: CGFloat, duration: TimeInterval, easeOut: Bool) {

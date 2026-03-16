@@ -842,7 +842,10 @@ final class AppState: ObservableObject {
         let islandSize = size(for: state)
         switch state {
         case .compact:
-            return islandSize
+            return CGSize(
+                width: islandSize.width,
+                height: islandSize.height + 20
+            )
         case .expanded, .fullExpanded:
             return CGSize(
                 width: islandSize.width + (Constants.moduleCyclerGutterWidth * 2),

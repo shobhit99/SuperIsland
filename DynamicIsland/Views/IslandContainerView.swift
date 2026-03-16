@@ -74,17 +74,6 @@ struct IslandContainerView: View {
                         endPoint: .bottom
                     )
                 )
-                .compositingGroup()
-                .shadow(
-                    color: .black.opacity(ambientShadowOpacity),
-                    radius: ambientShadowRadius,
-                    y: ambientShadowYOffset
-                )
-                .shadow(
-                    color: .black.opacity(keyShadowOpacity),
-                    radius: keyShadowRadius,
-                    y: keyShadowYOffset
-                )
 
             islandContent(in: surfaceSize)
                 .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .top)
@@ -93,6 +82,17 @@ struct IslandContainerView: View {
         .frame(width: surfaceSize.width, height: surfaceSize.height)
         .clipped()
         .clipShape(islandShape)
+        .compositingGroup()
+        .shadow(
+            color: .black.opacity(ambientShadowOpacity),
+            radius: ambientShadowRadius,
+            y: ambientShadowYOffset
+        )
+        .shadow(
+            color: .black.opacity(keyShadowOpacity),
+            radius: keyShadowRadius,
+            y: keyShadowYOffset
+        )
         .scaleEffect(surfaceScale, anchor: .top)
         .overlay {
             if appState.shelfEnabled && isShelfDropTargeted {
@@ -158,27 +158,27 @@ struct IslandContainerView: View {
     }
 
     private var ambientShadowOpacity: Double {
-        appState.currentState == .compact ? 0.24 : 0.34
+        appState.currentState == .compact ? 0.18 : 0.38
     }
 
     private var ambientShadowRadius: CGFloat {
-        appState.currentState == .compact ? 4 : 6
+        appState.currentState == .compact ? 3 : 8
     }
 
     private var ambientShadowYOffset: CGFloat {
-        appState.currentState == .compact ? 3 : 5
+        appState.currentState == .compact ? 2 : 6
     }
 
     private var keyShadowOpacity: Double {
-        appState.currentState == .compact ? 0.42 : 0.52
+        appState.currentState == .compact ? 0.32 : 0.58
     }
 
     private var keyShadowRadius: CGFloat {
-        appState.currentState == .compact ? 8 : 11
+        appState.currentState == .compact ? 5 : 14
     }
 
     private var keyShadowYOffset: CGFloat {
-        appState.currentState == .compact ? 6 : 8
+        appState.currentState == .compact ? 4 : 10
     }
 
     private func expandedIslandLayout(in surfaceSize: CGSize) -> some View {
