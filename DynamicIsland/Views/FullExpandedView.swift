@@ -450,8 +450,8 @@ private struct FullExpandedTabButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: tab.iconName)
-                    .font(.system(size: 11, weight: .semibold))
+                tabIcon
+                    .foregroundColor(.white.opacity(isSelected ? 0.96 : 0.72))
 
                 if showsTitle && isSelected {
                     Text(tab.title)
@@ -459,7 +459,6 @@ private struct FullExpandedTabButton: View {
                         .lineLimit(1)
                 }
             }
-            .foregroundColor(.white.opacity(isSelected ? 0.96 : 0.72))
             .padding(.horizontal, showsTitle && isSelected ? 11 : 10)
             .padding(.vertical, 6)
             .background(
@@ -487,5 +486,19 @@ private struct FullExpandedTabButton: View {
         .buttonStyle(.plain)
         .hoverPointer()
         .help(tab.title)
+    }
+
+    @ViewBuilder
+    private var tabIcon: some View {
+        if let iconImage = tab.iconImage {
+            Image(nsImage: iconImage)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 11, height: 11)
+        } else {
+            Image(systemName: tab.iconName)
+                .font(.system(size: 11, weight: .semibold))
+        }
     }
 }

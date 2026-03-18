@@ -6,6 +6,8 @@ import Security
 enum AIUsageProvider {
     private static let cacheTTL: TimeInterval = 300
     private static let claudeKeychainAccessStateDefaultsKey = "aiUsage.claude.keychainAccessState"
+    private static let claudeKeychainAccessDeniedAtDefaultsKey = "aiUsage.claude.keychainAccessDeniedAt"
+    private static let claudeKeychainAccessRetryInterval: TimeInterval = 24 * 60 * 60
     private static var cachedSnapshot: [String: Any]?
     private static var cachedAt: Date?
     private static let cacheLock = NSLock()
@@ -617,14 +619,33 @@ enum AIUsageProvider {
               let state = ClaudeKeychainAccessState(rawValue: rawValue) else {
             return .unknown
         }
+
+        guard state == .denied else {
+            return state
+        }
+
+        guard let deniedAt = claudeKeychainAccessDeniedAt(),
+              Date().timeIntervalSince(deniedAt) < claudeKeychainAccessRetryInterval else {
+            // A stale denial should not suppress the prompt forever. If we do not
+            // know when the user last denied, let the next foreground access retry.
+            setClaudeKeychainAccessState(.unknown)
+            return .unknown
+        }
+
         return state
     }
 
     private static func setClaudeKeychainAccessState(_ state: ClaudeKeychainAccessState) {
         if state == .unknown {
             UserDefaults.standard.removeObject(forKey: claudeKeychainAccessStateDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: claudeKeychainAccessDeniedAtDefaultsKey)
         } else {
             UserDefaults.standard.set(state.rawValue, forKey: claudeKeychainAccessStateDefaultsKey)
+            if state == .denied {
+                UserDefaults.standard.set(Date(), forKey: claudeKeychainAccessDeniedAtDefaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: claudeKeychainAccessDeniedAtDefaultsKey)
+            }
         }
     }
 
@@ -633,13 +654,21 @@ enum AIUsageProvider {
         case errSecSuccess:
             setClaudeKeychainAccessState(.allowed)
         #if os(macOS)
-        case errSecAuthFailed, errSecUserCanceled, errSecInteractionNotAllowed:
+        case errSecAuthFailed, errSecUserCanceled:
             // Stop repeated OS keychain prompts after the user explicitly denies once.
             setClaudeKeychainAccessState(.denied)
+        case errSecInteractionNotAllowed:
+            // If the app is backgrounded, Security can refuse interaction without
+            // implying the user denied access. Leave the cached state untouched.
+            break
         #endif
         default:
             break
         }
+    }
+
+    private static func claudeKeychainAccessDeniedAt() -> Date? {
+        UserDefaults.standard.object(forKey: claudeKeychainAccessDeniedAtDefaultsKey) as? Date
     }
 
     private static func preferredClaudeModel(from stats: [String: Any]) -> String? {

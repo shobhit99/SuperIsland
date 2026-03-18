@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 enum ActiveModule: Equatable, Hashable {
     case builtIn(ModuleType)
@@ -21,6 +22,16 @@ enum ActiveModule: Equatable, Hashable {
             return module.iconName
         case .extension_:
             return "puzzlepiece.extension"
+        }
+    }
+
+    @MainActor
+    var iconImage: NSImage? {
+        switch self {
+        case .builtIn:
+            return nil
+        case .extension_(let id):
+            return ExtensionManager.shared.installed.first(where: { $0.id == id })?.templateIconImage
         }
     }
 }

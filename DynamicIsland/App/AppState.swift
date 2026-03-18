@@ -197,6 +197,16 @@ enum FullExpandedTab: Hashable, Identifiable {
     }
 
     @MainActor
+    var iconImage: NSImage? {
+        switch self {
+        case .home:
+            return nil
+        case .module(let module):
+            return module.iconImage
+        }
+    }
+
+    @MainActor
     var title: String {
         switch self {
         case .home:

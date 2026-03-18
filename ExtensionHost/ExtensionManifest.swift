@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 struct ExtensionManifest: Codable, Identifiable, Hashable {
     struct Author: Codable, Hashable {
@@ -178,5 +179,29 @@ struct ExtensionManifest: Codable, Identifiable, Hashable {
         }
 
         return manifest
+    }
+}
+
+extension ExtensionManifest {
+    @MainActor
+    var iconImage: NSImage? {
+        guard let iconURL else { return nil }
+
+        if let image = NSImage(contentsOf: iconURL) {
+            return image
+        }
+
+        if let data = try? Data(contentsOf: iconURL), let image = NSImage(data: data) {
+            return image
+        }
+
+        return nil
+    }
+
+    @MainActor
+    var templateIconImage: NSImage? {
+        guard let image = iconImage?.copy() as? NSImage else { return nil }
+        image.isTemplate = true
+        return image
     }
 }
