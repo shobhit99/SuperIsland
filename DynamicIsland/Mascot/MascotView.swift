@@ -4,13 +4,17 @@ import AVKit
 
 struct MascotRendererView: View {
     let size: Double
+    let extensionID: String?
     var expressionOverride: String?
 
     @ObservedObject private var manager = MascotManager.shared
 
     var body: some View {
         Group {
-            if manager.isLoading && manager.currentLoopVideoURL == nil {
+            if shouldHideMascot {
+                Color.clear
+                    .frame(width: size, height: size)
+            } else if manager.isLoading && manager.currentLoopVideoURL == nil {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)
@@ -36,6 +40,10 @@ struct MascotRendererView: View {
                 manager.setExpression(newValue)
             }
         }
+    }
+
+    private var shouldHideMascot: Bool {
+        extensionID == "com.workview.pomodoro" && !manager.showInPomodoro
     }
 }
 

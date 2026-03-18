@@ -95,24 +95,23 @@ final class MascotManager: ObservableObject {
         return downloadedSlugs.contains(slug)
     }
 
-    func downloadMascot(_ slug: String) async {
-        guard !isMascotDownloaded(slug) else { return }
+    @discardableResult
+    func downloadMascot(_ slug: String) async -> Bool {
+        guard !isMascotDownloaded(slug) else { return true }
 
-        // Fetch template
-        guard let url = URL(string: "\(MascotTemplate.apiBaseURL)/\(slug)") else { return }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            let decoded = try JSONDecoder().decode(MascotTemplate.self, from: data)
+            let (decoded, data) = try await fetchTemplate(slug: slug)
             saveCachedTemplate(data: data, slug: slug)
 
             // Download all loop videos (skip transitions for speed)
             await MascotVideoCache.shared.preloadLoopVideos(for: decoded)
 
-            await MainActor.run {
-                downloadedSlugs.insert(slug)
-            }
+            downloadedSlugs.insert(slug)
+            loadError = nil
+            return true
         } catch {
-            // Download failed silently
+            loadError = error.localizedDescription
+            return false
         }
     }
 
@@ -155,17 +154,12 @@ final class MascotManager: ObservableObject {
     }
 
     private func fetchAndCacheTemplate(slug: String) async {
-        guard let url = URL(string: "\(MascotTemplate.apiBaseURL)/\(slug)") else {
-            loadError = "Invalid URL"
-            return
-        }
-
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            let decoded = try JSONDecoder().decode(MascotTemplate.self, from: data)
+            let (decoded, data) = try await fetchTemplate(slug: slug)
             saveCachedTemplate(data: data, slug: slug)
             applyTemplate(decoded)
             downloadedSlugs.insert(slug)
+            loadError = nil
             Task { await MascotVideoCache.shared.preloadLoopVideos(for: decoded) }
         } catch {
             if template == nil { loadError = error.localizedDescription }
@@ -175,11 +169,11 @@ final class MascotManager: ObservableObject {
     private func applyTemplate(_ newTemplate: MascotTemplate) {
         template = newTemplate
 
-        if let thumb = newTemplate.thumbnail, let url = URL(string: thumb) {
+        let initialNode = newTemplate.node(byID: newTemplate.initialNode) ?? newTemplate.nodes.first
+        if let thumb = newTemplate.thumbnail ?? initialNode?.transparentThumbnailUrl,
+           let url = URL(string: thumb) {
             thumbnailURL = url
         }
-
-        let initialNode = newTemplate.node(byID: newTemplate.initialNode) ?? newTemplate.nodes.first
         if let initialNode {
             currentNodeID = initialNode.id
             resolveLoopVideo(for: initialNode.id)
@@ -239,11 +233,53 @@ final class MascotManager: ObservableObject {
     private func loadCachedTemplate(slug: String) -> MascotTemplate? {
         let file = templateCacheDirectory.appendingPathComponent("\(slug).json")
         guard let data = try? Data(contentsOf: file) else { return nil }
-        return try? JSONDecoder().decode(MascotTemplate.self, from: data)
+        return decodeTemplate(from: data, slug: slug)
     }
 
     private func saveCachedTemplate(data: Data, slug: String) {
         let file = templateCacheDirectory.appendingPathComponent("\(slug).json")
         try? data.write(to: file, options: .atomic)
+    }
+
+    private func fetchTemplate(slug: String) async throws -> (MascotTemplate, Data) {
+        guard let url = URL(string: "\(MascotTemplate.apiBaseURL)/\(slug)") else {
+            throw MascotLoadError.invalidURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+        try validate(response: response)
+        guard let template = decodeTemplate(from: data, slug: slug) else {
+            throw MascotLoadError.invalidTemplate
+        }
+        return (template, data)
+    }
+
+    private func decodeTemplate(from data: Data, slug: String) -> MascotTemplate? {
+        // The live API payload no longer includes `slug`, so we preserve the requested slug here.
+        (try? JSONDecoder().decode(MascotTemplate.self, from: data))?.resolved(slug: slug)
+    }
+
+    private func validate(response: URLResponse) throws {
+        guard let httpResponse = response as? HTTPURLResponse else { return }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw MascotLoadError.httpStatus(httpResponse.statusCode)
+        }
+    }
+}
+
+private enum MascotLoadError: LocalizedError {
+    case invalidURL
+    case invalidTemplate
+    case httpStatus(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return "Couldn't build the mascot download URL."
+        case .invalidTemplate:
+            return "The mascot template response couldn't be read."
+        case .httpStatus(let statusCode):
+            return "The mascot service returned HTTP \(statusCode)."
+        }
     }
 }

@@ -13,6 +13,69 @@ struct MascotTemplate: Codable, Equatable {
     let nodes: [MascotNode]
     let edges: [MascotEdge]
 
+    private enum CodingKeys: String, CodingKey {
+        case version
+        case name
+        case slug
+        case description
+        case thumbnail
+        case initialNode
+        case autoPlay
+        case nodes
+        case edges
+    }
+
+    init(
+        version: String?,
+        name: String,
+        slug: String,
+        description: String?,
+        thumbnail: String?,
+        initialNode: String,
+        autoPlay: Bool?,
+        nodes: [MascotNode],
+        edges: [MascotEdge]
+    ) {
+        self.version = version
+        self.name = name
+        self.slug = slug
+        self.description = description
+        self.thumbnail = thumbnail
+        self.initialNode = initialNode
+        self.autoPlay = autoPlay
+        self.nodes = nodes
+        self.edges = edges
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decodeIfPresent(String.self, forKey: .version)
+        name = try container.decode(String.self, forKey: .name)
+        slug = try container.decodeIfPresent(String.self, forKey: .slug) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        thumbnail = try container.decodeIfPresent(String.self, forKey: .thumbnail)
+        initialNode = try container.decode(String.self, forKey: .initialNode)
+        autoPlay = try container.decodeIfPresent(Bool.self, forKey: .autoPlay)
+        nodes = try container.decode([MascotNode].self, forKey: .nodes)
+        edges = try container.decode([MascotEdge].self, forKey: .edges)
+    }
+
+    func resolved(slug fallbackSlug: String) -> MascotTemplate {
+        let resolvedSlug = slug.isEmpty ? fallbackSlug : slug
+        let resolvedThumbnail = thumbnail ?? node(byID: initialNode)?.transparentThumbnailUrl ?? nodes.first?.transparentThumbnailUrl
+        return MascotTemplate(
+            version: version,
+            name: name,
+            slug: resolvedSlug,
+            description: description,
+            thumbnail: resolvedThumbnail,
+            initialNode: initialNode,
+            autoPlay: autoPlay,
+            nodes: nodes,
+            edges: edges
+        )
+    }
+
     func node(named name: String) -> MascotNode? {
         let lowered = name.lowercased()
         return nodes.first(where: { $0.name.lowercased() == lowered })

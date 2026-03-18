@@ -20,14 +20,17 @@ private struct MascotGridPicker: View {
         let isDownloading = downloadingSlug == entry.slug
 
         return Button {
+            guard !isDownloading else { return }
             if isDownloaded {
                 manager.selectMascot(entry.slug)
             } else {
                 downloadingSlug = entry.slug
                 Task {
-                    await manager.downloadMascot(entry.slug)
+                    let didDownload = await manager.downloadMascot(entry.slug)
                     downloadingSlug = nil
-                    manager.selectMascot(entry.slug)
+                    if didDownload {
+                        manager.selectMascot(entry.slug)
+                    }
                 }
             }
         } label: {
@@ -182,6 +185,13 @@ struct GeneralSettingsView: View {
                     subtitle: "Choose an animated mascot companion from masko.ai."
                 ) {
                     MascotGridPicker()
+
+                    if let loadError = mascotManager.loadError {
+                        Divider().opacity(0.2)
+                        Text(loadError)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
 
                     Divider().opacity(0.2)
                     Toggle("Show mascot in Pomodoro", isOn: $mascotManager.showInPomodoro)
