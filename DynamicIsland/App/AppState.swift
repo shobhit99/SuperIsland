@@ -830,7 +830,10 @@ final class AppState: ObservableObject {
         case .compact:
             let baseSize = compactBaseSize
             guard shouldUseMinimalCompactLayout else {
-                return baseSize
+                return CGSize(
+                    width: baseSize.width,
+                    height: min(baseSize.height, Constants.compactNotchMinimumHeight)
+                )
             }
 
             return CGSize(
