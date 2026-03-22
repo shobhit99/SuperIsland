@@ -280,7 +280,7 @@ final class AppState: ObservableObject {
         case .compact:
             open()
         case .expanded:
-            withAnimation(Constants.expandedToFull) {
+            withAnimation(Constants.notchAnimation) {
                 currentState = .fullExpanded
             }
         case .fullExpanded:
@@ -290,7 +290,7 @@ final class AppState: ObservableObject {
 
     func expand() {
         guard currentState == .compact else { return }
-        withAnimation(Constants.compactToExpanded) {
+        withAnimation(Constants.notchAnimation) {
             currentState = .expanded
         }
     }
@@ -302,18 +302,14 @@ final class AppState: ObservableObject {
         cancelAutoDismiss()
         cancelFullExpandedDismiss()
 
-        let animation: Animation = currentState == .compact
-            ? Constants.compactToExpanded
-            : Constants.expandedToFull
-
-        withAnimation(animation) {
+        withAnimation(Constants.notchAnimation) {
             currentState = .fullExpanded
         }
     }
 
     func fullyExpand() {
         prepareFullExpandedPresentation(prefersHome: false)
-        withAnimation(Constants.expandedToFull) {
+        withAnimation(Constants.notchAnimation) {
             currentState = .fullExpanded
         }
     }
@@ -335,7 +331,7 @@ final class AppState: ObservableObject {
         cancelFullExpandedDismiss()
         cancelHoverActivation()
         endSystemEmojiInteraction()
-        withAnimation(Constants.expandedToCompact) {
+        withAnimation(Constants.notchAnimation) {
             currentState = .compact
         }
     }
@@ -1169,7 +1165,7 @@ final class AppState: ObservableObject {
         activeModule = .builtIn(.shelf)
         fullExpandedSelectedTab = .module(.builtIn(.shelf))
 
-        withAnimation(currentState == .compact ? Constants.expandedToFull : Constants.contentSwap) {
+        withAnimation(currentState == .compact ? Constants.notchAnimation : Constants.contentSwap) {
             currentState = .fullExpanded
         }
     }
@@ -1186,7 +1182,7 @@ final class AppState: ObservableObject {
         activeModule = .builtIn(.shelf)
         fullExpandedSelectedTab = .module(.builtIn(.shelf))
 
-        withAnimation(currentState == .compact ? Constants.expandedToFull : Constants.contentSwap) {
+        withAnimation(currentState == .compact ? Constants.notchAnimation : Constants.contentSwap) {
             currentState = .fullExpanded
         }
     }
@@ -1213,7 +1209,7 @@ final class AppState: ObservableObject {
         activeModule = .builtIn(.notifications)
         fullExpandedSelectedTab = .module(.builtIn(.notifications))
 
-        withAnimation(Constants.expandedToFull) {
+        withAnimation(Constants.notchAnimation) {
             currentState = .fullExpanded
         }
     }

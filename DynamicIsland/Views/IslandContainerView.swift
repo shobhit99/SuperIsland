@@ -1,41 +1,29 @@
 import SwiftUI
 
 struct IslandContainerView: View {
-    private struct SurfaceTransition {
-        let fromState: IslandState
-        let toState: IslandState
-    }
-
     @EnvironmentObject var appState: AppState
     @State private var isHoveringIslandSurface = false
     @State private var isHoveringPreviousButton = false
     @State private var isHoveringNextButton = false
     @State private var isShelfDropTargeted = false
     @State private var shelfDragEndWorkItem: DispatchWorkItem?
-    @State private var surfaceScale: CGFloat = 1.0
-    @State private var surfaceTransition: SurfaceTransition?
-    @State private var surfaceTransitionResetWorkItem: DispatchWorkItem?
 
     var body: some View {
         islandBody
     }
 
+    // MARK: - Body
+
     private var islandBody: some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
-                islandSurface(in: geometry.size)
+                islandSurface
 
                 if showModuleCycler {
                     moduleCyclerOverlay
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .opacity(compactContentOpacity)
                 }
             }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-        }
-        .animation(.spring(response: 0.48, dampingFraction: 0.8), value: appState.activeModule)
-        .onChange(of: appState.currentState) { oldValue, newValue in
-            handleStateAnimation(from: oldValue, to: newValue)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
         }
         .onChange(of: isShelfDropTargeted) { _, isTargeted in
             handleShelfDropTargetChange(isTargeted)
@@ -44,6 +32,58 @@ struct IslandContainerView: View {
             guard !isVisible else { return }
             setCycleButtonHover(false, forward: false)
             setCycleButtonHover(false, forward: true)
+        }
+    }
+
+    // MARK: - Surface
+
+    private var islandSurface: some View {
+        let surfaceSize = appState.currentSize
+        return ZStack(alignment: .top) {
+            islandShape
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.98),
+                            Color.black.opacity(0.94)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+
+            islandContent
+                .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .top)
+                .clipShape(islandShape)
+        }
+        .frame(width: surfaceSize.width, height: surfaceSize.height)
+        .clipShape(islandShape)
+        .compositingGroup()
+        .shadow(
+            color: .black.opacity(ambientShadowOpacity),
+            radius: ambientShadowRadius,
+            y: ambientShadowYOffset
+        )
+        .shadow(
+            color: .black.opacity(keyShadowOpacity),
+            radius: keyShadowRadius,
+            y: keyShadowYOffset
+        )
+        .overlay {
+            if appState.shelfEnabled && isShelfDropTargeted {
+                islandShape
+                    .stroke(Color.accentColor.opacity(0.92), style: StrokeStyle(lineWidth: 3, dash: [10]))
+                    .padding(1)
+            }
+        }
+        .contentShape(islandShape)
+        // All gestures live on the surface, inside .contentShape,
+        // so they only respond within the pill — not the full window.
+        .onContinuousHover(coordinateSpace: .local) { phase in
+            handleSurfaceHover(phase: phase, surfaceSize: surfaceSize)
+        }
+        .onTapGesture {
+            handleSurfaceTap()
         }
         .gesture(
             DragGesture(minimumDistance: 8)
@@ -57,54 +97,6 @@ struct IslandContainerView: View {
                     AppDelegate.showSettingsWindow()
                 }
         )
-    }
-
-    @ViewBuilder
-    private func islandSurface(in availableSize: CGSize) -> some View {
-        let surfaceSize = displayedSurfaceSize(in: availableSize)
-        let surface = ZStack(alignment: .top) {
-            islandShape
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.black.opacity(0.98),
-                            Color.black.opacity(0.94)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-
-            islandContent(in: surfaceSize)
-                .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .top)
-                .clipShape(islandShape)
-        }
-        .frame(width: surfaceSize.width, height: surfaceSize.height)
-        .clipped()
-        .clipShape(islandShape)
-        .compositingGroup()
-        .shadow(
-            color: .black.opacity(ambientShadowOpacity),
-            radius: ambientShadowRadius,
-            y: ambientShadowYOffset
-        )
-        .shadow(
-            color: .black.opacity(keyShadowOpacity),
-            radius: keyShadowRadius,
-            y: keyShadowYOffset
-        )
-        .scaleEffect(surfaceScale, anchor: .top)
-        .overlay {
-            if appState.shelfEnabled && isShelfDropTargeted {
-                islandShape
-                    .stroke(Color.accentColor.opacity(0.92), style: StrokeStyle(lineWidth: 3, dash: [10]))
-                    .padding(1)
-            }
-        }
-        .contentShape(islandShape)
-        .onContinuousHover(coordinateSpace: .local) { phase in
-            handleSurfaceHover(phase: phase, surfaceSize: surfaceSize)
-        }
         .onDrop(of: ShelfStore.acceptedDropTypes, isTargeted: $isShelfDropTargeted) { providers in
             guard appState.shelfEnabled else { return false }
             return ShelfStore.shared.handleDrop(providers: providers) { addedCount in
@@ -114,31 +106,37 @@ struct IslandContainerView: View {
                 appState.presentShelfAfterDrop()
             }
         }
-
-        if appState.currentState == .fullExpanded {
-            surface
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        } else if appState.currentState == .compact && appState.shouldUseMinimalCompactLayout {
-            surface
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        } else {
-            surface.onTapGesture(perform: handleSurfaceTap)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
+        // Animation is driven by withAnimation() in AppState.
+        // The window is fixed (never resizes), so GeometryReader
+        // never re-fires and the animation plays uninterrupted.
+        .animation(Constants.notchAnimation, value: appState.currentState)
+        .animation(.spring(response: 0.48, dampingFraction: 0.8), value: appState.activeModule)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
+    // MARK: - Content
+
     @ViewBuilder
-    private func islandContent(in surfaceSize: CGSize) -> some View {
+    private var islandContent: some View {
         if appState.currentState == .compact {
             CompactView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .opacity(compactContentOpacity)
-                .transition(.opacity)
+                .transition(
+                    .scale(scale: 0.85, anchor: .top)
+                    .combined(with: .opacity)
+                )
         } else {
-            expandedIslandLayout(in: surfaceSize)
+            expandedIslandLayout
                 .opacity(compactContentOpacity)
+                .transition(
+                    .scale(scale: 0.5, anchor: .top)
+                    .combined(with: .opacity)
+                )
         }
     }
+
+    // MARK: - Shape
 
     private var islandShape: PillShape {
         PillShape(
@@ -152,6 +150,8 @@ struct IslandContainerView: View {
             topCutoutCornerRadius: appState.currentTopCutoutCornerRadius
         )
     }
+
+    // MARK: - Appearance
 
     private var compactContentOpacity: Double {
         appState.currentState == .compact ? appState.idleOpacity : 1.0
@@ -181,7 +181,10 @@ struct IslandContainerView: View {
         appState.currentState == .compact ? 4 : 10
     }
 
-    private func expandedIslandLayout(in surfaceSize: CGSize) -> some View {
+    // MARK: - Expanded Layout
+
+    private var expandedIslandLayout: some View {
+        let surfaceSize = appState.currentSize
         let shoulderHeight = min(appState.currentContentTopInset, surfaceSize.height)
         let contentWidth = min(appState.currentContentSize.width, surfaceSize.width)
         let contentHeight = max(0, surfaceSize.height - shoulderHeight)
@@ -209,7 +212,6 @@ struct IslandContainerView: View {
                     height: contentHeight,
                     alignment: .top
                 )
-                .clipped()
 
             Spacer(minLength: 0)
         }
@@ -230,6 +232,8 @@ struct IslandContainerView: View {
         }
     }
 
+    // MARK: - Gestures
+
     private func handleSwipe(value: DragGesture.Value) {
         let horizontal = value.translation.width
         let vertical = value.translation.height
@@ -238,17 +242,13 @@ struct IslandContainerView: View {
         guard velocity > 35 || abs(horizontal) > 14 || abs(vertical) > 18 else { return }
 
         if abs(horizontal) > abs(vertical) {
-            // Horizontal navigation stays on the module arrows.
             return
         } else {
-            // Vertical swipe
             if vertical < 0 {
-                // Swipe up -> open
                 if appState.currentState != .fullExpanded {
                     appState.open()
                 }
             } else {
-                // Swipe down -> collapse
                 appState.dismiss()
             }
         }
@@ -287,6 +287,8 @@ struct IslandContainerView: View {
         return false
     }
 
+    // MARK: - Shelf Drop
+
     private func handleShelfDropTargetChange(_ isTargeted: Bool) {
         guard appState.shelfEnabled else { return }
 
@@ -307,6 +309,8 @@ struct IslandContainerView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: workItem)
     }
 
+    // MARK: - Module Cycler
+
     private var showModuleCycler: Bool {
         appState.currentState != .compact && enabledModuleCount > 1
     }
@@ -316,18 +320,22 @@ struct IslandContainerView: View {
     }
 
     private var moduleCyclerOverlay: some View {
-        HStack {
+        let surfaceSize = appState.currentSize
+        let windowSize = appState.windowSize
+        return HStack {
             moduleCycleButton(systemName: "chevron.left", forward: false)
             Spacer()
             moduleCycleButton(systemName: "chevron.right", forward: true)
         }
         .padding(.horizontal, (Constants.moduleCyclerGutterWidth - Constants.moduleCyclerButtonSize) / 2)
         .padding(.top, appState.currentContentTopInset)
-        .frame(height: appState.currentContentFrameHeight, alignment: .center)
+        .frame(width: windowSize.width, height: appState.currentContentFrameHeight, alignment: .center)
         .frame(maxHeight: .infinity, alignment: .top)
         .opacity(appState.isHovering ? 1 : 0.78)
         .animation(.easeOut(duration: 0.18), value: appState.isHovering)
+        .animation(Constants.notchAnimation, value: appState.currentState)
         .transition(.opacity)
+        .allowsHitTesting(appState.currentState != .compact)
     }
 
     private func moduleCycleButton(systemName: String, forward: Bool) -> some View {
@@ -356,6 +364,8 @@ struct IslandContainerView: View {
         }
         .help(forward ? "Next module" : "Previous module")
     }
+
+    // MARK: - Hover
 
     private func setIslandSurfaceHover(_ hovering: Bool) {
         guard isHoveringIslandSurface != hovering else { return }
@@ -397,91 +407,5 @@ struct IslandContainerView: View {
         appState.handleHoverChange(
             isHoveringIslandSurface || isHoveringPreviousButton || isHoveringNextButton
         )
-    }
-
-    private func handleStateAnimation(from oldValue: IslandState, to newValue: IslandState) {
-        guard oldValue != newValue else { return }
-        surfaceTransition = SurfaceTransition(fromState: oldValue, toState: newValue)
-        surfaceTransitionResetWorkItem?.cancel()
-
-        let resetWorkItem = DispatchWorkItem { surfaceTransition = nil }
-        surfaceTransitionResetWorkItem = resetWorkItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: resetWorkItem)
-
-        // Overshoot + settle is driven by the AppKit window frame animation
-        // in IslandWindowController — no SwiftUI scaleEffect needed.
-    }
-
-    private func displayedSurfaceSize(in availableSize: CGSize) -> CGSize {
-        guard let surfaceTransition else {
-            return appState.currentSize
-        }
-        let fromSurfaceSize = appState.size(for: surfaceTransition.fromState)
-        let toSurfaceSize = appState.size(for: surfaceTransition.toState)
-        let progress = currentTransitionProgress(in: availableSize)
-
-        return CGSize(
-            width: interpolatedValue(
-                from: fromSurfaceSize.width,
-                to: toSurfaceSize.width,
-                progress: progress
-            ),
-            height: interpolatedValue(
-                from: fromSurfaceSize.height,
-                to: toSurfaceSize.height,
-                progress: progress
-            )
-        )
-    }
-
-    private func currentTransitionProgress(in availableSize: CGSize) -> CGFloat {
-        guard let surfaceTransition else {
-            return 1
-        }
-
-        return transitionProgress(
-            currentSize: availableSize,
-            fromSize: appState.windowSize(for: surfaceTransition.fromState),
-            toSize: appState.windowSize(for: surfaceTransition.toState)
-        )
-    }
-
-    private func transitionProgress(
-        currentSize: CGSize,
-        fromSize: CGSize,
-        toSize: CGSize
-    ) -> CGFloat {
-        let widthProgress = normalizedProgress(
-            current: currentSize.width,
-            from: fromSize.width,
-            to: toSize.width
-        )
-        let heightProgress = normalizedProgress(
-            current: currentSize.height,
-            from: fromSize.height,
-            to: toSize.height
-        )
-
-        let hasWidthChange = abs(toSize.width - fromSize.width) > 0.5
-        let hasHeightChange = abs(toSize.height - fromSize.height) > 0.5
-
-        if hasWidthChange && hasHeightChange {
-            return max(widthProgress, heightProgress)
-        }
-        if hasWidthChange {
-            return widthProgress
-        }
-        return heightProgress
-    }
-
-    private func normalizedProgress(current: CGFloat, from: CGFloat, to: CGFloat) -> CGFloat {
-        let delta = to - from
-        guard abs(delta) > 0.5 else { return 1 }
-        let progress = (current - from) / delta
-        return max(progress, 0) // Allow > 1.0 so the surface follows window overshoot
-    }
-
-    private func interpolatedValue(from: CGFloat, to: CGFloat, progress: CGFloat) -> CGFloat {
-        from + ((to - from) * progress)
     }
 }
