@@ -41,6 +41,7 @@ final class CompactAudioSpectrumView: NSView {
     private var barLayers: [CAShapeLayer] = []
     private var barScales: [CGFloat] = []
     private var animationTimer: Timer?
+    private var barColor: NSColor = .white
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -73,8 +74,8 @@ final class CompactAudioSpectrumView: NSView {
             barLayer.frame = CGRect(x: xPosition, y: 0, width: barWidth, height: totalHeight)
             barLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
             barLayer.position = CGPoint(x: xPosition + (barWidth / 2), y: totalHeight / 2)
-            barLayer.fillColor = NSColor.white.cgColor
-            barLayer.backgroundColor = NSColor.white.cgColor
+            barLayer.fillColor = barColor.cgColor
+            barLayer.backgroundColor = barColor.cgColor
             barLayer.allowsGroupOpacity = false
             barLayer.masksToBounds = true
             barLayer.path = NSBezierPath(
@@ -86,6 +87,15 @@ final class CompactAudioSpectrumView: NSView {
             barLayers.append(barLayer)
             barScales.append(0.35)
             layer?.addSublayer(barLayer)
+        }
+    }
+
+    func updateBarColor(_ color: NSColor) {
+        guard color != barColor else { return }
+        barColor = color
+        for barLayer in barLayers {
+            barLayer.fillColor = color.cgColor
+            barLayer.backgroundColor = color.cgColor
         }
     }
 
@@ -145,14 +155,17 @@ final class CompactAudioSpectrumView: NSView {
 
 struct EqualizerBarsView: NSViewRepresentable {
     let isPlaying: Bool
+    var barColor: NSColor = .white
 
     func makeNSView(context: Context) -> CompactAudioSpectrumView {
         let spectrumView = CompactAudioSpectrumView()
+        spectrumView.updateBarColor(barColor)
         spectrumView.setPlaying(isPlaying)
         return spectrumView
     }
 
     func updateNSView(_ nsView: CompactAudioSpectrumView, context: Context) {
+        nsView.updateBarColor(barColor)
         nsView.setPlaying(isPlaying)
     }
 }
@@ -174,8 +187,11 @@ struct NowPlayingPlaybackCompactButton: View {
                             .foregroundColor(.white.opacity(0.95))
                             .frame(width: 18, height: 18)
                     } else {
-                        EqualizerBarsView(isPlaying: true)
-                            .frame(width: 20, height: 16)
+                        EqualizerBarsView(
+                            isPlaying: true,
+                            barColor: manager.albumArtColor ?? .white
+                        )
+                        .frame(width: 20, height: 16)
                     }
                 } else {
                     Image(systemName: "play.fill")

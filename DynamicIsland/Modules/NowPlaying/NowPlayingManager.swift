@@ -33,6 +33,7 @@ final class NowPlayingManager: ObservableObject {
     @Published var artist: String = ""
     @Published var album: String = ""
     @Published var albumArt: NSImage?
+    @Published var albumArtColor: NSColor?
     @Published var isPlaying: Bool = false
     @Published var duration: TimeInterval = 0
     @Published var elapsedTime: TimeInterval = 0
@@ -73,6 +74,7 @@ final class NowPlayingManager: ObservableObject {
         }
         fetchNowPlayingInfo()
         observeSpotify()
+        observeAlbumArtColor()
 
         // Trigger first AppleScript check on main thread to ensure
         // the macOS automation permission dialog appears
@@ -149,6 +151,31 @@ final class NowPlayingManager: ObservableObject {
     }
 
     // MARK: - Spotify Distributed Notifications
+
+    private func observeAlbumArtColor() {
+        $albumArt
+            .removeDuplicates { $0?.tiffRepresentation == $1?.tiffRepresentation }
+            .sink { [weak self] image in
+                guard let self else { return }
+                guard let image else {
+                    self.albumArtColor = nil
+                    return
+                }
+                image.averageColor { color in
+                    guard let color else { return }
+                    let rgb = color.usingColorSpace(.sRGB) ?? color
+                    var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                    rgb.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+                    self.albumArtColor = NSColor(
+                        hue: h,
+                        saturation: min(max(s * 1.15, 0.55), 1.0),
+                        brightness: min(max(b * 1.18, 0.72), 1.0),
+                        alpha: a
+                    )
+                }
+            }
+            .store(in: &cancellables)
+    }
 
     private func observeSpotify() {
         DistributedNotificationCenter.default().addObserver(
