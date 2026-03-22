@@ -222,8 +222,16 @@ enum FullExpandedTab: Hashable, Identifiable {
 final class AppState: ObservableObject {
     static let shared = AppState()
 
+    /// Called from didSet so the window can resize while still inside
+    /// the withAnimation block. No GeometryReader exists, so the resize
+    /// is invisible to SwiftUI — the surface stays centered on the notch.
+    var didChangeState: ((_ from: IslandState, _ to: IslandState) -> Void)?
+
     @Published var currentState: IslandState = .compact {
         didSet {
+            if oldValue != currentState {
+                didChangeState?(oldValue, currentState)
+            }
             handleStateTransition(from: oldValue, to: currentState)
         }
     }

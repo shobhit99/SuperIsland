@@ -2,33 +2,20 @@ import AppKit
 import SwiftUI
 import Combine
 
-/// Hosting view that passes through mouse events outside the island surface.
 private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        // Only accept hits within the island surface + gutter area.
-        // Everything else passes through to windows below — just like
-        // NotchDrop, whose window covers a large area but only captures
-        // events on the visible notch content.
-        let appState = AppState.shared
-        let surfaceSize = appState.currentSize
-        let boundsWidth = bounds.width
-
-        let gutterWidth = appState.currentState == .compact
-            ? 0.0
-            : Constants.moduleCyclerGutterWidth
-        let hitWidth = surfaceSize.width + gutterWidth * 2
-        let hitMinX = (boundsWidth - hitWidth) / 2
-        let hitMaxX = hitMinX + hitWidth
-        let hitMaxY = surfaceSize.height + Constants.expandedShadowBottomPadding
-
-        guard point.x >= hitMinX, point.x <= hitMaxX,
-              point.y >= 0, point.y <= hitMaxY else {
-            return nil
-        }
-
-        return super.hitTest(point)
+/// Container that keeps the hosting view centered horizontally and
+/// pinned to the top, regardless of the container/window size.
+/// Unlike autoresizingMask, this handles the 0-margin edge case correctly.
+private final class CenteringContainerView: NSView {
+    override func layout() {
+        super.layout()
+        guard let hostingView = subviews.first else { return }
+        hostingView.frame.origin.x = (bounds.width - hostingView.frame.width) / 2
+        // AppKit coords: y=0 at bottom. Pin hosting view top to container top.
+        hostingView.frame.origin.y = bounds.height - hostingView.frame.height
     }
 }
 
@@ -39,33 +26,48 @@ final class IslandWindowController {
     private var screenObserver: Any?
     private var defaultsObserver: Any?
     private var cancellables = Set<AnyCancellable>()
+    private var shrinkWorkItem: DispatchWorkItem?
 
     func showIsland() {
         let panel = IslandPanel()
         self.panel = panel
 
+        // Initialize presentation context first so size calculations work.
+        if let screen = panel.screen
+            ?? ScreenDetector.activeScreen
+            ?? ScreenDetector.primaryScreen
+            ?? NSScreen.screens.first {
+            appState.updatePresentationContext(screen: screen)
+        }
+
+        // The hosting view is set to the MAXIMUM possible size and
+        // NEVER resizes. The window acts as a clipping viewport:
+        // compact window → only the notch area is visible/clickable,
+        // expanded window → the full surface is revealed.
+        // Because the hosting view never changes size, SwiftUI never
+        // re-layouts from window changes — no "jump left" on expand.
+        let maxSize = maxWindowSize
         let hostingView = FirstMouseHostingView(
             rootView: IslandContainerView()
                 .environmentObject(appState)
         )
-        hostingView.frame = panel.contentView?.bounds ?? .zero
-        hostingView.autoresizingMask = [.width, .height]
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = .clear
-        hostingView.layer?.masksToBounds = false
+        hostingView.frame = NSRect(x: 0, y: 0, width: maxSize.width, height: maxSize.height)
+        hostingView.autoresizingMask = [] // Never resize — container handles positioning.
 
-        panel.contentView = hostingView
+        let containerView = CenteringContainerView()
+        containerView.addSubview(hostingView)
+        panel.contentView = containerView
 
-        // Set window to its FIXED size once — like NotchDrop.
-        // The window never resizes; the SwiftUI surface animates within it.
-        positionIsland(on: panel)
+        applyFrame(size: appState.windowSize, to: panel)
 
         panel.setVisibleInScreenRecordings(appState.showInScreenRecordings)
         panel.makeKeyAndOrderFront(nil)
 
+        setupDidChangeStateHook()
         observeScreenChanges()
         observeSettingsChanges()
         observeStateChanges()
+        observeCompactLayoutChanges()
     }
 
     func hideIsland() {
@@ -74,8 +76,7 @@ final class IslandWindowController {
 
     // MARK: - Positioning
 
-    /// Fixed window size — large enough for ANY state.
-    private var fixedWindowSize: CGSize {
+    private var maxWindowSize: CGSize {
         let full = appState.windowSize(for: .fullExpanded)
         let expanded = appState.windowSize(for: .expanded)
         return CGSize(
@@ -84,21 +85,18 @@ final class IslandWindowController {
         )
     }
 
-    private func positionIsland(on panel: IslandPanel) {
+    private func applyFrame(size: CGSize, to panel: IslandPanel, display: Bool = true) {
         guard let screen = panel.screen
             ?? ScreenDetector.activeScreen
             ?? ScreenDetector.primaryScreen
             ?? NSScreen.screens.first else { return }
-
         appState.updatePresentationContext(screen: screen)
         let screenFrame = screen.frame
         let hasNotch = ScreenDetector.hasNotch(screen: screen)
         let notchRect = ScreenDetector.notchRect(screen: screen)
-        let size = fixedWindowSize
 
         let anchorX: CGFloat
         let anchorY: CGFloat
-
         if hasNotch, let notch = notchRect {
             anchorX = notch.midX
             anchorY = notch.maxY - Constants.expandedTopInset
@@ -109,46 +107,107 @@ final class IslandWindowController {
 
         let x = anchorX - size.width / 2
         let y = anchorY - size.height
-        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: display)
     }
 
-    // MARK: - State observation (dismiss scheduling only — NO window resize)
+    // MARK: - Window resize via didSet hook
+    //
+    // Fires from AppState.didSet — AFTER currentState has changed,
+    // still INSIDE the withAnimation() block. No GeometryReader exists,
+    // so the resize is invisible to SwiftUI. The surface stays centered
+    // on the notch because both the window and surface are notch-centered.
+
+    private func setupDidChangeStateHook() {
+        appState.didChangeState = { [weak self] oldState, newState in
+            guard let self, let panel = self.panel else { return }
+            let oldSize = self.appState.windowSize(for: oldState)
+            let newSize = self.appState.windowSize(for: newState)
+
+            if newSize.width > oldSize.width || newSize.height > oldSize.height {
+                // GROWING: expand window to max size instantly.
+                // No visual jump because there's no GeometryReader —
+                // the surface position is computed from appState, not
+                // from the window frame.
+                // The hosting view is fixed-size, so this resize only
+                // changes the visible viewport — no SwiftUI re-layout.
+                self.applyFrame(size: self.maxWindowSize, to: panel)
+            }
+            // SHRINKING: keep window large during animation.
+            // It's snapped to compact in observeStateChanges after 0.55s.
+        }
+    }
+
+    // MARK: - State observation (dismiss scheduling + delayed shrink)
 
     private func observeStateChanges() {
         appState.$currentState
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] newState in
-                guard let self else { return }
+                guard let self, let panel = self.panel else { return }
+
+                self.shrinkWorkItem?.cancel()
+                self.shrinkWorkItem = nil
 
                 switch newState {
-                case .expanded:
+                case .expanded, .fullExpanded:
+                    // Suppress dismiss during the expand animation.
+                    // Do NOT schedule dismiss here — the window resize
+                    // disrupts hover tracking, making isHovering unreliable.
+                    // Instead, just clear the suppress flag after the
+                    // animation. The normal handleHoverChange(false) flow
+                    // will schedule dismiss when the user actually leaves.
                     self.appState.suppressDismissScheduling = true
                     self.appState.cancelAutoDismiss()
                     self.appState.cancelFullExpandedDismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
-                        guard let self else { return }
-                        self.appState.suppressDismissScheduling = false
-                        guard self.appState.currentState == .expanded,
-                              !self.appState.isHovering else { return }
-                        self.appState.scheduleAutoDismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                        self?.appState.suppressDismissScheduling = false
                     }
-                case .fullExpanded:
-                    self.appState.suppressDismissScheduling = true
-                    self.appState.cancelAutoDismiss()
-                    self.appState.cancelFullExpandedDismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
-                        guard let self else { return }
-                        self.appState.suppressDismissScheduling = false
-                        guard self.appState.currentState == .fullExpanded,
-                              !self.appState.isHovering else { return }
-                        self.appState.scheduleFullExpandedDismiss()
-                    }
+
                 case .compact:
                     self.appState.suppressDismissScheduling = false
+                    // Shrink window AFTER the animation finishes.
+                    // This releases the expanded click area.
+                    let work = DispatchWorkItem { [weak self] in
+                        guard let self, let panel = self.panel,
+                              self.appState.currentState == .compact else { return }
+                        self.applyFrame(size: self.appState.windowSize, to: panel)
+                        // Force tracking area recalculation so the next
+                        // hover on the compact notch is detected.
+                        panel.contentView?.subviews.forEach {
+                            $0.updateTrackingAreas()
+                        }
+                    }
+                    self.shrinkWorkItem = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: work)
                 }
             }
             .store(in: &cancellables)
+    }
+
+    // MARK: - Compact layout changes
+
+    private func observeCompactLayoutChanges() {
+        appState.$activeModule
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateCompactFrameIfNeeded()
+            }
+            .store(in: &cancellables)
+
+        NowPlayingManager.shared.$title
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateCompactFrameIfNeeded()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func updateCompactFrameIfNeeded() {
+        guard let panel, appState.currentState == .compact else { return }
+        applyFrame(size: appState.windowSize, to: panel)
     }
 
     // MARK: - Screen & Settings
@@ -161,7 +220,8 @@ final class IslandWindowController {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, let panel = self.panel else { return }
-                self.positionIsland(on: panel)
+                self.applyFrame(size: self.appState.currentState == .compact
+                    ? self.appState.windowSize : self.maxWindowSize, to: panel)
             }
         }
     }

@@ -9,22 +9,17 @@ struct IslandContainerView: View {
     @State private var shelfDragEndWorkItem: DispatchWorkItem?
 
     var body: some View {
-        islandBody
-    }
+        // No GeometryReader — just like NotchDrop. The surface sizes
+        // itself from appState. Transparent areas around the surface
+        // are truly empty (alpha=0), so macOS passes clicks through.
+        ZStack(alignment: .top) {
+            islandSurface
 
-    // MARK: - Body
-
-    private var islandBody: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .top) {
-                islandSurface
-
-                if showModuleCycler {
-                    moduleCyclerOverlay
-                }
+            if showModuleCycler {
+                moduleCyclerOverlay
             }
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: isShelfDropTargeted) { _, isTargeted in
             handleShelfDropTargetChange(isTargeted)
         }
@@ -77,8 +72,6 @@ struct IslandContainerView: View {
             }
         }
         .contentShape(islandShape)
-        // All gestures live on the surface, inside .contentShape,
-        // so they only respond within the pill — not the full window.
         .onContinuousHover(coordinateSpace: .local) { phase in
             handleSurfaceHover(phase: phase, surfaceSize: surfaceSize)
         }
@@ -107,7 +100,6 @@ struct IslandContainerView: View {
             }
         }
         .animation(.spring(response: 0.48, dampingFraction: 0.8), value: appState.activeModule)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: - Content
@@ -317,8 +309,7 @@ struct IslandContainerView: View {
     }
 
     private var moduleCyclerOverlay: some View {
-        let surfaceSize = appState.currentSize
-        let windowSize = appState.windowSize
+        let windowWidth = appState.windowSize.width
         return HStack {
             moduleCycleButton(systemName: "chevron.left", forward: false)
             Spacer()
@@ -326,11 +317,10 @@ struct IslandContainerView: View {
         }
         .padding(.horizontal, (Constants.moduleCyclerGutterWidth - Constants.moduleCyclerButtonSize) / 2)
         .padding(.top, appState.currentContentTopInset)
-        .frame(width: windowSize.width, height: appState.currentContentFrameHeight, alignment: .center)
+        .frame(width: windowWidth, height: appState.currentContentFrameHeight, alignment: .center)
         .frame(maxHeight: .infinity, alignment: .top)
         .opacity(appState.isHovering ? 1 : 0.78)
         .animation(.easeOut(duration: 0.18), value: appState.isHovering)
-        .animation(Constants.notchAnimation, value: appState.currentState)
         .transition(.opacity)
         .allowsHitTesting(appState.currentState != .compact)
     }
