@@ -2,8 +2,34 @@ import AppKit
 import SwiftUI
 import Combine
 
+/// Hosting view that passes through mouse events outside the island surface.
 private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Only accept hits within the island surface + gutter area.
+        // Everything else passes through to windows below — just like
+        // NotchDrop, whose window covers a large area but only captures
+        // events on the visible notch content.
+        let appState = AppState.shared
+        let surfaceSize = appState.currentSize
+        let boundsWidth = bounds.width
+
+        let gutterWidth = appState.currentState == .compact
+            ? 0.0
+            : Constants.moduleCyclerGutterWidth
+        let hitWidth = surfaceSize.width + gutterWidth * 2
+        let hitMinX = (boundsWidth - hitWidth) / 2
+        let hitMaxX = hitMinX + hitWidth
+        let hitMaxY = surfaceSize.height + Constants.expandedShadowBottomPadding
+
+        guard point.x >= hitMinX, point.x <= hitMaxX,
+              point.y >= 0, point.y <= hitMaxY else {
+            return nil
+        }
+
+        return super.hitTest(point)
+    }
 }
 
 @MainActor
@@ -25,15 +51,13 @@ final class IslandWindowController {
         hostingView.frame = panel.contentView?.bounds ?? .zero
         hostingView.autoresizingMask = [.width, .height]
         hostingView.wantsLayer = true
-
         hostingView.layer?.backgroundColor = .clear
         hostingView.layer?.masksToBounds = false
 
         panel.contentView = hostingView
 
-        // Set window to its FIXED size once — exactly like NotchDrop.
-        // The window never resizes during state transitions; only the
-        // SwiftUI surface animates within it.
+        // Set window to its FIXED size once — like NotchDrop.
+        // The window never resizes; the SwiftUI surface animates within it.
         positionIsland(on: panel)
 
         panel.setVisibleInScreenRecordings(appState.showInScreenRecordings)
@@ -50,8 +74,7 @@ final class IslandWindowController {
 
     // MARK: - Positioning
 
-    /// The fixed window size — large enough to contain ANY state.
-    /// Set once at startup, never changes during animation.
+    /// Fixed window size — large enough for ANY state.
     private var fixedWindowSize: CGSize {
         let full = appState.windowSize(for: .fullExpanded)
         let expanded = appState.windowSize(for: .expanded)
@@ -71,7 +94,6 @@ final class IslandWindowController {
         let screenFrame = screen.frame
         let hasNotch = ScreenDetector.hasNotch(screen: screen)
         let notchRect = ScreenDetector.notchRect(screen: screen)
-
         let size = fixedWindowSize
 
         let anchorX: CGFloat
@@ -87,7 +109,6 @@ final class IslandWindowController {
 
         let x = anchorX - size.width / 2
         let y = anchorY - size.height
-
         panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
     }
 
@@ -99,8 +120,6 @@ final class IslandWindowController {
             .receive(on: RunLoop.main)
             .sink { [weak self] newState in
                 guard let self else { return }
-
-                print("[IslandWC] State → \(newState)")
 
                 switch newState {
                 case .expanded:
@@ -132,7 +151,7 @@ final class IslandWindowController {
             .store(in: &cancellables)
     }
 
-    // MARK: - Screen & Settings Observation
+    // MARK: - Screen & Settings
 
     private func observeScreenChanges() {
         screenObserver = NotificationCenter.default.addObserver(

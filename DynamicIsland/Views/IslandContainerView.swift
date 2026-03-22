@@ -106,10 +106,6 @@ struct IslandContainerView: View {
                 appState.presentShelfAfterDrop()
             }
         }
-        // Animation is driven by withAnimation() in AppState.
-        // The window is fixed (never resizes), so GeometryReader
-        // never re-fires and the animation plays uninterrupted.
-        .animation(Constants.notchAnimation, value: appState.currentState)
         .animation(.spring(response: 0.48, dampingFraction: 0.8), value: appState.activeModule)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -212,6 +208,7 @@ struct IslandContainerView: View {
                     height: contentHeight,
                     alignment: .top
                 )
+                .clipped()
 
             Spacer(minLength: 0)
         }

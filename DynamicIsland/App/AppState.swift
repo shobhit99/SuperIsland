@@ -1065,7 +1065,7 @@ final class AppState: ObservableObject {
     private func performNotchEntryHapticIfNeeded() {
         guard presentationHasNotch,
               currentState == .compact,
-              Date().timeIntervalSince(lastNotchEntryHapticDate) > 0.35 else {
+              Date().timeIntervalSince(lastNotchEntryHapticDate) > 0.6 else {
             return
         }
 
