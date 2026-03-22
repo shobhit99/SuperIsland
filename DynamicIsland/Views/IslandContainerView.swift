@@ -49,7 +49,6 @@ struct IslandContainerView: View {
 
             islandContent
                 .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .top)
-                .clipShape(islandShape)
         }
         .frame(width: surfaceSize.width, height: surfaceSize.height)
         .clipShape(islandShape)
