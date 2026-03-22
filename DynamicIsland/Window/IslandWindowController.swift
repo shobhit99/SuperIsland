@@ -124,13 +124,15 @@ final class IslandWindowController {
             let newSize = self.appState.windowSize(for: newState)
 
             if newSize.width > oldSize.width || newSize.height > oldSize.height {
-                // GROWING: expand window to max size instantly.
-                // No visual jump because there's no GeometryReader —
-                // the surface position is computed from appState, not
-                // from the window frame.
                 // The hosting view is fixed-size, so this resize only
                 // changes the visible viewport — no SwiftUI re-layout.
                 self.applyFrame(size: self.maxWindowSize, to: panel)
+
+                // Refresh tracking areas after the viewport change so
+                // .onContinuousHover picks up the correct hover state.
+                panel.contentView?.subviews.forEach {
+                    $0.updateTrackingAreas()
+                }
             }
             // SHRINKING: keep window large during animation.
             // It's snapped to compact in observeStateChanges after 0.55s.
@@ -151,17 +153,31 @@ final class IslandWindowController {
 
                 switch newState {
                 case .expanded, .fullExpanded:
-                    // Suppress dismiss during the expand animation.
-                    // Do NOT schedule dismiss here — the window resize
-                    // disrupts hover tracking, making isHovering unreliable.
-                    // Instead, just clear the suppress flag after the
-                    // animation. The normal handleHoverChange(false) flow
-                    // will schedule dismiss when the user actually leaves.
                     self.appState.suppressDismissScheduling = true
                     self.appState.cancelAutoDismiss()
                     self.appState.cancelFullExpandedDismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                        self?.appState.suppressDismissScheduling = false
+
+                    // After the animation settles, re-enable dismiss and
+                    // schedule it if the user isn't hovering. The 0.8s
+                    // delay gives tracking areas time to stabilize after
+                    // the window resize.
+                    let expectedState = newState
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                        guard let self else { return }
+                        self.appState.suppressDismissScheduling = false
+
+                        // Refresh tracking areas so hover state is accurate.
+                        panel.contentView?.subviews.forEach {
+                            $0.updateTrackingAreas()
+                        }
+
+                        guard self.appState.currentState == expectedState,
+                              !self.appState.isHovering else { return }
+                        if expectedState == .expanded {
+                            self.appState.scheduleAutoDismiss()
+                        } else {
+                            self.appState.scheduleFullExpandedDismiss()
+                        }
                     }
 
                 case .compact:
