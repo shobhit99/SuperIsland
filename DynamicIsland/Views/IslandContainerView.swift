@@ -71,6 +71,10 @@ struct IslandContainerView: View {
             }
         }
         .contentShape(islandShape)
+        .onTrackpadSwipe { direction in
+            guard appState.currentState != .compact else { return }
+            handleHorizontalSwipe(direction)
+        }
         .onContinuousHover(coordinateSpace: .local) { phase in
             handleSurfaceHover(phase: phase, surfaceSize: surfaceSize)
         }
@@ -230,7 +234,9 @@ struct IslandContainerView: View {
         guard velocity > 35 || abs(horizontal) > 14 || abs(vertical) > 18 else { return }
 
         if abs(horizontal) > abs(vertical) {
-            return
+            if appState.currentState != .compact {
+                handleHorizontalSwipe(horizontal > 0 ? .right : .left)
+            }
         } else {
             if vertical < 0 {
                 if appState.currentState != .fullExpanded {
@@ -239,6 +245,14 @@ struct IslandContainerView: View {
             } else {
                 appState.dismiss()
             }
+        }
+    }
+
+    private func handleHorizontalSwipe(_ direction: SwipeDirection) {
+        if appState.currentState == .expanded && appState.activeBuiltInModule == .nowPlaying {
+            NowPlayingManager.shared.skipTrack(forward: direction == .left)
+        } else {
+            appState.cycleModule(forward: direction == .left)
         }
     }
 

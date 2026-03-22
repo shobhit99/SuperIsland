@@ -92,12 +92,12 @@ struct FullExpandedTopBarView: View {
 
     let layout: FullExpandedTopBarLayout
 
-    private let shoulderHorizontalPadding: CGFloat = 8
+    private let shoulderHorizontalPadding: CGFloat = 40
     private let shoulderTopPadding: CGFloat = 2
     private let shoulderTabSpacing: CGFloat = 8
     private let iconTabWidth: CGFloat = 36
     private let trailingControlsSlotWidth: CGFloat = 168
-    private let shoulderLeadingInset: CGFloat = 24
+    private let shoulderLeadingInset: CGFloat = 0
     private let settingsLeadingInset: CGFloat = 4
 
     var body: some View {
@@ -154,7 +154,7 @@ struct FullExpandedTopBarView: View {
             Spacer(minLength: shoulderGapWidth)
 
             trailingShoulderControls
-                .frame(width: trailingControlsSlotWidth, alignment: .leading)
+                .frame(width: trailingControlsSlotWidth, alignment: .trailing)
         }
         .frame(width: shoulderAvailableWidth, alignment: .top)
         .padding(.horizontal, shoulderHorizontalPadding)
