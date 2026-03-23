@@ -13,6 +13,14 @@ struct NotificationCompactView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white)
                     .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                if manager.recentNotifications.count > 1 {
+                    Text("\(manager.recentNotifications.count)")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
             } else {
                 Text("No notifications")
                     .font(.system(size: 11))
