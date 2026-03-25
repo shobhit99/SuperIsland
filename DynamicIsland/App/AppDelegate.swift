@@ -7,14 +7,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let linearExtensionID = "com.workview.linear-mentions"
     private static let linearOAuthStoreKey = "extensions.\(linearExtensionID).store.oauth"
     private var islandWindowController: IslandWindowController?
+    private var onboardingWindowController: OnboardingWindowController?
     private var statusItem: NSStatusItem?
+    private var didBootstrapApp = false
     private static var fallbackSettingsWindowController: NSWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         registerURLHandler()
+
+        // defaults write com.workview.DynamicIsland "debug.alwaysShowOnboarding" -bool true
+        let shouldShowOnboarding = !AppState.shared.onboardingCompleted || AppState.shared.debugAlwaysShowOnboarding
+        if shouldShowOnboarding {
+            showOnboardingIfNeeded()
+        } else {
+            bootstrapApp()
+        }
+    }
+
+    private func bootstrapApp() {
+        guard !didBootstrapApp else { return }
+        didBootstrapApp = true
         setupIslandWindow()
         setupMenuBar()
         initializeManagers()
+    }
+
+    private func showOnboardingIfNeeded() {
+        guard onboardingWindowController == nil else {
+            onboardingWindowController?.show()
+            return
+        }
+
+        onboardingWindowController = OnboardingWindowController { [weak self] in
+            self?.completeOnboarding()
+        } onOpenSettings: {
+            Self.showSettingsWindow()
+        }
+        onboardingWindowController?.show()
+    }
+
+    private func completeOnboarding() {
+        AppState.shared.onboardingCompleted = true
+        onboardingWindowController?.close()
+        onboardingWindowController = nil
+        bootstrapApp()
     }
 
     // MARK: - Manager Initialization
@@ -27,10 +63,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if state.volumeHUDEnabled { _ = VolumeManager.shared }
         if state.brightnessHUDEnabled { _ = BrightnessManager.shared }
         if state.batteryEnabled { _ = BatteryManager.shared }
-        if state.connectivityEnabled { _ = BluetoothManager.shared; _ = WiFiManager.shared }
-        if state.calendarEnabled { _ = CalendarManager.shared }
-        if state.weatherEnabled { _ = WeatherManager.shared }
-        if state.notificationsEnabled { _ = NotificationManager.shared }
+        if state.connectivityEnabled {
+            _ = WiFiManager.shared
+            if PermissionsManager.shared.check(.bluetooth) {
+                _ = BluetoothManager.shared
+            }
+        }
+        if state.calendarEnabled, PermissionsManager.shared.check(.calendar) {
+            _ = CalendarManager.shared
+        }
+        if state.weatherEnabled, PermissionsManager.shared.check(.location) {
+            _ = WeatherManager.shared
+        }
+        if state.notificationsEnabled {
+            Task { @MainActor in
+                if await PermissionsManager.shared.notificationsGranted() {
+                    _ = NotificationManager.shared
+                }
+            }
+        }
 
         let extensions = ExtensionManager.shared
         extensions.discoverExtensions()

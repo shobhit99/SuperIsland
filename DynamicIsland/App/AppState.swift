@@ -272,6 +272,8 @@ final class AppState: ObservableObject {
     @AppStorage("general.expandedAutoDismissDelay") var expandedAutoDismissDelay: Double = 1.0
     @AppStorage("general.notchHapticIntensity") var notchHapticIntensity = NotchHapticIntensity.medium.rawValue
     @AppStorage("general.lockFullExpandedInPlace") var lockFullExpandedInPlace = false
+    @AppStorage("onboarding.completed") var onboardingCompleted = false
+    @AppStorage("debug.alwaysShowOnboarding") var debugAlwaysShowOnboarding = false
 
     private var autoDismissWorkItem: DispatchWorkItem?
     private var fullExpandedDismissWorkItem: DispatchWorkItem?
