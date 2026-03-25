@@ -187,13 +187,9 @@ final class PermissionsManager {
     // MARK: - Location
 
     func checkLocation() -> Bool {
-        let status = locationPermissionManager?.authorizationStatus ?? CLLocationManager().authorizationStatus
-        switch status {
-        case .authorizedAlways, .authorizedWhenInUse:
-            return true
-        default:
-            return false
-        }
+        let manager = locationPermissionManager ?? CLLocationManager()
+        let status = manager.authorizationStatus
+        return status == .authorizedAlways || status == .authorized
     }
 
     func requestLocationAccess() {

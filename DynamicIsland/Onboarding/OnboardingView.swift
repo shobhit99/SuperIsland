@@ -57,17 +57,18 @@ final class OnboardingPermissionsViewModel: ObservableObject {
         accessibilityEverGranted = PermissionsManager.shared.checkAccessibility()
         bluetoothEverGranted = PermissionsManager.shared.checkBluetooth()
 
-        // Populate states eagerly so the first render is correct
+        // Populate states eagerly so the first render shows already-granted permissions
         var initial: [PermissionType: Bool] = [:]
         for p in PermissionType.allCases {
-            if p == .accessibility {
+            switch p {
+            case .accessibility:
                 initial[p] = accessibilityEverGranted
-            } else if p == .bluetooth {
+            case .bluetooth:
                 initial[p] = bluetoothEverGranted
-            } else if p == .notifications {
-                // async — will be filled on first refresh
+            case .notifications:
+                // Requires async — will be filled on first refresh
                 initial[p] = false
-            } else {
+            default:
                 initial[p] = PermissionsManager.shared.check(p)
             }
         }
@@ -90,19 +91,24 @@ final class OnboardingPermissionsViewModel: ObservableObject {
     func refresh() async {
         var next: [PermissionType: Bool] = [:]
         for p in PermissionType.allCases {
-            if p == .accessibility {
+            switch p {
+            case .accessibility:
+                // AXIsProcessTrusted() can be stale within the same process —
+                // once granted, latch it so it never flips back to false
                 if !accessibilityEverGranted {
                     accessibilityEverGranted = PermissionsManager.shared.checkAccessibility()
                 }
                 next[p] = accessibilityEverGranted
-            } else if p == .bluetooth {
+            case .bluetooth:
+                // CBManager.authorization can be stale similarly
                 if !bluetoothEverGranted {
                     bluetoothEverGranted = PermissionsManager.shared.checkBluetooth()
                 }
                 next[p] = bluetoothEverGranted
-            } else if p == .notifications {
+            case .notifications:
                 next[p] = await PermissionsManager.shared.notificationsGranted()
-            } else {
+            default:
+                // Calendar, location, microphone, screenRecording — always re-check
                 next[p] = PermissionsManager.shared.check(p)
             }
         }
