@@ -65,6 +65,7 @@ final class PermissionsManager {
     static let shared = PermissionsManager()
     private static let accessibilityPromptedDefaultsKey = "permissions.accessibilityPrompted"
     private var locationPermissionManager: CLLocationManager?
+    private var bluetoothTrigger: CBCentralManager?
 
     private init() {}
 
@@ -243,7 +244,15 @@ final class PermissionsManager {
     }
 
     func openBluetoothSettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Bluetooth")!
-        NSWorkspace.shared.open(url)
+        // Creating a CBCentralManager triggers the system Bluetooth permission prompt,
+        // which registers DynamicIsland in the Bluetooth privacy list.
+        if bluetoothTrigger == nil {
+            bluetoothTrigger = CBCentralManager()
+        }
+        // Give the system a moment to register the app, then open Settings
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Bluetooth")!
+            NSWorkspace.shared.open(url)
+        }
     }
 }
