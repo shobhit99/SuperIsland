@@ -464,6 +464,8 @@ private struct GesturesScreen: View {
 
             // GIF with swipe hand overlay
             ZStack {
+                Color.black
+
                 AnimatedGIFView(name: "Area")
                     .frame(width: 520, height: 252)
 
@@ -981,30 +983,69 @@ private struct HelloScriptShape: Shape {
 private struct AnimatedGIFView: NSViewRepresentable {
     let name: String
 
-    func makeNSView(context: Context) -> NSView {
-        let container = NSView()
-        container.wantsLayer = true
-        container.layer?.masksToBounds = true
-
-        let imageView = NSImageView()
-        imageView.imageScaling = .scaleAxesIndependently
-        imageView.animates = true
-        imageView.canDrawSubviewsIntoLayer = true
-
-        if let url = Bundle.main.url(forResource: name, withExtension: "gif"),
-           let image = NSImage(contentsOf: url) {
-            imageView.image = image
-        }
-
-        container.addSubview(imageView)
-        return container
+    func makeNSView(context: Context) -> AnimatedGIFNSView {
+        let view = AnimatedGIFNSView()
+        view.configure(resourceName: name)
+        return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        if let imageView = nsView.subviews.first as? NSImageView {
-            imageView.frame = nsView.bounds
-            imageView.animates = true
+    func updateNSView(_ nsView: AnimatedGIFNSView, context: Context) {
+        nsView.configure(resourceName: name)
+    }
+}
+
+private final class AnimatedGIFNSView: NSView {
+    private let imageView = NSImageView()
+    private var currentResourceName: String?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+
+        imageView.imageAlignment = .alignCenter
+        imageView.imageScaling = .scaleAxesIndependently
+        imageView.animates = true
+        imageView.autoresizingMask = [.width, .height]
+
+        addSubview(imageView)
+    }
+
+    override func layout() {
+        super.layout()
+        imageView.frame = bounds
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        restartAnimationIfNeeded()
+    }
+
+    func configure(resourceName: String) {
+        if currentResourceName != resourceName {
+            currentResourceName = resourceName
+
+            if let url = Bundle.main.url(forResource: resourceName, withExtension: "gif"),
+               let image = NSImage(contentsOf: url) {
+                imageView.image = image
+            } else {
+                imageView.image = nil
+            }
         }
+
+        restartAnimationIfNeeded()
+    }
+
+    private func restartAnimationIfNeeded() {
+        guard imageView.image != nil else { return }
+        imageView.animates = false
+        imageView.animates = true
+        imageView.needsDisplay = true
     }
 }
 
