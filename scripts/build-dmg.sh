@@ -1,6 +1,6 @@
 #!/bin/bash
 # Usage: ./scripts/build-dmg.sh
-# Creates a local (unsigned) DMG in build/ for development/testing.
+# Creates a local (unsigned) install-style DMG in build/ for development/testing.
 
 set -euo pipefail
 
@@ -10,6 +10,7 @@ BUILD_DIR="build"
 DERIVED_DATA="${BUILD_DIR}/DerivedData"
 APP_PATH="${BUILD_DIR}/${APP_NAME}.app"
 DMG_PATH="${BUILD_DIR}/${APP_NAME}.dmg"
+DMG_STAGING_DIR="${BUILD_DIR}/dmg-root"
 
 echo "==> Cleaning build directory..."
 rm -rf "${BUILD_DIR}"
@@ -35,13 +36,24 @@ if [ -z "${BUILT_APP}" ]; then
 fi
 cp -R "${BUILT_APP}" "${APP_PATH}"
 
+echo "==> Preparing DMG contents..."
+mkdir -p "${DMG_STAGING_DIR}"
+cp -R "${APP_PATH}" "${DMG_STAGING_DIR}/"
+ln -s /Applications "${DMG_STAGING_DIR}/Applications"
+
 echo "==> Creating DMG..."
 rm -f "${DMG_PATH}"
 hdiutil create -volname "${APP_NAME}" \
-  -srcfolder "${APP_PATH}" \
+  -srcfolder "${DMG_STAGING_DIR}" \
   -ov -format UDZO \
   "${DMG_PATH}"
 
 echo ""
 echo "SUCCESS: ${DMG_PATH}"
 echo "   Size: $(du -h "${DMG_PATH}" | cut -f1)"
+echo "   Open the mounted DMG, then drag ${APP_NAME}.app into Applications."
+
+if [ "${OPEN_DMG_ON_SUCCESS:-1}" = "1" ]; then
+  echo "==> Opening DMG..."
+  open "${DMG_PATH}" || true
+fi

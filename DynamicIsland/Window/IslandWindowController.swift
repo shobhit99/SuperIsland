@@ -102,7 +102,7 @@ final class IslandWindowController {
             anchorY = notch.maxY - Constants.expandedTopInset
         } else {
             anchorX = screenFrame.midX
-            anchorY = screenFrame.maxY - Constants.expandedTopInset
+            anchorY = screenFrame.maxY - Constants.noNotchTopInset
         }
 
         let x = anchorX - size.width / 2

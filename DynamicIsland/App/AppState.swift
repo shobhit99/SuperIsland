@@ -335,8 +335,6 @@ final class AppState: ObservableObject {
             cancelFullExpandedDismiss()
             return
         }
-        print("[AppState] dismiss() called from state=\(currentState)")
-        Thread.callStackSymbols.prefix(8).forEach { print("  \($0)") }
         cancelAutoDismiss()
         cancelFullExpandedDismiss()
         cancelHoverActivation()

@@ -13,6 +13,7 @@ BUILD_DIR="build"
 ARCHIVE_PATH="${BUILD_DIR}/${APP_NAME}.xcarchive"
 APP_PATH="${BUILD_DIR}/${APP_NAME}.app"
 DMG_PATH="${BUILD_DIR}/${APP_NAME}.dmg"
+DMG_STAGING_DIR="${BUILD_DIR}/dmg-root"
 ENTITLEMENTS="DynamicIsland/DynamicIsland.entitlements"
 
 # Required env vars
@@ -55,9 +56,14 @@ echo "==> Verifying signature..."
 codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
 spctl --assess --type exec --verbose "${APP_PATH}"
 
+echo "==> Preparing DMG contents..."
+mkdir -p "${DMG_STAGING_DIR}"
+cp -R "${APP_PATH}" "${DMG_STAGING_DIR}/"
+ln -s /Applications "${DMG_STAGING_DIR}/Applications"
+
 echo "==> Creating DMG..."
 hdiutil create -volname "${APP_NAME}" \
-  -srcfolder "${APP_PATH}" \
+  -srcfolder "${DMG_STAGING_DIR}" \
   -ov -format UDZO \
   "${DMG_PATH}"
 
@@ -81,3 +87,4 @@ spctl --assess --type open --context context:primary-signature --verbose "${DMG_
 echo ""
 echo "SUCCESS: ${DMG_PATH} is signed, notarized, and ready for distribution!"
 echo "   File: $(du -h "${DMG_PATH}" | cut -f1) -- ${DMG_PATH}"
+echo "   Open the mounted DMG, then drag ${APP_NAME}.app into Applications."

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 private struct MascotGridPicker: View {
@@ -88,6 +89,8 @@ struct GeneralSettingsView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var mascotManager = MascotManager.shared
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
+    @State private var permissionStates: [PermissionType: Bool] = [:]
+    private let permissionRefreshTimer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ScrollView {
@@ -169,8 +172,8 @@ struct GeneralSettingsView: View {
                         title: "Accessibility",
                         icon: "figure.stand",
                         description: "Gesture detection and system events",
-                        isGranted: PermissionsManager.shared.checkAccessibility(),
-                        action: { PermissionsManager.shared.requestAccessibility() }
+                        isGranted: permissionGranted(.accessibility),
+                        action: { requestPermission(.accessibility) }
                     )
 
                     Divider().opacity(0.2)
@@ -179,8 +182,8 @@ struct GeneralSettingsView: View {
                         title: "Calendar",
                         icon: "calendar",
                         description: "Show upcoming events in the island",
-                        isGranted: PermissionsManager.shared.checkCalendar(),
-                        action: { Task { _ = await PermissionsManager.shared.requestCalendarAccess() } }
+                        isGranted: permissionGranted(.calendar),
+                        action: { requestPermission(.calendar) }
                     )
 
                     Divider().opacity(0.2)
@@ -189,8 +192,8 @@ struct GeneralSettingsView: View {
                         title: "Location",
                         icon: "location.fill",
                         description: "Weather information for your location",
-                        isGranted: PermissionsManager.shared.checkLocation(),
-                        action: { PermissionsManager.shared.requestLocationAccess() }
+                        isGranted: permissionGranted(.location),
+                        action: { requestPermission(.location) }
                     )
 
                     Divider().opacity(0.2)
@@ -199,8 +202,8 @@ struct GeneralSettingsView: View {
                         title: "Bluetooth",
                         icon: "wave.3.right.circle.fill",
                         description: "Connected device notifications",
-                        isGranted: PermissionsManager.shared.checkBluetooth(),
-                        action: { PermissionsManager.shared.openBluetoothSettings() }
+                        isGranted: permissionGranted(.bluetooth),
+                        action: { requestPermission(.bluetooth) }
                     )
                 }
 
@@ -224,6 +227,38 @@ struct GeneralSettingsView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .scrollIndicators(.hidden)
+        .onAppear {
+            refreshPermissionStates()
+        }
+        .onReceive(permissionRefreshTimer) { _ in
+            refreshPermissionStates()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshPermissionStates()
+        }
+    }
+
+    private func permissionGranted(_ permission: PermissionType) -> Bool {
+        permissionStates[permission] ?? false
+    }
+
+    private func refreshPermissionStates() {
+        permissionStates[.accessibility] = PermissionsManager.shared.checkAccessibility()
+        permissionStates[.calendar] = PermissionsManager.shared.checkCalendar()
+        permissionStates[.location] = PermissionsManager.shared.checkLocation()
+        permissionStates[.bluetooth] = PermissionsManager.shared.checkBluetooth()
+    }
+
+    private func requestPermission(_ permission: PermissionType) {
+        PermissionsManager.shared.request(permission)
+        refreshPermissionStates()
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            refreshPermissionStates()
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            refreshPermissionStates()
+        }
     }
 }
 

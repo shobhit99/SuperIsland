@@ -62,7 +62,11 @@ enum PermissionType: CaseIterable {
 }
 
 private final class LocationDelegate: NSObject, CLLocationManagerDelegate {
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {}
+    var onAuthorizationChange: ((CLAuthorizationStatus) -> Void)?
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        onAuthorizationChange?(manager.authorizationStatus)
+    }
 }
 
 final class PermissionsManager {
@@ -198,19 +202,46 @@ final class PermissionsManager {
     // MARK: - Location
 
     func checkLocation() -> Bool {
-        let status = CLLocationManager().authorizationStatus
-        return status == .authorizedAlways || status == .authorized
+        isAuthorizedLocationStatus(locationAuthorizationStatus())
     }
 
     func requestLocationAccess() {
-        guard !checkLocation() else { return }
+        let status = locationAuthorizationStatus()
+        guard !isAuthorizedLocationStatus(status) else { return }
+
+        if status == .denied || status == .restricted {
+            openLocationSettings()
+            return
+        }
+
         if locationManager == nil {
             locationManager = CLLocationManager()
             locationManager?.delegate = locationDelegate
+            locationDelegate.onAuthorizationChange = { [weak self] status in
+                guard let self else { return }
+                if self.isAuthorizedLocationStatus(status) {
+                    self.locationManager?.requestLocation()
+                }
+            }
         }
+
+        NSApp.activate(ignoringOtherApps: true)
         locationManager?.requestWhenInUseAuthorization()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.openLocationSettings()
+    }
+
+    private func locationAuthorizationStatus() -> CLAuthorizationStatus {
+        if #available(macOS 11.0, *) {
+            return CLLocationManager.authorizationStatus()
+        }
+        return CLLocationManager().authorizationStatus
+    }
+
+    private func isAuthorizedLocationStatus(_ status: CLAuthorizationStatus) -> Bool {
+        switch status {
+        case .authorizedAlways, .authorizedWhenInUse, .authorized:
+            return true
+        default:
+            return false
         }
     }
 

@@ -83,7 +83,7 @@ final class OnboardingPermissionsViewModel: ObservableObject {
             guard let self else { return }
             while !Task.isCancelled {
                 await self.refresh()
-                try? await Task.sleep(nanoseconds: 800_000_000)
+                try? await Task.sleep(nanoseconds: 250_000_000)
             }
         }
     }
@@ -205,6 +205,11 @@ struct OnboardingView: View {
             Task {
                 await permissions.refresh()
                 permissions.startPolling()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task {
+                await permissions.refresh()
             }
         }
     }
