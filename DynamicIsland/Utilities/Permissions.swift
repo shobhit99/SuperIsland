@@ -74,6 +74,7 @@ final class PermissionsManager {
     private static let accessibilityPromptedDefaultsKey = "permissions.accessibilityPrompted"
     private var locationManager: CLLocationManager?
     private let locationDelegate = LocationDelegate()
+    private var calendarStore: EKEventStore?
     private var bluetoothTrigger: CBCentralManager?
 
     private init() {}
@@ -159,16 +160,15 @@ final class PermissionsManager {
     func requestCalendarAccess() async -> Bool {
         let status = EKEventStore.authorizationStatus(for: .event)
         if status == .notDetermined {
-            let store = EKEventStore()
-            do {
-                return try await store.requestFullAccessToEvents()
-            } catch {
-                return false
-            }
-        } else {
-            await MainActor.run { openCalendarSettings() }
-            return false
+            // Keep store alive so the system registers the app in the Calendar privacy list
+            if calendarStore == nil { calendarStore = EKEventStore() }
+            await MainActor.run { NSApp.activate(ignoringOtherApps: true) }
+            let granted = (try? await calendarStore!.requestFullAccessToEvents()) ?? false
+            if granted { return true }
         }
+        // Either denied/restricted, or the system dialog didn't appear — open Settings
+        await MainActor.run { openCalendarSettings() }
+        return false
     }
 
     // MARK: - Notifications
@@ -202,11 +202,13 @@ final class PermissionsManager {
     // MARK: - Location
 
     func checkLocation() -> Bool {
-        isAuthorizedLocationStatus(locationAuthorizationStatus())
+        ensureLocationManager()
+        return isAuthorizedLocationStatus(locationManager!.authorizationStatus)
     }
 
     func requestLocationAccess() {
-        let status = locationAuthorizationStatus()
+        ensureLocationManager()
+        let status = locationManager!.authorizationStatus
         guard !isAuthorizedLocationStatus(status) else { return }
 
         if status == .denied || status == .restricted {
@@ -214,26 +216,29 @@ final class PermissionsManager {
             return
         }
 
-        if locationManager == nil {
-            locationManager = CLLocationManager()
-            locationManager?.delegate = locationDelegate
-            locationDelegate.onAuthorizationChange = { [weak self] status in
-                guard let self else { return }
-                if self.isAuthorizedLocationStatus(status) {
-                    self.locationManager?.requestLocation()
-                }
-            }
-        }
-
+        // .notDetermined — request authorization, then open Settings as fallback
         NSApp.activate(ignoringOtherApps: true)
         locationManager?.requestWhenInUseAuthorization()
+
+        // If the system dialog doesn't appear (LSUIElement quirk), open Settings
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self, let mgr = self.locationManager else { return }
+            if mgr.authorizationStatus == .notDetermined {
+                self.openLocationSettings()
+            }
+        }
     }
 
-    private func locationAuthorizationStatus() -> CLAuthorizationStatus {
-        if #available(macOS 11.0, *) {
-            return CLLocationManager.authorizationStatus()
+    private func ensureLocationManager() {
+        guard locationManager == nil else { return }
+        locationManager = CLLocationManager()
+        locationManager?.delegate = locationDelegate
+        locationDelegate.onAuthorizationChange = { [weak self] status in
+            guard let self else { return }
+            if self.isAuthorizedLocationStatus(status) {
+                self.locationManager?.requestLocation()
+            }
         }
-        return CLLocationManager().authorizationStatus
     }
 
     private func isAuthorizedLocationStatus(_ status: CLAuthorizationStatus) -> Bool {

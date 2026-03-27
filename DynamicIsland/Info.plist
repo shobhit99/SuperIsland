@@ -33,7 +33,7 @@
     <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
     <key>LSUIElement</key>
     <true/>
-    <key>NSCalendarsUsageDescription</key>
+    <key>NSCalendarsFullAccessUsageDescription</key>
     <string>DynamicIsland needs calendar access to show upcoming events.</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>DynamicIsland needs Bluetooth access to show connected device notifications.</string>
