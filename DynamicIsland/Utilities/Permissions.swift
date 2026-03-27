@@ -61,10 +61,15 @@ enum PermissionType: CaseIterable {
     }
 }
 
+private final class LocationDelegate: NSObject, CLLocationManagerDelegate {
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {}
+}
+
 final class PermissionsManager {
     static let shared = PermissionsManager()
     private static let accessibilityPromptedDefaultsKey = "permissions.accessibilityPrompted"
-    private var locationPermissionManager: CLLocationManager?
+    private var locationManager: CLLocationManager?
+    private let locationDelegate = LocationDelegate()
     private var bluetoothTrigger: CBCentralManager?
 
     private init() {}
@@ -187,17 +192,20 @@ final class PermissionsManager {
     // MARK: - Location
 
     func checkLocation() -> Bool {
-        let manager = locationPermissionManager ?? CLLocationManager()
-        let status = manager.authorizationStatus
+        let status = CLLocationManager().authorizationStatus
         return status == .authorizedAlways || status == .authorized
     }
 
     func requestLocationAccess() {
         guard !checkLocation() else { return }
-        if locationPermissionManager == nil {
-            locationPermissionManager = CLLocationManager()
+        if locationManager == nil {
+            locationManager = CLLocationManager()
+            locationManager?.delegate = locationDelegate
         }
-        locationPermissionManager?.requestWhenInUseAuthorization()
+        locationManager?.requestWhenInUseAuthorization()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.openLocationSettings()
+        }
     }
 
     // MARK: - Bluetooth

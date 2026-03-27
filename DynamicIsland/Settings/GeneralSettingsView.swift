@@ -165,19 +165,43 @@ struct GeneralSettingsView: View {
                     title: "Permissions",
                     subtitle: "System permissions required for full functionality."
                 ) {
-                    HStack {
-                        Text("Accessibility")
-                        Spacer()
-                        if PermissionsManager.shared.checkAccessibility() {
-                            Label("Granted", systemImage: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                        } else {
-                            Button("Grant Access") {
-                                PermissionsManager.shared.requestAccessibility()
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                    }
+                    SettingsPermissionRow(
+                        title: "Accessibility",
+                        icon: "figure.stand",
+                        description: "Gesture detection and system events",
+                        isGranted: PermissionsManager.shared.checkAccessibility(),
+                        action: { PermissionsManager.shared.requestAccessibility() }
+                    )
+
+                    Divider().opacity(0.2)
+
+                    SettingsPermissionRow(
+                        title: "Calendar",
+                        icon: "calendar",
+                        description: "Show upcoming events in the island",
+                        isGranted: PermissionsManager.shared.checkCalendar(),
+                        action: { Task { _ = await PermissionsManager.shared.requestCalendarAccess() } }
+                    )
+
+                    Divider().opacity(0.2)
+
+                    SettingsPermissionRow(
+                        title: "Location",
+                        icon: "location.fill",
+                        description: "Weather information for your location",
+                        isGranted: PermissionsManager.shared.checkLocation(),
+                        action: { PermissionsManager.shared.requestLocationAccess() }
+                    )
+
+                    Divider().opacity(0.2)
+
+                    SettingsPermissionRow(
+                        title: "Bluetooth",
+                        icon: "wave.3.right.circle.fill",
+                        description: "Connected device notifications",
+                        isGranted: PermissionsManager.shared.checkBluetooth(),
+                        action: { PermissionsManager.shared.openBluetoothSettings() }
+                    )
                 }
 
                 SettingsCard(
@@ -200,5 +224,42 @@ struct GeneralSettingsView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .scrollIndicators(.hidden)
+    }
+}
+
+private struct SettingsPermissionRow: View {
+    let title: String
+    let icon: String
+    let description: String
+    let isGranted: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(isGranted ? .green : .secondary)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                Text(description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            if isGranted {
+                Label("Granted", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.green)
+            } else {
+                Button("Grant Access", action: action)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        }
     }
 }
