@@ -153,10 +153,16 @@ final class PermissionsManager {
     }
 
     func requestCalendarAccess() async -> Bool {
-        let store = EKEventStore()
-        do {
-            return try await store.requestFullAccessToEvents()
-        } catch {
+        let status = EKEventStore.authorizationStatus(for: .event)
+        if status == .notDetermined {
+            let store = EKEventStore()
+            do {
+                return try await store.requestFullAccessToEvents()
+            } catch {
+                return false
+            }
+        } else {
+            await MainActor.run { openCalendarSettings() }
             return false
         }
     }
