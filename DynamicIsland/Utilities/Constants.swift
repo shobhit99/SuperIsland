@@ -23,7 +23,6 @@ enum Constants {
     static let compactMinimalHorizontalPadding: CGFloat = 14
     static let compactMinimalSafeSideMargin: CGFloat = 24
     static let expandedTopInset: CGFloat = 0
-    static let noNotchTopInset: CGFloat = 8
     static let compactCornerRadius: CGFloat = 18
     static let expandedCornerRadius: CGFloat = 22
     static let fullExpandedCornerRadius: CGFloat = 40
