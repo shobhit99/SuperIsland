@@ -31,8 +31,11 @@ targets:
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
         COMBINE_HIDPI_IMAGES: true
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
         ENABLE_HARDENED_RUNTIME: true
     entitlements:
       path: DynamicIsland/DynamicIsland.entitlements
+      properties:
+        com.apple.security.personal-information.calendars: true
+        com.apple.security.automation.apple-events: true

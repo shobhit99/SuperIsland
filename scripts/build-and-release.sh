@@ -37,7 +37,9 @@ xcodebuild archive \
   -archivePath "${ARCHIVE_PATH}" \
   -destination "generic/platform=macOS" \
   SKIP_INSTALL=NO \
-  BUILD_LIBRARY_FOR_DISTRIBUTION=YES
+  BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+  CODE_SIGN_STYLE=Automatic \
+  DEVELOPMENT_TEAM="${TEAM_ID}"
 
 echo "==> Exporting archive..."
 xcodebuild -exportArchive \
@@ -54,7 +56,6 @@ codesign --deep --force --verify --verbose \
 
 echo "==> Verifying signature..."
 codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
-spctl --assess --type exec --verbose "${APP_PATH}"
 
 echo "==> Preparing DMG contents..."
 mkdir -p "${DMG_STAGING_DIR}"

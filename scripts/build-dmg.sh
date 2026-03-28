@@ -36,6 +36,22 @@ if [ -z "${BUILT_APP}" ]; then
 fi
 cp -R "${BUILT_APP}" "${APP_PATH}"
 
+echo "==> Code signing for local testing..."
+# An unsigned app can't register with TCC (Calendar, Location, etc. won't appear in System Settings).
+# Sign with any available development or Developer ID certificate if one exists.
+CERT=$(security find-identity -v -p codesigning 2>/dev/null \
+  | grep -E "Apple Development|Developer ID Application" \
+  | head -1 \
+  | awk -F'"' '{print $2}')
+if [ -n "${CERT}" ]; then
+  codesign --deep --force --sign "${CERT}" \
+    --entitlements "DynamicIsland/DynamicIsland.entitlements" \
+    "${APP_PATH}"
+  echo "   Signed with: ${CERT}"
+else
+  echo "   Warning: no signing certificate found — TCC permissions (Calendar, etc.) won't register."
+fi
+
 echo "==> Preparing DMG contents..."
 mkdir -p "${DMG_STAGING_DIR}"
 cp -R "${APP_PATH}" "${DMG_STAGING_DIR}/"

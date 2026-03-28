@@ -109,7 +109,7 @@ final class PermissionsManager {
         case .screenRecording:
             _ = requestScreenRecordingAccess()
         case .calendar:
-            Task { _ = await requestCalendarAccess() }
+            Task { @MainActor in _ = await requestCalendarAccess() }
         case .notifications:
             Task { _ = await requestNotificationAccess() }
         case .microphone:
@@ -124,7 +124,8 @@ final class PermissionsManager {
     // MARK: - Accessibility
 
     func checkAccessibility() -> Bool {
-        AXIsProcessTrusted()
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary
+        return AXIsProcessTrustedWithOptions(options)
     }
 
     func requestAccessibility() {
@@ -157,26 +158,22 @@ final class PermissionsManager {
         }
     }
 
-    func requestCalendarAccess() async -> Bool {
+    @MainActor func requestCalendarAccess() async -> Bool {
         if calendarStore == nil { calendarStore = EKEventStore() }
-        let status = EKEventStore.authorizationStatus(for: .event)
 
-        if status == .notDetermined {
-            await MainActor.run { NSApp.activate(ignoringOtherApps: true) }
-            // Try the new API (requires proper code signing for TCC dialog)
-            if let granted = try? await calendarStore!.requestFullAccessToEvents(), granted {
-                return true
-            }
-            // Fallback: deprecated API still registers the app in TCC for ad-hoc signed builds
-            let registered = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-                self.calendarStore!.requestAccess(to: .event) { granted, _ in
-                    cont.resume(returning: granted)
-                }
-            }
-            if registered { return true }
+        await MainActor.run { NSApp.activate(ignoringOtherApps: true) }
+
+        // Call unconditionally — the API handles all states internally:
+        // .notDetermined  → shows TCC dialog
+        // .fullAccess     → returns true immediately (already granted)
+        // .denied         → throws (caught by try?, falls through to Settings)
+        // On macOS 15 the default pre-request status may not be .notDetermined,
+        // so checking status first would skip the dialog entirely.
+        if let granted = try? await calendarStore!.requestFullAccessToEvents(), granted {
+            return true
         }
 
-        // Open Settings so user can toggle Full Access manually
+        // Open System Settings so the user can grant Full Access manually.
         await MainActor.run { openCalendarSettings() }
         return false
     }

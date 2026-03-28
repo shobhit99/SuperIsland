@@ -33,6 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showOnboardingIfNeeded() {
+        setupMenuBar()
+
         guard onboardingWindowController == nil else {
             onboardingWindowController?.show()
             return
