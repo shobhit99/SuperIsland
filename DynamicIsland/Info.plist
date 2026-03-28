@@ -35,6 +35,8 @@
     <true/>
     <key>NSCalendarsFullAccessUsageDescription</key>
     <string>DynamicIsland needs calendar access to show upcoming events.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>DynamicIsland needs calendar access to show upcoming events.</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>DynamicIsland needs Bluetooth access to show connected device notifications.</string>
     <key>NSLocationWhenInUseUsageDescription</key>

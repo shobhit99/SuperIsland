@@ -158,15 +158,25 @@ final class PermissionsManager {
     }
 
     func requestCalendarAccess() async -> Bool {
+        if calendarStore == nil { calendarStore = EKEventStore() }
         let status = EKEventStore.authorizationStatus(for: .event)
+
         if status == .notDetermined {
-            // Keep store alive so the system registers the app in the Calendar privacy list
-            if calendarStore == nil { calendarStore = EKEventStore() }
             await MainActor.run { NSApp.activate(ignoringOtherApps: true) }
-            let granted = (try? await calendarStore!.requestFullAccessToEvents()) ?? false
-            if granted { return true }
+            // Try the new API (requires proper code signing for TCC dialog)
+            if let granted = try? await calendarStore!.requestFullAccessToEvents(), granted {
+                return true
+            }
+            // Fallback: deprecated API still registers the app in TCC for ad-hoc signed builds
+            let registered = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                self.calendarStore!.requestAccess(to: .event) { granted, _ in
+                    cont.resume(returning: granted)
+                }
+            }
+            if registered { return true }
         }
-        // Either denied/restricted, or the system dialog didn't appear — open Settings
+
+        // Open Settings so user can toggle Full Access manually
         await MainActor.run { openCalendarSettings() }
         return false
     }
