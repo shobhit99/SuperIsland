@@ -35,6 +35,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showOnboardingIfNeeded() {
         setupMenuBar()
 
+        // LSUIElement apps can't reliably bring windows to the front.
+        // Temporarily become a regular app so the onboarding window appears.
+        NSApp.setActivationPolicy(.regular)
+
         guard onboardingWindowController == nil else {
             onboardingWindowController?.show()
             return
@@ -52,6 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppState.shared.onboardingCompleted = true
         onboardingWindowController?.close()
         onboardingWindowController = nil
+
+        // Revert to agent app (no dock icon) now that onboarding is done.
+        NSApp.setActivationPolicy(.accessory)
         bootstrapApp()
     }
 
