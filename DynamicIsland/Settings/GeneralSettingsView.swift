@@ -90,7 +90,7 @@ struct GeneralSettingsView: View {
     @ObservedObject private var mascotManager = MascotManager.shared
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
     @State private var permissionStates: [PermissionType: Bool] = [:]
-    private let permissionRefreshTimer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
+    private let permissionRefreshTimer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ScrollView {

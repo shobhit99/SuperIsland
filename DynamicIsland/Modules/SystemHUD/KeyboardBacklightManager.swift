@@ -63,7 +63,7 @@ final class KeyboardBacklightManager: ObservableObject {
     // MARK: - Polling
 
     private func startPolling() {
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.updateBrightness()
         }
     }

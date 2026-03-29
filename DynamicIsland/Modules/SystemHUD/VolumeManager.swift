@@ -31,6 +31,7 @@ final class VolumeManager: ObservableObject {
     private var muteListenerBlock: AudioObjectPropertyListenerBlock?
     private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
     private var mediaPollTimer: Timer?
+    private let appleScriptQueue = DispatchQueue(label: "com.workview.applescript", qos: .utility)
 
     private init() {
         setupDefaultDevice()
@@ -38,7 +39,6 @@ final class VolumeManager: ObservableObject {
         updateMuteState()
         updateDeviceName()
         startMonitoring()
-        refreshMediaAppVolumes()
         startMediaMonitoring()
     }
 
@@ -133,9 +133,7 @@ final class VolumeManager: ObservableObject {
     private func startMediaMonitoring() {
         mediaPollTimer?.invalidate()
         mediaPollTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.refreshMediaAppVolumes()
-            }
+            self?.refreshMediaAppVolumes()
         }
     }
 
@@ -228,36 +226,43 @@ final class VolumeManager: ObservableObject {
     // MARK: - Media App Volume
 
     func refreshMediaAppVolumes() {
-        var apps: [MediaAppVolume] = []
-        if let spotify = fetchMusicAppVolume(
-            appID: "spotify",
-            appName: "Spotify",
-            bundleIdentifier: "com.spotify.client",
-            processName: "Spotify",
-            scriptAppName: "Spotify",
-            iconName: "music.note.list"
-        ) {
-            apps.append(spotify)
-        }
-        if let music = fetchMusicAppVolume(
-            appID: "apple-music",
-            appName: "Apple Music",
-            bundleIdentifier: "com.apple.Music",
-            processName: "Music",
-            scriptAppName: "Music",
-            iconName: "music.note"
-        ) {
-            apps.append(music)
-        }
-        if let chrome = fetchChromeMediaVolume() {
-            apps.append(chrome)
-        }
-
-        mediaAppVolumes = apps.sorted { lhs, rhs in
-            if lhs.isPlaying != rhs.isPlaying {
-                return lhs.isPlaying && !rhs.isPlaying
+        appleScriptQueue.async { [weak self] in
+            guard let self else { return }
+            var apps: [MediaAppVolume] = []
+            if let spotify = self.fetchMusicAppVolume(
+                appID: "spotify",
+                appName: "Spotify",
+                bundleIdentifier: "com.spotify.client",
+                processName: "Spotify",
+                scriptAppName: "Spotify",
+                iconName: "music.note.list"
+            ) {
+                apps.append(spotify)
             }
-            return lhs.appName < rhs.appName
+            if let music = self.fetchMusicAppVolume(
+                appID: "apple-music",
+                appName: "Apple Music",
+                bundleIdentifier: "com.apple.Music",
+                processName: "Music",
+                scriptAppName: "Music",
+                iconName: "music.note"
+            ) {
+                apps.append(music)
+            }
+            if let chrome = self.fetchChromeMediaVolume() {
+                apps.append(chrome)
+            }
+
+            let sorted = apps.sorted { lhs, rhs in
+                if lhs.isPlaying != rhs.isPlaying {
+                    return lhs.isPlaying && !rhs.isPlaying
+                }
+                return lhs.appName < rhs.appName
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                self?.mediaAppVolumes = sorted
+            }
         }
     }
 
@@ -280,7 +285,7 @@ final class VolumeManager: ObservableObject {
         }
     }
 
-    private func fetchMusicAppVolume(
+    nonisolated private func fetchMusicAppVolume(
         appID: String,
         appName: String,
         bundleIdentifier: String,
@@ -327,10 +332,12 @@ final class VolumeManager: ObservableObject {
             set sound volume to \(target)
         end tell
         """
-        _ = runAppleScript(script)
+        appleScriptQueue.async { [weak self] in
+            _ = self?.runAppleScript(script)
+        }
     }
 
-    private func fetchChromeMediaVolume() -> MediaAppVolume? {
+    nonisolated private func fetchChromeMediaVolume() -> MediaAppVolume? {
         let script = """
         tell application "System Events"
             if not (exists process "Google Chrome") then return "NOT_RUNNING"
@@ -407,10 +414,12 @@ final class VolumeManager: ObservableObject {
             end repeat
         end tell
         """
-        _ = runAppleScript(script)
+        appleScriptQueue.async { [weak self] in
+            _ = self?.runAppleScript(script)
+        }
     }
 
-    private func runAppleScript(_ source: String) -> String? {
+    nonisolated private func runAppleScript(_ source: String) -> String? {
         var error: NSDictionary?
         guard let script = NSAppleScript(source: source) else { return nil }
         let result = script.executeAndReturnError(&error)

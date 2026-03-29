@@ -52,7 +52,7 @@ final class BrightnessManager: ObservableObject {
     // MARK: - Polling (IOKit doesn't have a great notification mechanism for brightness)
 
     private func startPolling() {
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.updateBrightness()
         }
     }

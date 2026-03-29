@@ -7,7 +7,7 @@ struct IslandContainerView: View {
     @State private var isHoveringNextButton = false
     @State private var isShelfDropTargeted = false
     @State private var shelfDragEndWorkItem: DispatchWorkItem?
-    private let hoverValidationTimer = Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()
+    private let hoverValidationTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
         // No GeometryReader — just like NotchDrop. The surface sizes
