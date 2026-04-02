@@ -822,8 +822,14 @@ final class AppState: ObservableObject {
         case .compact:
             return contentSize
         case .expanded, .fullExpanded:
+            // On non-notch Macs the outward arch insets walls by the top
+            // corner radius — widen the surface so the inner wall-to-wall
+            // width matches the content frame.
+            let archWidthBoost: CGFloat = usesOutwardTopCorners && !presentationHasNotch
+                ? topCornerRadius(for: state) * 2
+                : 0
             return CGSize(
-                width: contentSize.width,
+                width: contentSize.width + archWidthBoost,
                 height: contentSize.height + contentTopInset(for: state)
             )
         }
@@ -847,7 +853,13 @@ final class AppState: ObservableObject {
         case .expanded:
             return Constants.expandedSize
         case .fullExpanded:
-            return Constants.fullExpandedSize
+            let base = Constants.fullExpandedSize
+            // On non-notch Macs the toolbar is inline (no shoulder area),
+            // so it eats into content height. Add space for it.
+            if usesOutwardTopCorners && !presentationHasNotch {
+                return CGSize(width: base.width, height: base.height + 40)
+            }
+            return base
         }
     }
 
@@ -1051,6 +1063,17 @@ final class AppState: ObservableObject {
             return 0
         }
         return notch.height + Constants.expandedNotchHeightBoost
+    }
+
+    private func topCornerRadius(for state: IslandState) -> CGFloat {
+        switch state {
+        case .compact:
+            return compactIslandMetrics?.bottomCornerRadius ?? Constants.compactCornerRadius
+        case .expanded:
+            return Constants.expandedCornerRadius
+        case .fullExpanded:
+            return Constants.fullExpandedCornerRadius
+        }
     }
 
     private func shouldUseSquaredTopCorners(for state: IslandState) -> Bool {
