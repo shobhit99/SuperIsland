@@ -95,6 +95,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let extensions = ExtensionManager.shared
         extensions.discoverExtensions()
         extensions.activateDiscoveredExtensions()
+
+        UpdateChecker.shared.checkIfDue()
     }
 
     private func registerURLHandler() {
