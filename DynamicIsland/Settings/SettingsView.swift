@@ -2,215 +2,291 @@ import SwiftUI
 import AppKit
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general
-    case modules
-    case appearance
-    case extensions
-    case advanced
-
+    case general, modules, appearance, extensions, advanced
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .general: return "General"
-        case .modules: return "Modules"
-        case .appearance: return "Appearance"
-        case .extensions: return "Extensions"
-        case .advanced: return "Advanced"
+        case .general:    "General"
+        case .modules:    "Modules"
+        case .appearance: "Appearance"
+        case .extensions: "Extensions"
+        case .advanced:   "Advanced"
         }
     }
 
     var icon: String {
         switch self {
-        case .general: return "gear"
-        case .modules: return "square.grid.2x2"
-        case .appearance: return "paintbrush"
-        case .extensions: return "puzzlepiece.extension"
-        case .advanced: return "wrench.and.screwdriver"
+        case .general:    "gear"
+        case .modules:    "square.grid.2x2"
+        case .appearance: "paintbrush"
+        case .extensions: "puzzlepiece.extension"
+        case .advanced:   "wrench.and.screwdriver"
         }
     }
 }
 
+// MARK: - Theme Colors
+private let settingsBg    = Color(white: 0.110)   // #1C1C1C — window background
+private let settingsCard  = Color(white: 0.163)   // #2A2A2A — card background
+private let settingsSel   = Color(white: 0.200)   // #333333 — sidebar selected
+private let settingsBorder = Color(white: 1.0, opacity: 0.08)
+private let settingsDivider = Color(white: 1.0, opacity: 0.10)
+
 struct SettingsView: View {
-    @Environment(\.colorScheme) private var colorScheme
     @State private var selectedPane: SettingsPane = .general
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-
-            VStack(spacing: 0) {
-                topNavigation
-
-                Divider()
-                    .opacity(0.35)
-
-                detailPane
-            }
+        HStack(spacing: 0) {
+            sidebar
+            Rectangle()
+                .fill(settingsDivider)
+                .frame(width: 1)
+            contentArea
         }
-        .padding(.horizontal, 2)
-        .padding(.bottom, 2)
-        .padding(.top, 0)
-        .frame(minWidth: 820, idealWidth: 900, minHeight: 560, idealHeight: 620)
+        .frame(minWidth: 800, idealWidth: 960, minHeight: 560, idealHeight: 680)
+        .background(settingsBg)
+        .preferredColorScheme(.dark)
     }
 
-    private var topNavigation: some View {
-        ZStack {
-            HStack(spacing: 6) {
-                ForEach(SettingsPane.allCases) { pane in
-                    topPaneButton(for: pane)
-                }
-            }
-            .padding(.horizontal, 4)
-            .padding(.vertical, 4)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.75))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
-            )
-            .frame(maxWidth: .infinity, alignment: .center)
+    // MARK: - Sidebar
 
-            HStack {
-                Spacer(minLength: 0)
-                quitButton
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(SettingsPane.allCases) { pane in
+                sidebarRow(pane)
             }
+            Spacer()
+            quitRow
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.vertical, 12)
+        .frame(width: 200)
+        .background(settingsBg)
     }
 
-    private var detailPane: some View {
-        GeometryReader { proxy in
-            if selectedPane == .extensions {
-                detailContent
-                    .padding(12)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            } else {
-                HStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    detailContent
-                        .frame(width: max(560, proxy.size.width * 0.75), alignment: .topLeading)
-                    Spacer(minLength: 0)
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func topPaneButton(for pane: SettingsPane) -> some View {
+    private func sidebarRow(_ pane: SettingsPane) -> some View {
         let isSelected = selectedPane == pane
         return Button {
             selectedPane = pane
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 9) {
                 Image(systemName: pane.icon)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 13))
+                    .foregroundColor(isSelected ? .primary : .secondary)
+                    .frame(width: 18, alignment: .center)
                 Text(pane.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 13, weight: isSelected ? .medium : .regular))
+                    .foregroundColor(isSelected ? .primary : .secondary)
+                Spacer()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? selectedPaneFillColor : Color.clear)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? settingsSel : Color.clear)
             )
-            .foregroundColor(isSelected ? .white : .primary)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? selectedPaneStrokeColor : Color.clear, lineWidth: 1)
-            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
-    private var selectedPaneFillColor: Color {
-        colorScheme == .light
-            ? Color(nsColor: .selectedContentBackgroundColor)
-            : .accentColor
-    }
-
-    private var selectedPaneStrokeColor: Color {
-        colorScheme == .light
-            ? Color(nsColor: .selectedControlColor).opacity(0.42)
-            : Color.white.opacity(0.18)
-    }
-
-    private var quitButton: some View {
+    private var quitRow: some View {
         Button {
             NSApp.terminate(nil)
         } label: {
-            Label("Quit App", systemImage: "power")
-                .font(.system(size: 12, weight: .semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.78))
-                )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(Color.primary.opacity(0.10), lineWidth: 1)
-                )
+            HStack(spacing: 9) {
+                Image(systemName: "power")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                    .frame(width: 18, alignment: .center)
+                Text("Quit")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Content Area
+
+    private var contentArea: some View {
+        Group {
+            if selectedPane == .extensions {
+                detailContent
+                    .padding(16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                ScrollView {
+                    detailContent
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 20)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .scrollIndicators(.hidden)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
     }
 
     @ViewBuilder
     private var detailContent: some View {
         switch selectedPane {
-        case .general:
-            GeneralSettingsView()
-        case .modules:
-            ModuleSettingsView()
-        case .appearance:
-            AppearanceSettingsView()
-        case .extensions:
-            ExtensionsSettingsView()
-        case .advanced:
-            AdvancedSettingsView()
+        case .general:    GeneralSettingsView()
+        case .modules:    ModuleSettingsView()
+        case .appearance: AppearanceSettingsView()
+        case .extensions: ExtensionsSettingsView()
+        case .advanced:   AdvancedSettingsView()
         }
     }
 }
 
+// MARK: - Shared Components
+
+struct SettingSectionLabel: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 11))
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct SettingGroup<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            content
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(settingsCard)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(settingsBorder, lineWidth: 1)
+        )
+    }
+}
+
+struct SettingRowDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(settingsDivider)
+            .frame(height: 0.5)
+            .padding(.leading, 16)
+    }
+}
+
+struct SettingToggleRow: View {
+    let title: String
+    var description: String? = nil
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(alignment: description != nil ? .top : .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13))
+                if let desc = description {
+                    Text(desc)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            Toggle("", isOn: $isOn).labelsHidden()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+    }
+}
+
+struct StepperField: View {
+    @Binding var value: Double
+    let step: Double
+    let range: ClosedRange<Double>
+    let label: (Double) -> String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button {
+                value = max(range.lowerBound, value - step)
+            } label: {
+                Image(systemName: "minus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(value <= range.lowerBound)
+
+            Text(label(value))
+                .font(.system(size: 12, design: .monospaced))
+                .frame(minWidth: 44, alignment: .center)
+
+            Button {
+                value = min(range.upperBound, value + step)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(value >= range.upperBound)
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color(white: 1, opacity: 0.22), lineWidth: 1)
+        )
+    }
+}
+
+// Backward-compat wrapper used by ExtensionsSettingsView
 struct SettingsCard<Content: View>: View {
     let title: String
     var subtitle: String? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline.weight(.semibold))
-
-            if let subtitle {
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
             }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+
+            Rectangle()
+                .fill(settingsDivider)
+                .frame(height: 0.5)
 
             content
+                .padding(12)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.86))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(settingsCard)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.primary.opacity(0.09), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(settingsBorder, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.12), radius: 5, x: 0, y: 2)
     }
 }

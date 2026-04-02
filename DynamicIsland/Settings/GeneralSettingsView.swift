@@ -93,149 +93,166 @@ struct GeneralSettingsView: View {
     private let permissionRefreshTimer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                SettingsCard(
-                    title: "Startup",
-                    subtitle: "Control launch behavior and menu bar visibility."
-                ) {
-                    Toggle("Launch at login", isOn: $launchAtLogin)
+        VStack(alignment: .leading, spacing: 16) {
+
+            // Startup
+            SettingSectionLabel(title: "Startup")
+            SettingGroup {
+                HStack {
+                    Text("Launch at login").font(.system(size: 13))
+                    Spacer()
+                    Toggle("", isOn: $launchAtLogin)
+                        .labelsHidden()
                         .onChange(of: launchAtLogin) { _, newValue in
-                            if newValue {
-                                LaunchAtLogin.enable()
-                            } else {
-                                LaunchAtLogin.disable()
-                            }
+                            newValue ? LaunchAtLogin.enable() : LaunchAtLogin.disable()
                         }
-
-                    Divider().opacity(0.2)
-                    Toggle("Show menu bar icon", isOn: $appState.showMenuBarIcon)
-
-                    Divider().opacity(0.2)
-                    Toggle("Show in screen recordings", isOn: $appState.showInScreenRecordings)
                 }
+                .padding(.horizontal, 16).padding(.vertical, 11)
 
-                SettingsCard(
-                    title: "Display",
-                    subtitle: "Tune how Dynamic Island appears and animates."
-                ) {
-                    Toggle("Show on all Spaces", isOn: $appState.showOnAllSpaces)
+                SettingRowDivider()
+                SettingToggleRow(title: "Show menu bar icon", isOn: $appState.showMenuBarIcon)
+                SettingRowDivider()
+                SettingToggleRow(title: "Show in screen recordings", isOn: $appState.showInScreenRecordings)
+            }
 
-                    Divider().opacity(0.2)
-                    Picker("Animation speed", selection: $appState.animationSpeed) {
+            // Display
+            SettingSectionLabel(title: "Display")
+            SettingGroup {
+                SettingToggleRow(title: "Show on all Spaces", isOn: $appState.showOnAllSpaces)
+                SettingRowDivider()
+                HStack {
+                    Text("Animation speed").font(.system(size: 13))
+                    Spacer()
+                    Picker("", selection: $appState.animationSpeed) {
                         Text("Normal").tag(1.0)
                         Text("Reduced").tag(1.5)
                         Text("Minimal").tag(2.0)
                     }
                     .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(width: 120)
                 }
-
-                SettingsCard(
-                    title: "Behavior",
-                    subtitle: "Adjust how long expanded content remains visible."
-                ) {
-                    HStack {
-                        Text("Expanded collapse delay")
-                        Slider(value: $appState.expandedAutoDismissDelay, in: 0.5...10.0, step: 0.5)
-                        Text("\(appState.expandedAutoDismissDelay, specifier: "%.1f")s")
-                            .frame(width: 44)
-                            .monospacedDigit()
-                    }
-                }
-
-                SettingsCard(
-                    title: "Interaction",
-                    subtitle: "Tune pointer feedback when entering the notch."
-                ) {
-                    HStack {
-                        Text("Notch haptic intensity")
-                        Spacer()
-                        Picker("", selection: $appState.notchHapticIntensity) {
-                            ForEach(NotchHapticIntensity.allCases) { intensity in
-                                Text(intensity.title).tag(intensity.rawValue)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(width: 140)
-                    }
-
-                    Text("Higher levels use a stronger multi-pulse haptic when the pointer enters the notch.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                SettingsCard(
-                    title: "Permissions",
-                    subtitle: "System permissions required for full functionality."
-                ) {
-                    SettingsPermissionRow(
-                        title: "Accessibility",
-                        icon: "figure.stand",
-                        description: "Gesture detection and system events",
-                        isGranted: permissionGranted(.accessibility),
-                        action: { requestPermission(.accessibility) }
-                    )
-
-                    Divider().opacity(0.2)
-
-                    SettingsPermissionRow(
-                        title: "Calendar",
-                        icon: "calendar",
-                        description: "Show upcoming events in the island",
-                        isGranted: permissionGranted(.calendar),
-                        action: { requestPermission(.calendar) }
-                    )
-
-                    Divider().opacity(0.2)
-
-                    SettingsPermissionRow(
-                        title: "Location",
-                        icon: "location.fill",
-                        description: "Weather information for your location",
-                        isGranted: permissionGranted(.location),
-                        action: { requestPermission(.location) }
-                    )
-
-                    Divider().opacity(0.2)
-
-                    SettingsPermissionRow(
-                        title: "Bluetooth",
-                        icon: "wave.3.right.circle.fill",
-                        description: "Connected device notifications",
-                        isGranted: permissionGranted(.bluetooth),
-                        action: { requestPermission(.bluetooth) }
-                    )
-                }
-
-                SettingsCard(
-                    title: "Mascot",
-                    subtitle: "Choose an animated mascot companion from masko.ai."
-                ) {
-                    MascotGridPicker()
-
-                    if let loadError = mascotManager.loadError {
-                        Divider().opacity(0.2)
-                        Text(loadError)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Divider().opacity(0.2)
-                    Toggle("Show mascot in Pomodoro", isOn: $mascotManager.showInPomodoro)
-                }
+                .padding(.horizontal, 16).padding(.vertical, 11)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            // Behavior
+            SettingSectionLabel(title: "Behavior")
+            SettingGroup {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Expanded collapse delay").font(.system(size: 13))
+                        Text("How long expanded content stays visible")
+                            .font(.system(size: 11)).foregroundColor(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    StepperField(
+                        value: $appState.expandedAutoDismissDelay,
+                        step: 0.5,
+                        range: 0.5...10.0
+                    ) { "\(String(format: "%.1f", $0))s" }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+            }
+
+            // Interaction
+            SettingSectionLabel(title: "Interaction")
+            SettingGroup {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Notch haptic intensity").font(.system(size: 13))
+                        Text("Feedback strength when entering the notch")
+                            .font(.system(size: 11)).foregroundColor(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    Picker("", selection: $appState.notchHapticIntensity) {
+                        ForEach(NotchHapticIntensity.allCases) { intensity in
+                            Text(intensity.title).tag(intensity.rawValue)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(width: 120)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+            }
+
+            // Permissions
+            SettingSectionLabel(title: "Permissions")
+            SettingGroup {
+                permissionRow(.accessibility,
+                    title: "Accessibility", icon: "figure.stand",
+                    description: "Gesture detection and system events")
+                SettingRowDivider()
+                permissionRow(.calendar,
+                    title: "Calendar", icon: "calendar",
+                    description: "Show upcoming events in the island")
+                SettingRowDivider()
+                permissionRow(.location,
+                    title: "Location", icon: "location.fill",
+                    description: "Weather information for your location")
+                SettingRowDivider()
+                permissionRow(.bluetooth,
+                    title: "Bluetooth", icon: "wave.3.right.circle.fill",
+                    description: "Connected device notifications")
+            }
+
+            // Mascot
+            SettingSectionLabel(title: "Mascot")
+            SettingGroup {
+                MascotGridPicker()
+                    .padding(14)
+
+                if let loadError = mascotManager.loadError {
+                    SettingRowDivider()
+                    Text(loadError)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                }
+
+                SettingRowDivider()
+                SettingToggleRow(title: "Show mascot in Pomodoro", isOn: $mascotManager.showInPomodoro)
+            }
         }
-        .scrollIndicators(.hidden)
-        .onAppear {
-            refreshPermissionStates()
-        }
-        .onReceive(permissionRefreshTimer) { _ in
-            refreshPermissionStates()
-        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .onAppear { refreshPermissionStates() }
+        .onReceive(permissionRefreshTimer) { _ in refreshPermissionStates() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshPermissionStates()
         }
+    }
+
+    @ViewBuilder
+    private func permissionRow(
+        _ permission: PermissionType,
+        title: String, icon: String, description: String
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundColor(permissionGranted(permission) ? .green : .secondary)
+                .frame(width: 18, alignment: .center)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13))
+                Text(description).font(.system(size: 11)).foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            if permissionGranted(permission) {
+                Label("Granted", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(.green)
+            } else {
+                Button("Grant Access") { requestPermission(permission) }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
     }
 
     private func permissionGranted(_ permission: PermissionType) -> Bool {
@@ -252,49 +269,11 @@ struct GeneralSettingsView: View {
     private func requestPermission(_ permission: PermissionType) {
         PermissionsManager.shared.request(permission)
         refreshPermissionStates()
-
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000)
             refreshPermissionStates()
             try? await Task.sleep(nanoseconds: 900_000_000)
             refreshPermissionStates()
-        }
-    }
-}
-
-private struct SettingsPermissionRow: View {
-    let title: String
-    let icon: String
-    let description: String
-    let isGranted: Bool
-    let action: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(isGranted ? .green : .secondary)
-                .frame(width: 24)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.system(size: 13, weight: .medium))
-                Text(description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-
-            if isGranted {
-                Label("Granted", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.green)
-            } else {
-                Button("Grant Access", action: action)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-            }
         }
     }
 }

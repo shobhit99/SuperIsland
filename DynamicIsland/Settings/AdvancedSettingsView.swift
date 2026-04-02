@@ -5,59 +5,68 @@ struct AdvancedSettingsView: View {
     @ObservedObject private var updateChecker = UpdateChecker.shared
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                SettingsCard(
-                    title: "Debug",
-                    subtitle: "Administrative actions for local state."
-                ) {
-                    Button("Reset All Settings") {
+        VStack(alignment: .leading, spacing: 16) {
+
+            SettingSectionLabel(title: "Debug")
+            SettingGroup {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Reset All Settings").font(.system(size: 13))
+                        Text("Restore all settings to their defaults")
+                            .font(.system(size: 11)).foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button("Reset") {
                         showResetAlert = true
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.small)
                     .alert("Reset Settings", isPresented: $showResetAlert) {
                         Button("Cancel", role: .cancel) {}
-                        Button("Reset", role: .destructive) {
-                            resetAllSettings()
-                        }
+                        Button("Reset", role: .destructive) { resetAllSettings() }
                     } message: {
                         Text("This will reset all DynamicIsland settings to their defaults.")
                     }
                 }
-
-                SettingsCard(
-                    title: "About",
-                    subtitle: "Application build metadata."
-                ) {
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
-                            .foregroundColor(.secondary)
-                    }
-
-                    Divider().opacity(0.2)
-                    HStack {
-                        Text("Build")
-                        Spacer()
-                        Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
-                            .foregroundColor(.secondary)
-                    }
-
-                    Divider().opacity(0.2)
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Updates")
-                            updateStatusText
-                        }
-                        Spacer()
-                        updateButton
-                    }
-                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            SettingSectionLabel(title: "About")
+            SettingGroup {
+                HStack {
+                    Text("Version").font(.system(size: 13))
+                    Spacer()
+                    Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 11)
+
+                SettingRowDivider()
+
+                HStack {
+                    Text("Build").font(.system(size: 13))
+                    Spacer()
+                    Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 11)
+
+                SettingRowDivider()
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Updates").font(.system(size: 13))
+                        updateStatusText
+                    }
+                    Spacer()
+                    updateButton
+                }
+                .padding(.horizontal, 16).padding(.vertical, 11)
+            }
         }
-        .scrollIndicators(.hidden)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -66,21 +75,13 @@ struct AdvancedSettingsView: View {
         case .idle:
             EmptyView()
         case .checking:
-            Text("Checking...")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            Text("Checking...").font(.system(size: 11)).foregroundColor(.secondary)
         case .upToDate:
-            Text("You're up to date")
-                .font(.caption)
-                .foregroundColor(.green)
+            Text("You're up to date").font(.system(size: 11)).foregroundColor(.green)
         case .updateAvailable(let version, _):
-            Text("Version \(version) available")
-                .font(.caption)
-                .foregroundColor(.orange)
+            Text("Version \(version) available").font(.system(size: 11)).foregroundColor(.orange)
         case .failed(let message):
-            Text(message)
-                .font(.caption)
-                .foregroundColor(.red)
+            Text(message).font(.system(size: 11)).foregroundColor(.red)
         }
     }
 
@@ -88,20 +89,15 @@ struct AdvancedSettingsView: View {
     private var updateButton: some View {
         switch updateChecker.checkState {
         case .checking:
-            ProgressView()
-                .controlSize(.small)
+            ProgressView().controlSize(.small)
         case .updateAvailable(_, let url):
-            Button("Download") {
-                NSWorkspace.shared.open(url)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+            Button("Download") { NSWorkspace.shared.open(url) }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
         default:
-            Button("Check for Updates") {
-                updateChecker.checkNow()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            Button("Check for Updates") { updateChecker.checkNow() }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
         }
     }
 

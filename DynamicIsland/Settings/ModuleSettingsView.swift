@@ -4,45 +4,37 @@ struct ModuleSettingsView: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                SettingsCard(
-                    title: "Media & HUD",
-                    subtitle: "Controls for playback and quick hardware overlays."
-                ) {
-                    Toggle("Now Playing", isOn: $appState.nowPlayingEnabled)
-                    Divider().opacity(0.2)
-                    Toggle("Volume HUD", isOn: $appState.volumeHUDEnabled)
-                    Divider().opacity(0.2)
-                    Toggle("Brightness HUD", isOn: $appState.brightnessHUDEnabled)
-                }
+        VStack(alignment: .leading, spacing: 16) {
 
-                SettingsCard(
-                    title: "System",
-                    subtitle: "Status modules for power and connectivity."
-                ) {
-                    Toggle("Battery", isOn: $appState.batteryEnabled)
-                    Divider().opacity(0.2)
-                    Toggle("Shelf", isOn: $appState.shelfEnabled)
-                    Divider().opacity(0.2)
-                    Toggle("Auto-open Shelf on Drop", isOn: $appState.shelfAutoOpenOnDrop)
-                    Divider().opacity(0.2)
-                    Toggle("Connectivity", isOn: $appState.connectivityEnabled)
-                }
-
-                SettingsCard(
-                    title: "Information",
-                    subtitle: "Calendar, weather, and notification surface modules."
-                ) {
-                    Toggle("Calendar", isOn: $appState.calendarEnabled)
-                    Divider().opacity(0.2)
-                    Toggle("Weather", isOn: $appState.weatherEnabled)
-                    Divider().opacity(0.2)
-                    Toggle("Notifications", isOn: $appState.notificationsEnabled)
-                }
+            SettingSectionLabel(title: "Media & HUD")
+            SettingGroup {
+                SettingToggleRow(title: "Now Playing", isOn: $appState.nowPlayingEnabled)
+                SettingRowDivider()
+                SettingToggleRow(title: "Volume HUD", isOn: $appState.volumeHUDEnabled)
+                SettingRowDivider()
+                SettingToggleRow(title: "Brightness HUD", isOn: $appState.brightnessHUDEnabled)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            SettingSectionLabel(title: "System")
+            SettingGroup {
+                SettingToggleRow(title: "Battery", isOn: $appState.batteryEnabled)
+                SettingRowDivider()
+                SettingToggleRow(title: "Shelf", isOn: $appState.shelfEnabled)
+                SettingRowDivider()
+                SettingToggleRow(title: "Auto-open Shelf on Drop", isOn: $appState.shelfAutoOpenOnDrop)
+                SettingRowDivider()
+                SettingToggleRow(title: "Connectivity", isOn: $appState.connectivityEnabled)
+            }
+
+            SettingSectionLabel(title: "Information")
+            SettingGroup {
+                SettingToggleRow(title: "Calendar", isOn: $appState.calendarEnabled)
+                SettingRowDivider()
+                SettingToggleRow(title: "Weather", isOn: $appState.weatherEnabled)
+                SettingRowDivider()
+                SettingToggleRow(title: "Notifications", isOn: $appState.notificationsEnabled)
+            }
         }
-        .scrollIndicators(.hidden)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }

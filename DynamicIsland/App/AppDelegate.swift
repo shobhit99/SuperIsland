@@ -253,7 +253,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     static func showSettingsWindow() {
-        NSApp.activate(ignoringOtherApps: true)
         // Avoid opening the SwiftUI Settings scene via AppKit selectors in menu-bar mode.
         // macOS may reject those calls with a "use SettingsLink" warning.
         showFallbackSettingsWindow()
@@ -262,6 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static func showFallbackSettingsWindow() {
         if let window = fallbackSettingsWindowController?.window {
             window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
@@ -272,11 +272,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "DynamicIsland Settings"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 900, height: 620))
-        window.minSize = NSSize(width: 820, height: 560)
+        window.setContentSize(NSSize(width: 960, height: 680))
+        window.minSize = NSSize(width: 800, height: 560)
         window.isReleasedWhenClosed = false
         window.center()
         window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
 
         fallbackSettingsWindowController = NSWindowController(window: window)
         fallbackSettingsWindowController?.showWindow(nil)

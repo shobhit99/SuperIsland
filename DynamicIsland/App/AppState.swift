@@ -75,15 +75,9 @@ enum NotchHapticIntensity: Int, CaseIterable, Identifiable {
         case .subtle:
             return [(delay: 0, pattern: .generic)]
         case .medium:
-            return [
-                (delay: 0, pattern: .alignment),
-                (delay: 0.04, pattern: .generic)
-            ]
+            return [(delay: 0, pattern: .alignment)]
         case .strong:
-            return [
-                (delay: 0, pattern: .levelChange),
-                (delay: 0.03, pattern: .alignment)
-            ]
+            return [(delay: 0, pattern: .levelChange)]
         }
     }
 }
