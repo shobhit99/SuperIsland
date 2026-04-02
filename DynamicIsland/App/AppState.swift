@@ -818,16 +818,19 @@ final class AppState: ObservableObject {
 
     func size(for state: IslandState) -> CGSize {
         let contentSize = self.contentSize(for: state)
+        // On non-notch Macs the outward arch insets walls by the top
+        // corner radius — widen the surface so the inner wall-to-wall
+        // width matches the content frame.
+        let archWidthBoost: CGFloat = usesOutwardTopCorners && !presentationHasNotch
+            ? topCornerRadius(for: state) * 2
+            : 0
         switch state {
         case .compact:
-            return contentSize
+            return CGSize(
+                width: contentSize.width + archWidthBoost,
+                height: contentSize.height
+            )
         case .expanded, .fullExpanded:
-            // On non-notch Macs the outward arch insets walls by the top
-            // corner radius — widen the surface so the inner wall-to-wall
-            // width matches the content frame.
-            let archWidthBoost: CGFloat = usesOutwardTopCorners && !presentationHasNotch
-                ? topCornerRadius(for: state) * 2
-                : 0
             return CGSize(
                 width: contentSize.width + archWidthBoost,
                 height: contentSize.height + contentTopInset(for: state)
@@ -835,9 +838,17 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Whether the compact view has room to show extra info (e.g. song title).
+    var usesWideCompactLayout: Bool {
+        !presentationHasNotch
+    }
+
     func contentSize(for state: IslandState) -> CGSize {
         switch state {
         case .compact:
+            if usesWideCompactLayout {
+                return Constants.nonNotchCompactSize
+            }
             let baseSize = compactBaseSize
             guard shouldUseMinimalCompactLayout else {
                 return CGSize(
@@ -857,7 +868,7 @@ final class AppState: ObservableObject {
             // On non-notch Macs the toolbar is inline (no shoulder area),
             // so it eats into content height. Add space for it.
             if usesOutwardTopCorners && !presentationHasNotch {
-                return CGSize(width: base.width, height: base.height + 40)
+                return CGSize(width: base.width, height: base.height + 50)
             }
             return base
         }
@@ -1068,7 +1079,10 @@ final class AppState: ObservableObject {
     private func topCornerRadius(for state: IslandState) -> CGFloat {
         switch state {
         case .compact:
-            return compactIslandMetrics?.bottomCornerRadius ?? Constants.compactCornerRadius
+            let base = compactIslandMetrics?.bottomCornerRadius ?? Constants.compactCornerRadius
+            // Clamp to half the compact height (shape does the same internally).
+            let height = contentSize(for: .compact).height
+            return min(base, height / 2)
         case .expanded:
             return Constants.expandedCornerRadius
         case .fullExpanded:

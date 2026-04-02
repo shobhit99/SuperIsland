@@ -3,6 +3,7 @@ import SwiftUI
 enum Constants {
     // MARK: - Island Sizes
     static let compactSize = CGSize(width: 200, height: 36)
+    static let nonNotchCompactSize = CGSize(width: 300, height: 30)
     static let expandedSize = CGSize(width: 408, height: 88)
     static let fullExpandedSize = CGSize(width: 658, height: 180)
 

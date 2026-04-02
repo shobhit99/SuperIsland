@@ -2,14 +2,27 @@ import AppKit
 import SwiftUI
 
 struct NowPlayingCompactView: View {
+    @EnvironmentObject var appState: AppState
     @ObservedObject private var manager = NowPlayingManager.shared
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 8) {
             albumHint
+
+            if appState.usesWideCompactLayout && !manager.title.isEmpty {
+                Text(manager.title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .lineLimit(1)
+            }
+
             Spacer(minLength: 0)
             playbackHint
         }
+    }
+
+    private var compactArtSize: CGFloat {
+        appState.usesWideCompactLayout ? 22 : 24
     }
 
     @ViewBuilder
@@ -18,13 +31,13 @@ struct NowPlayingCompactView: View {
             Image(nsImage: art)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .frame(width: 24, height: 24)
+                .frame(width: compactArtSize, height: compactArtSize)
                 .clipShape(Circle())
         } else {
             Image(systemName: "music.note")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: appState.usesWideCompactLayout ? 11 : 12, weight: .semibold))
                 .foregroundColor(.white.opacity(0.9))
-                .frame(width: 24, height: 24)
+                .frame(width: compactArtSize, height: compactArtSize)
                 .background(.white.opacity(0.08), in: Circle())
         }
     }

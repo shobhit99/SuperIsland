@@ -10,6 +10,12 @@ struct CompactView: View {
             if appState.shouldUseMinimalCompactLayout,
                let module = appState.compactPresentationModule {
                 minimalCompactContent(for: module)
+            } else if appState.usesWideCompactLayout,
+                      case .extension_(let extensionID) = appState.activeModule {
+                WideCompactLayout(
+                    leading: AnyView(ExtensionRendererView(extensionID: extensionID, displayMode: .minimalLeading)),
+                    trailing: AnyView(ExtensionRendererView(extensionID: extensionID, displayMode: .minimalTrailing))
+                )
             } else {
                 standardCompactContent
             }
@@ -19,7 +25,12 @@ struct CompactView: View {
 
     private var horizontalPadding: CGFloat {
         let isNowPlayingActive = appState.activeBuiltInModule == .nowPlaying || (appState.activeModule == nil && !nowPlaying.title.isEmpty)
-        return isNowPlayingActive ? 4 : 12
+        let base: CGFloat = isNowPlayingActive ? 4 : 12
+        // On non-notch Macs, add padding to keep content within the arch walls.
+        if appState.usesWideCompactLayout {
+            return base + Constants.compactCornerRadius
+        }
+        return base
     }
 
     private var standardCompactContent: some View {
@@ -72,6 +83,27 @@ struct CompactView: View {
         default:
             standardCompactContent
         }
+    }
+}
+
+/// Two-slot layout for non-notch wide compact: leading flush-left, trailing flush-right.
+private struct WideCompactLayout: View {
+    let leading: AnyView
+    let trailing: AnyView
+
+    var body: some View {
+        HStack(spacing: 0) {
+            leading
+                .fixedSize()
+                .padding(.leading, Constants.compactCornerRadius + 6)
+
+            Spacer(minLength: 8)
+
+            trailing
+                .fixedSize()
+                .padding(.trailing, Constants.compactCornerRadius + 6)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }
 
