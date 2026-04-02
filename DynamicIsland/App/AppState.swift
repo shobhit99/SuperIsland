@@ -1039,7 +1039,7 @@ final class AppState: ObservableObject {
     }
 
     var usesOutwardTopCorners: Bool {
-        presentationHasNotch
+        true
     }
 
     private var shouldUseSquaredTopCorners: Bool {
