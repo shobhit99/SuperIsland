@@ -65,6 +65,7 @@ final class NowPlayingManager: ObservableObject {
     private var adapterPipeHandler: JSONLinesPipeHandler?
     private var adapterStreamTask: Task<Void, Never>?
     private var adapterDidDeliverUpdate = false
+    private let appleScriptQueue = DispatchQueue(label: "com.workview.DynamicIsland.applescript", qos: .userInitiated)
 
     private init() {
         loadMediaRemote()
@@ -438,41 +439,37 @@ final class NowPlayingManager: ObservableObject {
     // MARK: - AppleScript Fallback
 
     private func refreshPreferredSource() {
-        let work = { [weak self] in
+        guard !adapterDidDeliverUpdate else { return }
+        let currentSource = sourceName
+
+        appleScriptQueue.async { [weak self] in
             guard let self else { return }
 
-            if self.adapterDidDeliverUpdate {
+            if self.refreshCurrentSourceIfNeeded(sourceName: currentSource) {
+                DispatchQueue.main.async { self.mediaRemoteActive = false }
                 return
             }
 
-            if self.refreshCurrentSourceIfNeeded() { return }
-
-            if self.fetchSpotifyViaAppleScript() == true {
-                self.mediaRemoteActive = false
+            if self.fetchSpotifyViaAppleScript() {
+                DispatchQueue.main.async { self.mediaRemoteActive = false }
                 return
             }
 
-            if self.fetchMusicViaAppleScript() == true {
-                self.mediaRemoteActive = false
+            if self.fetchMusicViaAppleScript() {
+                DispatchQueue.main.async { self.mediaRemoteActive = false }
                 return
             }
 
-            if self.fetchChromeViaAppleScript(allowPausedFallback: false) == true {
-                self.mediaRemoteActive = false
+            if self.fetchChromeViaAppleScript(allowPausedFallback: false) {
+                DispatchQueue.main.async { self.mediaRemoteActive = false }
                 return
             }
 
-            self.fetchNowPlayingInfo()
-        }
-
-        if Thread.isMainThread {
-            work()
-        } else {
-            DispatchQueue.main.async { work() }
+            DispatchQueue.main.async { self.fetchNowPlayingInfo() }
         }
     }
 
-    private func refreshCurrentSourceIfNeeded() -> Bool {
+    nonisolated private func refreshCurrentSourceIfNeeded(sourceName: String) -> Bool {
         switch sourceName {
         case "Spotify":
             return fetchSpotifyViaAppleScript()
@@ -489,7 +486,7 @@ final class NowPlayingManager: ObservableObject {
         mediaRemoteActive || (adapterDidDeliverUpdate && !currentBundleIdentifier.isEmpty)
     }
 
-    private func fetchSpotifyViaAppleScript() -> Bool {
+    nonisolated private func fetchSpotifyViaAppleScript() -> Bool {
         let script = """
         tell application "System Events"
             if not (exists process "Spotify") then return "NOT_RUNNING"
@@ -525,16 +522,16 @@ final class NowPlayingManager: ObservableObject {
             self?.elapsedTime = TimeInterval(parts[4]) ?? 0
             self?.isPlaying = true
             self?.sourceName = "Spotify"
-            self?.fetchSpotifyArtwork()
             if trackTitle != self?.lastDetectedTitle {
                 self?.lastDetectedTitle = trackTitle
                 AppState.shared.setActiveModule(.nowPlaying)
             }
         }
+        fetchSpotifyArtwork()
         return true
     }
 
-    private func fetchSpotifyArtwork() {
+    nonisolated private func fetchSpotifyArtwork() {
         let script = """
         tell application "Spotify"
             return artwork url of current track
@@ -550,7 +547,7 @@ final class NowPlayingManager: ObservableObject {
         }.resume()
     }
 
-    private func fetchMusicViaAppleScript() -> Bool {
+    nonisolated private func fetchMusicViaAppleScript() -> Bool {
         let script = """
         tell application "System Events"
             if not (exists process "Music") then return "NOT_RUNNING"
@@ -594,7 +591,7 @@ final class NowPlayingManager: ObservableObject {
         return true
     }
 
-    private func fetchChromeViaAppleScript(allowPausedFallback: Bool = true) -> Bool {
+    nonisolated private func fetchChromeViaAppleScript(allowPausedFallback: Bool = true) -> Bool {
         let pausedReturn = allowPausedFallback
             ? "if pausedURL is not \"\" then return \"PAUSED_TAB||\" & pausedTitle & \"||\" & pausedURL & \"||\" & pausedInfo"
             : ""
@@ -698,7 +695,7 @@ final class NowPlayingManager: ObservableObject {
 
     // MARK: - YouTube Helpers
 
-    private func parseYouTubeTitle(_ rawTitle: String) -> (title: String, artist: String) {
+    nonisolated private func parseYouTubeTitle(_ rawTitle: String) -> (title: String, artist: String) {
         // YouTube titles are typically: "Song Name - Artist - YouTube"
         // or "Song Name - YouTube"
         let cleaned = rawTitle
@@ -718,7 +715,7 @@ final class NowPlayingManager: ObservableObject {
         return (title: cleaned, artist: "")
     }
 
-    private func fetchYouTubeThumbnail(from urlString: String) {
+    nonisolated private func fetchYouTubeThumbnail(from urlString: String) {
         // Extract video ID and fetch thumbnail
         guard let videoID = extractYouTubeVideoID(from: urlString) else { return }
 
@@ -726,7 +723,7 @@ final class NowPlayingManager: ObservableObject {
         fetchRemoteArtwork(from: thumbnailURL)
     }
 
-    private func fetchRemoteArtwork(from urlString: String) {
+    nonisolated private func fetchRemoteArtwork(from urlString: String) {
         guard let url = URL(string: urlString) else { return }
 
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
@@ -737,7 +734,7 @@ final class NowPlayingManager: ObservableObject {
         }.resume()
     }
 
-    private func extractYouTubeVideoID(from urlString: String) -> String? {
+    nonisolated private func extractYouTubeVideoID(from urlString: String) -> String? {
         guard let url = URL(string: urlString),
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return nil
@@ -747,7 +744,7 @@ final class NowPlayingManager: ObservableObject {
 
     // MARK: - AppleScript Runner
 
-    private func runAppleScript(_ source: String) -> String? {
+    nonisolated private func runAppleScript(_ source: String) -> String? {
         var error: NSDictionary?
         guard let script = NSAppleScript(source: source) else { return nil }
         let result = script.executeAndReturnError(&error)
@@ -1006,7 +1003,7 @@ final class NowPlayingManager: ObservableObject {
         """
     }
 
-    private func chromeSourceName(for url: String) -> String {
+    nonisolated private func chromeSourceName(for url: String) -> String {
         if url.contains("music.youtube.com") { return "YouTube Music" }
         if url.contains("youtube.com") { return "YouTube" }
         if url.contains("soundcloud.com") { return "SoundCloud" }

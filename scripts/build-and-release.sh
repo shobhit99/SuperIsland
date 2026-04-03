@@ -39,7 +39,8 @@ xcodebuild archive \
   SKIP_INSTALL=NO \
   BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
   CODE_SIGN_STYLE=Automatic \
-  DEVELOPMENT_TEAM="${TEAM_ID}"
+  DEVELOPMENT_TEAM="${TEAM_ID}" \
+  ENABLE_HARDENED_RUNTIME=YES
 
 echo "==> Exporting archive..."
 xcodebuild -exportArchive \
@@ -47,14 +48,7 @@ xcodebuild -exportArchive \
   -exportOptionsPlist exportOptions.plist \
   -exportPath "${BUILD_DIR}"
 
-echo "==> Code signing..."
-codesign --deep --force --verify --verbose \
-  --sign "${SIGNING_IDENTITY}" \
-  --entitlements "${ENTITLEMENTS}" \
-  --options runtime \
-  "${APP_PATH}"
-
-echo "==> Verifying signature..."
+echo "==> Verifying signature from export..."
 codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
 
 echo "==> Preparing DMG contents..."

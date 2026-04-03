@@ -11,6 +11,7 @@ enum AIUsageProvider {
     private static var cachedSnapshot: [String: Any]?
     private static var cachedAt: Date?
     private static let cacheLock = NSLock()
+    private static var isRefreshing = false
 
     private enum ClaudeKeychainAccessState: String {
         case unknown
@@ -18,31 +19,52 @@ enum AIUsageProvider {
         case denied
     }
 
+    // Returns cached data immediately (never blocks). Triggers a background
+    // refresh if the cache is missing or stale. This prevents the semaphore-
+    // blocked network calls in fetchJSON from freezing the main thread.
     static func snapshot() -> [String: Any] {
         let nowDate = Date()
 
         cacheLock.lock()
-        if let cachedAt,
-           let cachedSnapshot,
-           nowDate.timeIntervalSince(cachedAt) < cacheTTL {
-            cacheLock.unlock()
-            return cachedSnapshot
+        let existing = cachedSnapshot
+        let age = cachedAt.map { nowDate.timeIntervalSince($0) } ?? cacheTTL
+        cacheLock.unlock()
+
+        if existing == nil || age >= cacheTTL {
+            triggerBackgroundRefresh()
         }
-        cacheLock.unlock()
 
-        let now = Int(nowDate.timeIntervalSince1970)
-        let payload: [String: Any] = [
-            "updatedAt": now,
-            "codex": buildCodexPayload(updatedAt: now),
-            "claude": buildClaudePayload(updatedAt: now)
+        return existing ?? [
+            "updatedAt": Int(nowDate.timeIntervalSince1970),
+            "codex": ["available": false, "source": "loading"] as [String: Any],
+            "claude": ["available": false, "source": "loading"] as [String: Any]
         ]
+    }
 
+    private static func triggerBackgroundRefresh() {
         cacheLock.lock()
-        cachedAt = nowDate
-        cachedSnapshot = payload
+        guard !isRefreshing else {
+            cacheLock.unlock()
+            return
+        }
+        isRefreshing = true
         cacheLock.unlock()
 
-        return payload
+        DispatchQueue.global(qos: .utility).async {
+            let nowDate = Date()
+            let now = Int(nowDate.timeIntervalSince1970)
+            let payload: [String: Any] = [
+                "updatedAt": now,
+                "codex": buildCodexPayload(updatedAt: now),
+                "claude": buildClaudePayload(updatedAt: now)
+            ]
+
+            cacheLock.lock()
+            cachedAt = nowDate
+            cachedSnapshot = payload
+            isRefreshing = false
+            cacheLock.unlock()
+        }
     }
 
     // MARK: - Codex
