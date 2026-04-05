@@ -567,7 +567,7 @@ class WhatsAppSocketProvider {
       },
       version,
       logger: silentLogger,
-      browser: ["DynamicIsland", "macOS", "1.0.0"],
+      browser: ["SuperIsland", "macOS", "1.0.0"],
       printQRInTerminal: false,
       syncFullHistory: false,
       markOnlineOnConnect: false,

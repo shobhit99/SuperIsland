@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-APP_NAME="DynamicIsland"
+APP_NAME="SuperIsland"
 SCHEME="${APP_NAME}"
 BUILD_DIR="build"
 DERIVED_DATA="${BUILD_DIR}/DerivedData"
@@ -45,7 +45,7 @@ CERT=$(security find-identity -v -p codesigning 2>/dev/null \
   | awk -F'"' '{print $2}')
 if [ -n "${CERT}" ]; then
   codesign --deep --force --sign "${CERT}" \
-    --entitlements "DynamicIsland/DynamicIsland.entitlements" \
+    --entitlements "SuperIsland/SuperIsland.entitlements" \
     "${APP_PATH}"
   echo "   Signed with: ${CERT}"
 else

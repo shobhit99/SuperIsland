@@ -726,7 +726,7 @@ enum AIUsageProvider {
         request.timeoutInterval = timeout
         request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("DynamicIsland/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("SuperIsland/1.0", forHTTPHeaderField: "User-Agent")
         for (header, value) in extraHeaders {
             request.setValue(value, forHTTPHeaderField: header)
         }

@@ -21,8 +21,8 @@ const LEGACY_MEDIA_PREVIEW_LABELS = {
   "<media:sticker>": "Sticker"
 };
 function renderInputComposer(options) {
-  if (DynamicIsland.components && typeof DynamicIsland.components.inputComposer === "function") {
-    return DynamicIsland.components.inputComposer(options);
+  if (SuperIsland.components && typeof SuperIsland.components.inputComposer === "function") {
+    return SuperIsland.components.inputComposer(options);
   }
 
   return View.inputBox(
@@ -144,7 +144,7 @@ function previewNode(preview, limit, style, color, lineLimit) {
 }
 
 function shouldShowConnectionHint() {
-  const configured = DynamicIsland.settings.get("showConnectionHint");
+  const configured = SuperIsland.settings.get("showConnectionHint");
   return typeof configured === "boolean" ? configured : true;
 }
 
@@ -155,11 +155,11 @@ function refreshState(force) {
   }
   lastRefreshAt = now;
 
-  if (typeof DynamicIsland.system.getWhatsAppWeb !== "function") {
+  if (typeof SuperIsland.system.getWhatsAppWeb !== "function") {
     return;
   }
 
-  const snapshot = asObject(DynamicIsland.system.getWhatsAppWeb(8));
+  const snapshot = asObject(SuperIsland.system.getWhatsAppWeb(8));
   if (!snapshot) return;
 
   const messages = asArray(snapshot.messages)
@@ -259,8 +259,8 @@ function openReplyComposer(payload) {
     error: ""
   };
 
-  if (typeof DynamicIsland.system.startWhatsAppWeb === "function") {
-    DynamicIsland.system.startWhatsAppWeb();
+  if (typeof SuperIsland.system.startWhatsAppWeb === "function") {
+    SuperIsland.system.startWhatsAppWeb();
   }
   refreshState(true);
 }
@@ -270,7 +270,7 @@ function closeReplyComposer() {
 }
 
 function mediaPreviewSection() {
-  const previewText = replyComposer.preview || "Send a quick reply from Dynamic Island.";
+  const previewText = replyComposer.preview || "Send a quick reply from Super Island.";
   const previewMarkdown = markdownWithLinkedURL(previewText);
   const previewTextNode = View.frame(
     previewMarkdown
@@ -445,10 +445,10 @@ function fullExpandedView() {
   ], { spacing: 8, align: "leading" });
 }
 
-DynamicIsland.registerModule({
+SuperIsland.registerModule({
   onActivate() {
-    if (typeof DynamicIsland.system.startWhatsAppWeb === "function") {
-      DynamicIsland.system.startWhatsAppWeb();
+    if (typeof SuperIsland.system.startWhatsAppWeb === "function") {
+      SuperIsland.system.startWhatsAppWeb();
     }
     refreshState(true);
   },
@@ -479,16 +479,16 @@ DynamicIsland.registerModule({
   },
 
   onAction(actionID) {
-    if (actionID === "refresh-qr" && typeof DynamicIsland.system.refreshWhatsAppWebQR === "function") {
-      DynamicIsland.system.refreshWhatsAppWebQR();
+    if (actionID === "refresh-qr" && typeof SuperIsland.system.refreshWhatsAppWebQR === "function") {
+      SuperIsland.system.refreshWhatsAppWebQR();
       refreshState(true);
       return;
     }
 
     if (actionID === "close-reply") {
       closeReplyComposer();
-      const closed = typeof DynamicIsland.system.closePresentedInteraction === "function"
-        ? !!DynamicIsland.system.closePresentedInteraction()
+      const closed = typeof SuperIsland.system.closePresentedInteraction === "function"
+        ? !!SuperIsland.system.closePresentedInteraction()
         : false;
       if (!closed) {
         refreshState(true);
@@ -508,7 +508,7 @@ DynamicIsland.registerModule({
       if (!replyComposer || !body) {
         return;
       }
-      if (typeof DynamicIsland.system.sendWhatsAppWebMessageAsync !== "function") {
+      if (typeof SuperIsland.system.sendWhatsAppWebMessageAsync !== "function") {
         replyComposer.error = "Reply API unavailable.";
         refreshState(true);
         return;
@@ -516,18 +516,18 @@ DynamicIsland.registerModule({
 
       const recipient = replyComposer.recipient;
       const notificationSourceID = replyComposer.notificationSourceID;
-      DynamicIsland.system.sendWhatsAppWebMessageAsync(recipient, body);
-      if (notificationSourceID && typeof DynamicIsland.system.dismissNotification === "function") {
-        DynamicIsland.system.dismissNotification(notificationSourceID);
+      SuperIsland.system.sendWhatsAppWebMessageAsync(recipient, body);
+      if (notificationSourceID && typeof SuperIsland.system.dismissNotification === "function") {
+        SuperIsland.system.dismissNotification(notificationSourceID);
       }
       closeReplyComposer();
-      const closed = typeof DynamicIsland.system.closePresentedInteraction === "function"
-        ? !!DynamicIsland.system.closePresentedInteraction()
+      const closed = typeof SuperIsland.system.closePresentedInteraction === "function"
+        ? !!SuperIsland.system.closePresentedInteraction()
         : false;
       if (!closed) {
         refreshState(true);
       }
-      DynamicIsland.playFeedback("success");
+      SuperIsland.playFeedback("success");
       return;
     }
   }

@@ -128,31 +128,31 @@ final class ExtensionJSRuntime {
     }
 
     private func injectAPI() {
-        let dynamicIsland = JSValue(newObjectIn: context)!
-        context.setObject(dynamicIsland, forKeyedSubscript: "DynamicIsland" as NSString)
+        let superIsland = JSValue(newObjectIn: context)!
+        context.setObject(superIsland, forKeyedSubscript: "SuperIsland" as NSString)
 
-        injectModuleRegistration(into: dynamicIsland)
-        injectStore(into: dynamicIsland)
-        injectSettings(into: dynamicIsland)
-        injectIslandControls(into: dynamicIsland)
-        injectNotifications(into: dynamicIsland)
-        injectHTTP(into: dynamicIsland)
-        injectSystem(into: dynamicIsland)
-        injectFeedback(into: dynamicIsland)
-        injectMascot(into: dynamicIsland)
-        injectConsole(into: dynamicIsland)
+        injectModuleRegistration(into: superIsland)
+        injectStore(into: superIsland)
+        injectSettings(into: superIsland)
+        injectIslandControls(into: superIsland)
+        injectNotifications(into: superIsland)
+        injectHTTP(into: superIsland)
+        injectSystem(into: superIsland)
+        injectFeedback(into: superIsland)
+        injectMascot(into: superIsland)
+        injectConsole(into: superIsland)
         injectTimers()
         injectViewHelpers()
         injectComponents()
     }
 
-    private func injectModuleRegistration(into dynamicIsland: JSValue) {
+    private func injectModuleRegistration(into superIsland: JSValue) {
         let registerModule: @convention(block) (JSValue) -> Void = { [weak self] config in
             guard let self else { return }
             self.moduleConfig = config
             ExtensionLogger.shared.log(self.extensionID, .info, "Module registered")
         }
-        dynamicIsland.setObject(registerModule, forKeyedSubscript: "registerModule" as NSString)
+        superIsland.setObject(registerModule, forKeyedSubscript: "registerModule" as NSString)
     }
 
     private func resolveMinimalCompactPrecedence(from config: JSValue) -> Int {
@@ -174,7 +174,7 @@ final class ExtensionJSRuntime {
         return 1
     }
 
-    private func injectStore(into dynamicIsland: JSValue) {
+    private func injectStore(into superIsland: JSValue) {
         let store = JSValue(newObjectIn: context)!
 
         let getValue: @convention(block) (String) -> JSValue? = { [weak self] key in
@@ -194,10 +194,10 @@ final class ExtensionJSRuntime {
 
         store.setObject(getValue, forKeyedSubscript: "get" as NSString)
         store.setObject(setValue, forKeyedSubscript: "set" as NSString)
-        dynamicIsland.setObject(store, forKeyedSubscript: "store" as NSString)
+        superIsland.setObject(store, forKeyedSubscript: "store" as NSString)
     }
 
-    private func injectSettings(into dynamicIsland: JSValue) {
+    private func injectSettings(into superIsland: JSValue) {
         let settings = JSValue(newObjectIn: context)!
 
         let getValue: @convention(block) (String) -> JSValue? = { [weak self] key in
@@ -217,10 +217,10 @@ final class ExtensionJSRuntime {
 
         settings.setObject(getValue, forKeyedSubscript: "get" as NSString)
         settings.setObject(setValue, forKeyedSubscript: "set" as NSString)
-        dynamicIsland.setObject(settings, forKeyedSubscript: "settings" as NSString)
+        superIsland.setObject(settings, forKeyedSubscript: "settings" as NSString)
     }
 
-    private func injectIslandControls(into dynamicIsland: JSValue) {
+    private func injectIslandControls(into superIsland: JSValue) {
         let island = JSValue(newObjectIn: context)!
 
         let activate: @convention(block) (JSValue?) -> Void = { [weak self] autoDismissArg in
@@ -243,10 +243,10 @@ final class ExtensionJSRuntime {
         island.setObject(false, forKeyedSubscript: "isActive" as NSString)
 
         islandNamespace = island
-        dynamicIsland.setObject(island, forKeyedSubscript: "island" as NSString)
+        superIsland.setObject(island, forKeyedSubscript: "island" as NSString)
     }
 
-    private func injectNotifications(into dynamicIsland: JSValue) {
+    private func injectNotifications(into superIsland: JSValue) {
         let notifications = JSValue(newObjectIn: context)!
 
         let send: @convention(block) (JSValue) -> Void = { [weak self] options in
@@ -282,29 +282,29 @@ final class ExtensionJSRuntime {
         }
 
         notifications.setObject(send, forKeyedSubscript: "send" as NSString)
-        dynamicIsland.setObject(notifications, forKeyedSubscript: "notifications" as NSString)
+        superIsland.setObject(notifications, forKeyedSubscript: "notifications" as NSString)
     }
 
-    private func injectHTTP(into dynamicIsland: JSValue) {
+    private func injectHTTP(into superIsland: JSValue) {
         let fetchSync: @convention(block) (String, JSValue?) -> JSValue? = { [weak self] urlString, options in
             guard let self else { return nil }
             return self.fetchSync(urlString: urlString, options: options)
         }
 
-        dynamicIsland.setObject(fetchSync, forKeyedSubscript: "__fetchSync" as NSString)
+        superIsland.setObject(fetchSync, forKeyedSubscript: "__fetchSync" as NSString)
 
         if manifest.permissions.contains("network") {
             context.evaluateScript(
-                "DynamicIsland.http = { fetch: function(url, options) { return Promise.resolve(DynamicIsland.__fetchSync(url, options)); } };"
+                "SuperIsland.http = { fetch: function(url, options) { return Promise.resolve(SuperIsland.__fetchSync(url, options)); } };"
             )
         } else {
             context.evaluateScript(
-                "DynamicIsland.http = { fetch: function() { throw new Error('Permission denied: network'); } };"
+                "SuperIsland.http = { fetch: function() { throw new Error('Permission denied: network'); } };"
             )
         }
     }
 
-    private func injectSystem(into dynamicIsland: JSValue) {
+    private func injectSystem(into superIsland: JSValue) {
         let system = JSValue(newObjectIn: context)!
 
         let getAIUsage: @convention(block) () -> JSValue? = { [weak self] in
@@ -445,10 +445,10 @@ final class ExtensionJSRuntime {
         system.setObject(sendWhatsAppWebMessageAsync, forKeyedSubscript: "sendWhatsAppWebMessageAsync" as NSString)
         system.setObject(dismissNotification, forKeyedSubscript: "dismissNotification" as NSString)
         system.setObject(closePresentedInteraction, forKeyedSubscript: "closePresentedInteraction" as NSString)
-        dynamicIsland.setObject(system, forKeyedSubscript: "system" as NSString)
+        superIsland.setObject(system, forKeyedSubscript: "system" as NSString)
     }
 
-    private func injectFeedback(into dynamicIsland: JSValue) {
+    private func injectFeedback(into superIsland: JSValue) {
         let playFeedback: @convention(block) (String) -> Void = { type in
             DispatchQueue.main.async {
                 HapticFeedbackController.play(named: type)
@@ -460,11 +460,11 @@ final class ExtensionJSRuntime {
             NSWorkspace.shared.open(url)
         }
 
-        dynamicIsland.setObject(playFeedback, forKeyedSubscript: "playFeedback" as NSString)
-        dynamicIsland.setObject(openURL, forKeyedSubscript: "openURL" as NSString)
+        superIsland.setObject(playFeedback, forKeyedSubscript: "playFeedback" as NSString)
+        superIsland.setObject(openURL, forKeyedSubscript: "openURL" as NSString)
     }
 
-    private func injectMascot(into dynamicIsland: JSValue) {
+    private func injectMascot(into superIsland: JSValue) {
         let mascot = JSValue(newObjectIn: context)!
 
         let setExpression: @convention(block) (String) -> Void = { expression in
@@ -514,10 +514,10 @@ final class ExtensionJSRuntime {
         mascot.setObject(getSelected, forKeyedSubscript: "getSelected" as NSString)
         mascot.setObject(list, forKeyedSubscript: "list" as NSString)
         mascot.setObject(setInput, forKeyedSubscript: "setInput" as NSString)
-        dynamicIsland.setObject(mascot, forKeyedSubscript: "mascot" as NSString)
+        superIsland.setObject(mascot, forKeyedSubscript: "mascot" as NSString)
     }
 
-    private func injectConsole(into dynamicIsland: JSValue) {
+    private func injectConsole(into superIsland: JSValue) {
         let logInfo: @convention(block) (String) -> Void = { [weak self] message in
             guard let self else { return }
             ExtensionLogger.shared.log(self.extensionID, .info, message)
@@ -533,16 +533,16 @@ final class ExtensionJSRuntime {
             ExtensionLogger.shared.log(self.extensionID, .error, message)
         }
 
-        dynamicIsland.setObject(logInfo, forKeyedSubscript: "__log" as NSString)
-        dynamicIsland.setObject(logWarn, forKeyedSubscript: "__warn" as NSString)
-        dynamicIsland.setObject(logError, forKeyedSubscript: "__error" as NSString)
+        superIsland.setObject(logInfo, forKeyedSubscript: "__log" as NSString)
+        superIsland.setObject(logWarn, forKeyedSubscript: "__warn" as NSString)
+        superIsland.setObject(logError, forKeyedSubscript: "__error" as NSString)
 
         context.evaluateScript(
             """
             globalThis.console = {
-              log: function() { DynamicIsland.__log(Array.from(arguments).map(String).join(' ')); },
-              warn: function() { DynamicIsland.__warn(Array.from(arguments).map(String).join(' ')); },
-              error: function() { DynamicIsland.__error(Array.from(arguments).map(String).join(' ')); }
+              log: function() { SuperIsland.__log(Array.from(arguments).map(String).join(' ')); },
+              warn: function() { SuperIsland.__warn(Array.from(arguments).map(String).join(' ')); },
+              error: function() { SuperIsland.__error(Array.from(arguments).map(String).join(' ')); }
             };
             """
         )
@@ -656,8 +656,8 @@ final class ExtensionJSRuntime {
                 ], { spacing: 4, align: 'center' });
               }
 
-              const existing = DynamicIsland.components || {};
-              DynamicIsland.components = {
+              const existing = SuperIsland.components || {};
+              SuperIsland.components = {
                 ...existing,
                 shortcutHint,
                 inputComposer: function(opts) {
@@ -930,7 +930,7 @@ final class ExtensionJSRuntime {
             content.sound = sound ? .default : nil
 
             let request = UNNotificationRequest(
-                identifier: "dynamicisland.\(extensionID).\(UUID().uuidString)",
+                identifier: "superisland.\(extensionID).\(UUID().uuidString)",
                 content: content,
                 trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
             )

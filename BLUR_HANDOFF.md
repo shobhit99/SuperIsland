@@ -55,5 +55,5 @@ If content is still sharp on first visible frame, check:
 
 ## Files Changed
 
-- `DynamicIsland/Views/IslandContainerView.swift` — blur logic + ZStack order fix
-- `DynamicIsland/Utilities/Constants.swift` — overshoot/settle spring parameters (from prior agent, kept)
+- `SuperIsland/Views/IslandContainerView.swift` — blur logic + ZStack order fix
+- `SuperIsland/Utilities/Constants.swift` — overshoot/settle spring parameters (from prior agent, kept)

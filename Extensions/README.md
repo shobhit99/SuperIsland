@@ -1,6 +1,6 @@
 # Extensions
 
-This directory contains pluggable DynamicIsland extensions.
+This directory contains pluggable SuperIsland extensions.
 
 Each extension is self-contained and can be distributed independently (for example as a zip or from a Git repository) with this shape:
 
@@ -12,4 +12,4 @@ Each extension is self-contained and can be distributed independently (for examp
   assets/ (optional)
 ```
 
-DynamicIsland discovers extension folders from this `Extensions/` path during development.
+SuperIsland discovers extension folders from this `Extensions/` path during development.

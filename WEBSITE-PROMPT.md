@@ -1,8 +1,8 @@
-# Dynamic Island for Mac — Website & Documentation Build Prompt
+# Super Island for Mac — Website & Documentation Build Prompt
 
 ## Overview
 
-Build a marketing website + Fumadocs-powered API documentation site for **Dynamic Island for Mac** — a native macOS app that transforms the MacBook notch into an interactive, living widget surface. The site should be a single Next.js 15 app with two sections: a landing/marketing page and a `/docs` section powered by Fumadocs.
+Build a marketing website + Fumadocs-powered API documentation site for **Super Island for Mac** — a native macOS app that transforms the MacBook notch into an interactive, living widget surface. The site should be a single Next.js 15 app with two sections: a landing/marketing page and a `/docs` section powered by Fumadocs.
 
 **Tech stack:** Next.js 15 (App Router), Fumadocs (`npm create fumadocs-app`), Tailwind CSS 4, Framer Motion, TypeScript.
 
@@ -11,7 +11,7 @@ Build a marketing website + Fumadocs-powered API documentation site for **Dynami
 ## 1. Design Language
 
 ### Theme
-- **Dark-only.** No light mode toggle. The entire site is pitch black (`#000000` body) with subtle grays, like the Dynamic Island pill itself.
+- **Dark-only.** No light mode toggle. The entire site is pitch black (`#000000` body) with subtle grays, like the Super Island pill itself.
 - Typography: Inter or Geist Sans for body, Geist Mono for code. Clean, tight line-heights.
 - Accent color: a subtle warm white (`#E8E8E8`) for primary text, muted gray (`#888`) for secondary. Use color sparingly — only for interactive states, badges, and the pill accent glow.
 - All cards/surfaces use `rgba(255,255,255,0.04)` backgrounds with `1px solid rgba(255,255,255,0.06)` borders. No heavy borders anywhere.
@@ -21,7 +21,7 @@ Build a marketing website + Fumadocs-powered API documentation site for **Dynami
 - Motion: all transitions are spring-based (`spring(response: 0.48, dampingFraction: 0.8)` equivalent in Framer Motion). Nothing should feel linear or abrupt.
 
 ### The Island Component (Hero Element)
-Build a pixel-accurate CSS/SVG replica of the Dynamic Island pill that lives at the top-center of the hero section. This is the centerpiece of the entire site.
+Build a pixel-accurate CSS/SVG replica of the Super Island pill that lives at the top-center of the hero section. This is the centerpiece of the entire site.
 
 **Exact specifications from the app:**
 - Default compact size: `200px × 36px`
@@ -50,7 +50,7 @@ Fixed, transparent, blurred background (`backdrop-filter: blur(20px)`). Contains
 
 | Left | Center | Right |
 |------|--------|-------|
-| Logo ("Dynamic Island" wordmark, clean sans-serif) | — | Three buttons in a row |
+| Logo ("Super Island" wordmark, clean sans-serif) | — | Three buttons in a row |
 
 **Three top-right buttons:**
 1. **Download** — Primary CTA. Pill-shaped, white background, black text. Links to GitHub releases or direct `.dmg` download. Icon: `arrow.down.circle` equivalent.
@@ -60,9 +60,9 @@ Fixed, transparent, blurred background (`backdrop-filter: blur(20px)`). Contains
 ### Page Sections (scrollable, single-page marketing)
 
 #### Hero Section
-- The animated Dynamic Island pill at the top center, floating with a subtle shadow
+- The animated Super Island pill at the top center, floating with a subtle shadow
 - Below the pill: headline "Your Mac's notch, reimagined." in large (48–56px), tight weight
-- Subheadline: "Dynamic Island brings iOS-style live activities to macOS. Music, battery, notifications, calendar — all living in your notch." in muted gray, 18px
+- Subheadline: "Super Island brings iOS-style live activities to macOS. Music, battery, notifications, calendar — all living in your notch." in muted gray, 18px
 - Two CTA buttons below: "Download for macOS" (primary) and "View on GitHub" (ghost)
 - Requires macOS 14+ badge in small muted text
 
@@ -96,7 +96,7 @@ This is the key developer-facing section. Dark card with a code editor aesthetic
 - Show a syntax-highlighted code example of a minimal extension (use the Pomodoro timer as inspiration):
 
 ```javascript
-DynamicIsland.registerModule({
+SuperIsland.registerModule({
   compact() {
     return View.hstack([
       View.icon("brain.head.profile", { size: 12, color: "white" }),
@@ -181,7 +181,7 @@ Extension SDK
 │   ├── Modifiers (padding, frame, opacity, background, cornerRadius, animation)
 │   ├── Mascot
 │   └── Conditional (when / if)
-├── DynamicIsland API Reference
+├── SuperIsland API Reference
 │   ├── Module Registration
 │   ├── Store (Persistent Storage)
 │   ├── Settings (User Preferences)
@@ -219,11 +219,11 @@ Below is the detailed content for each documentation page. Write each as an MDX 
 ```
 ---
 title: Introduction
-description: Dynamic Island for Mac transforms your MacBook notch into a living widget surface.
+description: Super Island for Mac transforms your MacBook notch into a living widget surface.
 ---
 ```
 
-Dynamic Island is a native macOS app (Swift/SwiftUI, macOS 14+) that transforms the MacBook notch area into an interactive Dynamic Island — inspired by iPhone's Dynamic Island. It lives in your notch and surfaces information from 9 built-in modules: Now Playing, Battery, Calendar, Weather, Notifications, Connectivity, Volume/Brightness HUD, Shelf, and Focus Mode.
+Super Island is a native macOS app (Swift/SwiftUI, macOS 14+) that transforms the MacBook notch area into an interactive Super Island — inspired by iPhone's Super Island. It lives in your notch and surfaces information from 9 built-in modules: Now Playing, Battery, Calendar, Weather, Notifications, Connectivity, Volume/Brightness HUD, Shelf, and Focus Mode.
 
 The island has three states:
 - **Compact** (`200×36pt`) — always visible in the notch, showing minimal info
@@ -291,7 +291,7 @@ Document each field with its type, default value, and description. Use a Fumadoc
 | `id` | `string` | *required* | Reverse-domain identifier. Must be unique across all extensions. |
 | `name` | `string` | *required* | Human-readable name shown in settings and module cycler. |
 | `version` | `string` | *required* | Semver version string. |
-| `minAppVersion` | `string` | `"1.0.0"` | Minimum Dynamic Island app version required. |
+| `minAppVersion` | `string` | `"1.0.0"` | Minimum Super Island app version required. |
 | `main` | `string` | `"index.js"` | Path to the entry JavaScript file relative to the extension bundle. |
 | `author` | `object` | `null` | Author info with `name` (string) and optional `url` (string). |
 | `description` | `string` | `""` | Short description shown in extension settings. |
@@ -484,18 +484,18 @@ Colors can be specified as:
 
 ---
 
-#### Extension SDK / DynamicIsland API Reference
+#### Extension SDK / SuperIsland API Reference
 
-Document the global `DynamicIsland` namespace available in every extension.
+Document the global `SuperIsland` namespace available in every extension.
 
 ##### Module Registration
 
-**`DynamicIsland.registerModule(config)`**
+**`SuperIsland.registerModule(config)`**
 
 Registers the extension module. This must be called exactly once during script evaluation.
 
 ```javascript
-DynamicIsland.registerModule({
+SuperIsland.registerModule({
   // Lifecycle hooks
   onActivate() { },
   onDeactivate() { },
@@ -517,37 +517,37 @@ DynamicIsland.registerModule({
 });
 ```
 
-##### Persistent Storage — `DynamicIsland.store`
+##### Persistent Storage — `SuperIsland.store`
 
 Key-value store persisted across app launches. Namespaced per extension.
 
-- **`DynamicIsland.store.get(key)`** — Returns stored value or `null`
-- **`DynamicIsland.store.set(key, value)`** — Stores a JSON-serializable value
+- **`SuperIsland.store.get(key)`** — Returns stored value or `null`
+- **`SuperIsland.store.set(key, value)`** — Stores a JSON-serializable value
 
-##### User Settings — `DynamicIsland.settings`
+##### User Settings — `SuperIsland.settings`
 
 Read user-configured settings (defined by `settings.json`).
 
-- **`DynamicIsland.settings.get(key)`** — Returns setting value or `null`
-- **`DynamicIsland.settings.set(key, value)`** — Programmatically update a setting
+- **`SuperIsland.settings.get(key)`** — Returns setting value or `null`
+- **`SuperIsland.settings.set(key, value)`** — Programmatically update a setting
 
-##### Island Controls — `DynamicIsland.island`
+##### Island Controls — `SuperIsland.island`
 
 Control the island's presentation state.
 
-- **`DynamicIsland.island.activate(autoDismiss?)`** — Expand the island to show this extension. `autoDismiss` defaults to `true`.
-- **`DynamicIsland.island.dismiss()`** — Collapse the island back to compact state.
-- **`DynamicIsland.island.state`** — Read-only string: `"compact"`, `"expanded"`, or `"fullExpanded"`
-- **`DynamicIsland.island.isActive`** — Read-only boolean: whether this extension is the currently displayed module.
+- **`SuperIsland.island.activate(autoDismiss?)`** — Expand the island to show this extension. `autoDismiss` defaults to `true`.
+- **`SuperIsland.island.dismiss()`** — Collapse the island back to compact state.
+- **`SuperIsland.island.state`** — Read-only string: `"compact"`, `"expanded"`, or `"fullExpanded"`
+- **`SuperIsland.island.isActive`** — Read-only boolean: whether this extension is the currently displayed module.
 
-##### Notifications — `DynamicIsland.notifications`
+##### Notifications — `SuperIsland.notifications`
 
-**`DynamicIsland.notifications.send(options)`**
+**`SuperIsland.notifications.send(options)`**
 
 Post a notification that appears in the island and optionally as a system notification.
 
 ```javascript
-DynamicIsland.notifications.send({
+SuperIsland.notifications.send({
   title: "Timer Complete",
   body: "Your 25-minute focus session is done.",
   sound: true,
@@ -566,16 +566,16 @@ DynamicIsland.notifications.send({
 });
 ```
 
-##### HTTP — `DynamicIsland.http`
+##### HTTP — `SuperIsland.http`
 
 **Requires `"network"` permission.**
 
-**`DynamicIsland.http.fetch(url, options?)`**
+**`SuperIsland.http.fetch(url, options?)`**
 
 Synchronous HTTP fetch (runs on the JS thread). Returns a response object.
 
 ```javascript
-var response = DynamicIsland.http.fetch("https://api.example.com/data", {
+var response = SuperIsland.http.fetch("https://api.example.com/data", {
   method: "GET",
   headers: { "Authorization": "Bearer token" },
   body: null,
@@ -584,32 +584,32 @@ var response = DynamicIsland.http.fetch("https://api.example.com/data", {
 // response = { status: 200, headers: {...}, body: "..." }
 ```
 
-##### System — `DynamicIsland.system`
+##### System — `SuperIsland.system`
 
-**`DynamicIsland.system.getAIUsage()`** — Requires `"usage"` permission. Returns Claude and Codex usage data including remaining percentages, reset times, and plan info.
+**`SuperIsland.system.getAIUsage()`** — Requires `"usage"` permission. Returns Claude and Codex usage data including remaining percentages, reset times, and plan info.
 
-**`DynamicIsland.system.getLatestNotification()`** — Requires `"notifications"` permission. Returns the most recent macOS notification as an object.
+**`SuperIsland.system.getLatestNotification()`** — Requires `"notifications"` permission. Returns the most recent macOS notification as an object.
 
-**`DynamicIsland.system.getRecentNotifications(limit?)`** — Requires `"notifications"` permission. Returns array of recent notifications (default limit: 20, max: 100).
+**`SuperIsland.system.getRecentNotifications(limit?)`** — Requires `"notifications"` permission. Returns array of recent notifications (default limit: 20, max: 100).
 
-**`DynamicIsland.system.dismissNotification(sourceID)`** — Dismiss a notification by its source ID.
+**`SuperIsland.system.dismissNotification(sourceID)`** — Dismiss a notification by its source ID.
 
-**`DynamicIsland.system.closePresentedInteraction()`** — Close any interaction panel presented by this extension.
+**`SuperIsland.system.closePresentedInteraction()`** — Close any interaction panel presented by this extension.
 
-##### Mascot — `DynamicIsland.mascot`
+##### Mascot — `SuperIsland.mascot`
 
 Control the animated mascot character.
 
-- **`DynamicIsland.mascot.setExpression(name)`** — Set mascot expression (e.g., `"idle"`, `"working"`, `"happy"`)
-- **`DynamicIsland.mascot.getExpression()`** — Get current expression name
-- **`DynamicIsland.mascot.getSelected()`** — Returns `{ slug, name }` of the selected mascot
-- **`DynamicIsland.mascot.list()`** — Returns array of `{ slug, name }` for all available mascots
-- **`DynamicIsland.mascot.setInput(name, value)`** — Set a Rive input on the mascot animation
+- **`SuperIsland.mascot.setExpression(name)`** — Set mascot expression (e.g., `"idle"`, `"working"`, `"happy"`)
+- **`SuperIsland.mascot.getExpression()`** — Get current expression name
+- **`SuperIsland.mascot.getSelected()`** — Returns `{ slug, name }` of the selected mascot
+- **`SuperIsland.mascot.list()`** — Returns array of `{ slug, name }` for all available mascots
+- **`SuperIsland.mascot.setInput(name, value)`** — Set a Rive input on the mascot animation
 
 ##### Feedback
 
-- **`DynamicIsland.playFeedback(type)`** — Play haptic feedback. Types: `"success"`, `"warning"`, `"error"`, `"selection"`
-- **`DynamicIsland.openURL(url)`** — Open a URL in the default browser
+- **`SuperIsland.playFeedback(type)`** — Play haptic feedback. Types: `"success"`, `"warning"`, `"error"`, `"selection"`
+- **`SuperIsland.openURL(url)`** — Open a URL in the default browser
 
 ##### Console
 
@@ -687,7 +687,7 @@ Extensions can provide a `settings.json` file alongside `manifest.json` to expos
 
 **Supported field types:** `toggle`, `slider`, `stepper`, `picker`, `text`, `color`
 
-Settings values are read in the extension via `DynamicIsland.settings.get("key")`.
+Settings values are read in the extension via `SuperIsland.settings.get("key")`.
 
 ---
 
@@ -697,10 +697,10 @@ Document the permission model:
 
 | Permission | Description | Grants Access To |
 |-----------|-------------|-----------------|
-| `network` | Make HTTP requests to external APIs | `DynamicIsland.http.fetch()`, WhatsApp Web bridge |
-| `storage` | Persist data across sessions | `DynamicIsland.store.get/set()` (always available, but this explicitly declares intent) |
-| `notifications` | Send notifications and read system notifications | `DynamicIsland.notifications.send()`, `DynamicIsland.system.getLatestNotification()`, `DynamicIsland.system.getRecentNotifications()` |
-| `usage` | Read AI tool usage data (Claude, Codex) | `DynamicIsland.system.getAIUsage()` |
+| `network` | Make HTTP requests to external APIs | `SuperIsland.http.fetch()`, WhatsApp Web bridge |
+| `storage` | Persist data across sessions | `SuperIsland.store.get/set()` (always available, but this explicitly declares intent) |
+| `notifications` | Send notifications and read system notifications | `SuperIsland.notifications.send()`, `SuperIsland.system.getLatestNotification()`, `SuperIsland.system.getRecentNotifications()` |
+| `usage` | Read AI tool usage data (Claude, Codex) | `SuperIsland.system.getAIUsage()` |
 
 ---
 
@@ -718,16 +718,16 @@ Extensions run in a JavaScriptCore sandbox with the following restrictions:
 
 #### Extension SDK / Built-in Components
 
-Document the `DynamicIsland.components` namespace:
+Document the `SuperIsland.components` namespace:
 
-**`DynamicIsland.components.shortcutHint()`**
+**`SuperIsland.components.shortcutHint()`**
 Renders a keyboard shortcut hint bar showing "Enter to Send | Shift+Enter for New line".
 
-**`DynamicIsland.components.inputComposer(options?)`**
+**`SuperIsland.components.inputComposer(options?)`**
 A pre-styled text input composer with optional error display and shortcut hints.
 
 ```javascript
-DynamicIsland.components.inputComposer({
+SuperIsland.components.inputComposer({
   placeholder: "Type a message...",
   text: currentText,
   action: "send",
@@ -766,17 +766,17 @@ Include a visual diagram showing the notch with leading/trailing zones.
 ##### Pomodoro Timer
 Full walkthrough of building the Pomodoro extension. Cover:
 - Setting up `manifest.json` with proper capabilities
-- Using `DynamicIsland.store` for state persistence
+- Using `SuperIsland.store` for state persistence
 - Timer logic with `setInterval`/`clearInterval`
 - Rendering in all three display modes
-- Using `DynamicIsland.mascot` to change expressions based on state
+- Using `SuperIsland.mascot` to change expressions based on state
 - Sending notifications on phase completion
 - Playing haptic feedback
 - Settings schema for configurable durations
 
 ##### AI Usage Rings
 Brief example showing:
-- Reading Claude/Codex usage via `DynamicIsland.system.getAIUsage()`
+- Reading Claude/Codex usage via `SuperIsland.system.getAIUsage()`
 - Rendering `View.circularProgress` rings
 - Using `"usage"` permission
 - 15-second refresh interval
@@ -824,5 +824,5 @@ Use these Fumadocs MDX components throughout the docs:
 
 ### SEO
 - Open Graph images: use Fumadocs dynamic OG image generation
-- Title template: `%s — Dynamic Island for Mac`
+- Title template: `%s — Super Island for Mac`
 - Description: "Transform your MacBook's notch into a living widget surface."

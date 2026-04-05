@@ -7,14 +7,14 @@ set -euo pipefail
 
 # --- Configuration (from env or .env file) ---
 source .env 2>/dev/null || true
-APP_NAME="DynamicIsland"
+APP_NAME="SuperIsland"
 SCHEME="${APP_NAME}"
 BUILD_DIR="build"
 ARCHIVE_PATH="${BUILD_DIR}/${APP_NAME}.xcarchive"
 APP_PATH="${BUILD_DIR}/${APP_NAME}.app"
 DMG_PATH="${BUILD_DIR}/${APP_NAME}.dmg"
 DMG_STAGING_DIR="${BUILD_DIR}/dmg-root"
-ENTITLEMENTS="DynamicIsland/DynamicIsland.entitlements"
+ENTITLEMENTS="SuperIsland/SuperIsland.entitlements"
 
 # Required env vars
 : "${APPLE_ID:?Set APPLE_ID in .env}"

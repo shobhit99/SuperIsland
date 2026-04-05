@@ -1,10 +1,10 @@
 # WhatsApp Web Extension
 
-This extension pairs with WhatsApp Web using a QR code, routes incoming message previews into the main DynamicIsland notification feed, and reuses that same authenticated session for message operations.
+This extension pairs with WhatsApp Web using a QR code, routes incoming message previews into the main SuperIsland notification feed, and reuses that same authenticated session for message operations.
 
 ## Setup
 
-1. Open `DynamicIsland Settings -> Extensions -> WhatsApp Web`.
+1. Open `SuperIsland Settings -> Extensions -> WhatsApp Web`.
 2. In `WhatsApp Web Login`, scan the QR code with WhatsApp on your phone.
 3. Keep the extension active.
 

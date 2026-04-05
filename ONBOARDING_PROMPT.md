@@ -2,7 +2,7 @@
 
 ## Overview
 
-Rebuild the entire onboarding flow for **DynamicIsland** (macOS SwiftUI app). The onboarding is a **standalone window** — not a native macOS-feeling window. Think of it as a **compact, floating A4-ish black card** centered on screen. No title bar chrome. No toolbar. Just a clean, dark, self-contained panel with rounded corners and zero native window decorations visible.
+Rebuild the entire onboarding flow for **SuperIsland** (macOS SwiftUI app). The onboarding is a **standalone window** — not a native macOS-feeling window. Think of it as a **compact, floating A4-ish black card** centered on screen. No title bar chrome. No toolbar. Just a clean, dark, self-contained panel with rounded corners and zero native window decorations visible.
 
 The window should be approximately **840×620 points**, with `titlebarAppearsTransparent = true`, `titleVisibility = .hidden`, `.fullSizeContentView` style mask, `isOpaque = false`, `backgroundColor = .clear`. The content fills edge to edge. The overall shape is a large **continuous rounded rectangle (cornerRadius ~28)** clipped to the window bounds, so it reads like a floating dark card on the desktop.
 
@@ -71,7 +71,7 @@ Recreate the iconic Apple "Hello" animation:
 
 #### 2. Subtitle
 Below the Hello text (after a 20pt spacer):
-- **"Welcome to DynamicIsland"** — size 22, weight .semibold, text primary color.
+- **"Welcome to SuperIsland"** — size 22, weight .semibold, text primary color.
 - Below that (8pt gap): **"Your Mac's notch, reimagined."** — size 16, weight .regular, text secondary color.
 
 #### 3. Feature Chips
@@ -104,7 +104,7 @@ A `VStack(spacing: 14)` of permission cards. Each card uses the **liquid glass i
 
 | Permission | SF Symbol | Description |
 |---|---|---|
-| **Screen Recording** | `display` | "Lets DynamicIsland detect your active workspace and render over the notch." |
+| **Screen Recording** | `display` | "Lets SuperIsland detect your active workspace and render over the notch." |
 | **Accessibility** | `figure.stand` | "Required for gesture detection, window interaction, and productivity overlays." |
 
 **Optional permissions** (can be skipped):
@@ -112,7 +112,7 @@ A `VStack(spacing: 14)` of permission cards. Each card uses the **liquid glass i
 | Permission | SF Symbol | Description |
 |---|---|---|
 | **Calendar** | `calendar` | "Show upcoming events right in the island." |
-| **Notifications** | `bell.badge` | "Mirror system notifications in the Dynamic Island." |
+| **Notifications** | `bell.badge` | "Mirror system notifications in the Super Island." |
 | **Microphone** | `mic.fill` | "Powers the audio spectrogram visualizer." |
 | **Location** | `location.fill` | "Displays local weather information." |
 | **Bluetooth** | `wave.3.right` | "Shows connected device status." |
@@ -169,14 +169,14 @@ When a permission is granted, show a small **leaf/petal-shaped badge** at the to
 ### Layout (top to bottom)
 
 #### 1. Section Header
-- **"How to use DynamicIsland"** — size 34, weight .semibold, text primary. Centered.
+- **"How to use SuperIsland"** — size 34, weight .semibold, text primary. Centered.
 - Below: **"A few quick gestures and you're ready."** — size 16, text secondary. Centered.
 
 #### 2. Gesture Instruction Cards
 A centered grid or vertical stack of **3 gesture cards** showing how to interact with the island:
 
 ##### Card A — Swipe Left & Right
-- **Visual**: An animated illustration showing a miniature Dynamic Island capsule (dark pill shape, ~180×36) with a **horizontal arrow animation**:
+- **Visual**: An animated illustration showing a miniature Super Island capsule (dark pill shape, ~180×36) with a **horizontal arrow animation**:
   - A small chevron or hand icon slides left, then right, in a loop.
   - Or: render two arrows `chevron.left` and `chevron.right` on either side of the pill, with a subtle pulsing glow animation.
 - **Title**: "Swipe Left & Right"
@@ -259,7 +259,7 @@ The reference images show a specific icon treatment:
 ## File Structure
 
 ```
-DynamicIsland/Onboarding/
+SuperIsland/Onboarding/
 ├── OnboardingView.swift              — Main container, page state, backdrop, palette, shared components
 ├── OnboardingWindowController.swift  — NSWindow setup (no title bar, dark, fixed size, rounded)
 ├── HelloScreenView.swift             — Page 1: Hello animation + welcome text

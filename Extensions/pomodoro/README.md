@@ -1,6 +1,6 @@
 # Pomodoro Timer Extension
 
-Standalone DynamicIsland extension implemented only with the `DynamicIsland` + `View` JavaScript API.
+Standalone SuperIsland extension implemented only with the `SuperIsland` + `View` JavaScript API.
 
 ## Files
 
@@ -11,5 +11,5 @@ Standalone DynamicIsland extension implemented only with the `DynamicIsland` + `
 ## Notes
 
 - No imports from this app codebase.
-- Can be copied to any DynamicIsland-compatible extension host.
+- Can be copied to any SuperIsland-compatible extension host.
 - Designed to be packaged/distributed independently later (zip/Git release/registry).

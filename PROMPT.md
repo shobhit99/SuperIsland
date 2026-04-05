@@ -1,8 +1,8 @@
-# AI Prompt: Build "DynamicIsland" — A Native macOS Dynamic Island App
+# AI Prompt: Build "SuperIsland" — A Native macOS Super Island App
 
 ## Product Overview
 
-Build a **native macOS application** called **"DynamicIsland"** (working name) that transforms the MacBook notch area (or top-center of non-notched Macs) into an interactive, always-on Dynamic Island — inspired by iOS's Dynamic Island, [DynamicLake](https://www.dynamiclake.com/), and [Alcove](https://tryalcove.com/). The app must be built entirely in **Swift + SwiftUI**, targeting **macOS 14 Sonoma+**, and must be **code-signed and notarized** for distribution via DMG.
+Build a **native macOS application** called **"SuperIsland"** (working name) that transforms the MacBook notch area (or top-center of non-notched Macs) into an interactive, always-on Super Island — inspired by iOS's Super Island, [DynamicLake](https://www.dynamiclake.com/), and [Alcove](https://tryalcove.com/). The app must be built entirely in **Swift + SwiftUI**, targeting **macOS 14 Sonoma+**, and must be **code-signed and notarized** for distribution via DMG.
 
 ---
 
@@ -47,7 +47,7 @@ The island has **4 visual states** with fluid SwiftUI animations between them:
 3. **Expanded:** Medium expansion (~360×80pt) showing a HUD — triggered by system events (volume change, brightness change, now playing change, etc.).
 4. **Full Expanded:** Large expansion (~400×200pt+) showing detailed content — triggered by user click/hover/swipe on the island.
 
-All transitions must use **spring animations** with matching curves to iOS Dynamic Island (`.spring(response: 0.35, dampingFraction: 0.75)`). Content inside must **morphologically transition** — elements should appear to grow from the pill rather than pop in.
+All transitions must use **spring animations** with matching curves to iOS Super Island (`.spring(response: 0.35, dampingFraction: 0.75)`). Content inside must **morphologically transition** — elements should appear to grow from the pill rather than pop in.
 
 ---
 
@@ -341,7 +341,7 @@ Toggle each module on/off individually:
   - Current status summary (playing song, battery %, etc.)
   - Quick toggles for each module
   - "Settings..." menu item
-  - "Quit DynamicIsland" menu item
+  - "Quit SuperIsland" menu item
 
 ---
 
@@ -373,13 +373,13 @@ set -euo pipefail
 
 # --- Configuration (from env or .env file) ---
 source .env 2>/dev/null || true
-APP_NAME="DynamicIsland"
+APP_NAME="SuperIsland"
 SCHEME="${APP_NAME}"
 BUILD_DIR="build"
 ARCHIVE_PATH="${BUILD_DIR}/${APP_NAME}.xcarchive"
 APP_PATH="${BUILD_DIR}/${APP_NAME}.app"
 DMG_PATH="${BUILD_DIR}/${APP_NAME}.dmg"
-ENTITLEMENTS="DynamicIsland/DynamicIsland.entitlements"
+ENTITLEMENTS="SuperIsland/SuperIsland.entitlements"
 
 # Required env vars
 : "${APPLE_ID:?Set APPLE_ID in .env}"
@@ -472,7 +472,7 @@ SIGNING_IDENTITY=Developer ID Application: Your Name (XXXXXXXXXX)
 </plist>
 ```
 
-**`DynamicIsland.entitlements`:**
+**`SuperIsland.entitlements`:**
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -501,13 +501,13 @@ SIGNING_IDENTITY=Developer ID Application: Your Name (XXXXXXXXXX)
 <key>LSUIElement</key>
 <true/>  <!-- Hide from Dock -->
 <key>NSCalendarsUsageDescription</key>
-<string>DynamicIsland needs calendar access to show upcoming events.</string>
+<string>SuperIsland needs calendar access to show upcoming events.</string>
 <key>NSBluetoothAlwaysUsageDescription</key>
-<string>DynamicIsland needs Bluetooth access to show connected device notifications.</string>
+<string>SuperIsland needs Bluetooth access to show connected device notifications.</string>
 <key>NSLocationWhenInUseUsageDescription</key>
-<string>DynamicIsland needs location access for weather information.</string>
+<string>SuperIsland needs location access for weather information.</string>
 <key>NSMicrophoneUsageDescription</key>
-<string>DynamicIsland needs microphone access for audio visualization.</string>
+<string>SuperIsland needs microphone access for audio visualization.</string>
 ```
 
 ---
@@ -515,11 +515,11 @@ SIGNING_IDENTITY=Developer ID Application: Your Name (XXXXXXXXXX)
 ## Project File Structure
 
 ```
-DynamicIsland/
-├── DynamicIsland.xcodeproj
-├── DynamicIsland/
+SuperIsland/
+├── SuperIsland.xcodeproj
+├── SuperIsland/
 │   ├── App/
-│   │   ├── DynamicIslandApp.swift          # @main, App lifecycle, menu bar
+│   │   ├── SuperIslandApp.swift          # @main, App lifecycle, menu bar
 │   │   ├── AppDelegate.swift               # NSApplicationDelegate for AppKit integration
 │   │   └── AppState.swift                  # Global app state ObservableObject
 │   ├── Window/
@@ -590,7 +590,7 @@ DynamicIsland/
 │   │   └── Constants.swift                 # App-wide constants
 │   ├── Resources/
 │   │   ├── Assets.xcassets                 # App icon, SF Symbols overrides
-│   │   └── DynamicIsland.entitlements
+│   │   └── SuperIsland.entitlements
 │   └── Info.plist
 ├── scripts/
 │   └── build-and-release.sh
@@ -742,7 +742,7 @@ Before release, verify:
 
 ## Summary
 
-Build a polished, production-ready macOS Dynamic Island app with these priorities:
+Build a polished, production-ready macOS Super Island app with these priorities:
 1. **Rock-solid window management** — non-activating, always-on-top, notch-aware
 2. **Buttery smooth animations** — spring-based, morphological, 60fps
 3. **Comprehensive system integration** — media, volume, brightness, battery, Bluetooth, calendar, weather

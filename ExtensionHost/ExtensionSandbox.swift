@@ -11,7 +11,7 @@ enum ExtensionSandbox {
         context.evaluateScript("delete globalThis.Function;")
 
         if !permissions.contains("network") {
-            context.evaluateScript("globalThis.__dynamicIslandNetworkDisabled = true;")
+            context.evaluateScript("globalThis.__superIslandNetworkDisabled = true;")
         }
     }
 }

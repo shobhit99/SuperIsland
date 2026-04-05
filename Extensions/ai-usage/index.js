@@ -260,11 +260,11 @@ function ringWithPercent(model, lineWidth) {
 }
 
 function usageSnapshot() {
-  const usage = DynamicIsland.system.getAIUsage();
+  const usage = SuperIsland.system.getAIUsage();
   return usage && typeof usage === "object" ? usage : null;
 }
 
-DynamicIsland.registerModule({
+SuperIsland.registerModule({
   compact() {
     const usage = usageSnapshot();
     const codex = codexModel(usage);

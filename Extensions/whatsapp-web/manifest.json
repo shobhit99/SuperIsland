@@ -7,7 +7,7 @@
   "author": {
     "name": "Workview"
   },
-  "description": "Pairs with WhatsApp Web via QR and routes incoming messages to the DynamicIsland notification feed.",
+  "description": "Pairs with WhatsApp Web via QR and routes incoming messages to the SuperIsland notification feed.",
   "icon": "icon.svg",
   "license": "MIT",
   "categories": ["communication", "productivity"],

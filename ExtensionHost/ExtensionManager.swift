@@ -22,11 +22,13 @@ final class ExtensionManager: ObservableObject {
     let localExtensionsDirectory: URL
     let developmentExtensionsDirectory: URL
     let installedExtensionsDirectory: URL
+    let bundledExtensionsDirectory: URL?
     private let fallbackRepoExtensionsDirectory: URL?
 
     var discoveryDirectories: [URL] {
         var paths: [String: URL] = [:]
         for directory in [
+            bundledExtensionsDirectory,
             fallbackRepoExtensionsDirectory,
             localExtensionsDirectory,
             developmentExtensionsDirectory,
@@ -59,11 +61,12 @@ final class ExtensionManager: ObservableObject {
         localExtensionsDirectory = cwd.appendingPathComponent("Extensions", isDirectory: true)
         developmentExtensionsDirectory = cwd.appendingPathComponent("ExtensionsDev", isDirectory: true)
         fallbackRepoExtensionsDirectory = Self.resolveRepoExtensionsDirectory()
+        bundledExtensionsDirectory = Bundle.main.resourceURL?.appendingPathComponent("BundledExtensions", isDirectory: true)
 
         let appSupportBase = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         installedExtensionsDirectory = appSupportBase
-            .appendingPathComponent("DynamicIsland", isDirectory: true)
+            .appendingPathComponent("SuperIsland", isDirectory: true)
             .appendingPathComponent("Extensions", isDirectory: true)
 
         try? fileManager.createDirectory(at: installedExtensionsDirectory, withIntermediateDirectories: true)
@@ -384,7 +387,7 @@ final class WhatsAppWebBridge: ObservableObject {
     private var appSupportDirectory: URL {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        return base.appendingPathComponent("DynamicIsland", isDirectory: true)
+        return base.appendingPathComponent("SuperIsland", isDirectory: true)
     }
 
     private var authDirectory: URL {

@@ -20,11 +20,11 @@ function toNumber(value, fallback) {
 }
 
 function settingNumber(key, fallback) {
-  return toNumber(DynamicIsland.settings.get(key), fallback);
+  return toNumber(SuperIsland.settings.get(key), fallback);
 }
 
 function settingBool(key, fallback) {
-  var value = DynamicIsland.settings.get(key);
+  var value = SuperIsland.settings.get(key);
   if (typeof value === "boolean") return value;
   if (value === null || value === undefined) return fallback;
   if (typeof value === "number") return value !== 0;
@@ -61,12 +61,12 @@ function todayDateString() {
 }
 
 function resetSessionsIfNewDay() {
-  var storedDate = DynamicIsland.store.get("sessionsDate");
+  var storedDate = SuperIsland.store.get("sessionsDate");
   var today = todayDateString();
   if (storedDate !== today) {
     sessionsCompleted = 0;
-    DynamicIsland.store.set("sessionsCompleted", 0);
-    DynamicIsland.store.set("sessionsDate", today);
+    SuperIsland.store.set("sessionsCompleted", 0);
+    SuperIsland.store.set("sessionsDate", today);
   }
 }
 
@@ -75,21 +75,21 @@ function resetSessionsIfNewDay() {
 // ---------------------------------------------------------------------------
 
 function saveState() {
-  DynamicIsland.store.set("phase", phase);
-  DynamicIsland.store.set("isRunning", isRunning);
-  DynamicIsland.store.set("remainingSeconds", remainingSeconds);
-  DynamicIsland.store.set("sessionsCompleted", sessionsCompleted);
-  DynamicIsland.store.set("sessionsDate", todayDateString());
+  SuperIsland.store.set("phase", phase);
+  SuperIsland.store.set("isRunning", isRunning);
+  SuperIsland.store.set("remainingSeconds", remainingSeconds);
+  SuperIsland.store.set("sessionsCompleted", sessionsCompleted);
+  SuperIsland.store.set("sessionsDate", todayDateString());
 }
 
 function loadState() {
   resetSessionsIfNewDay();
-  sessionsCompleted = toNumber(DynamicIsland.store.get("sessionsCompleted"), 0);
-  var storedPhase = DynamicIsland.store.get("phase");
+  sessionsCompleted = toNumber(SuperIsland.store.get("sessionsCompleted"), 0);
+  var storedPhase = SuperIsland.store.get("phase");
   phase = storedPhase === PHASE_BREAK ? PHASE_BREAK : PHASE_FOCUS;
-  var storedRemaining = toNumber(DynamicIsland.store.get("remainingSeconds"), currentPhaseDuration());
+  var storedRemaining = toNumber(SuperIsland.store.get("remainingSeconds"), currentPhaseDuration());
   remainingSeconds = Math.max(0, Math.min(storedRemaining, currentPhaseDuration()));
-  var storedRunning = DynamicIsland.store.get("isRunning");
+  var storedRunning = SuperIsland.store.get("isRunning");
   isRunning = typeof storedRunning === "boolean" ? storedRunning : false;
   if (remainingSeconds <= 0) remainingSeconds = currentPhaseDuration();
 }
@@ -108,16 +108,16 @@ function startTimer() {
 }
 
 function isFullExpanded() {
-  return DynamicIsland.island.state === "fullExpanded";
+  return SuperIsland.island.state === "fullExpanded";
 }
 
 function revealIsland() {
   if (isFullExpanded()) return;
   var revealSettleDelay = 120;
   var visibleDuration = 2000;
-  DynamicIsland.island.activate(false);
-  setTimeout(function() { DynamicIsland.island.activate(false); }, revealSettleDelay);
-  setTimeout(function() { DynamicIsland.island.dismiss(); }, visibleDuration + revealSettleDelay);
+  SuperIsland.island.activate(false);
+  setTimeout(function() { SuperIsland.island.activate(false); }, revealSettleDelay);
+  setTimeout(function() { SuperIsland.island.dismiss(); }, visibleDuration + revealSettleDelay);
 }
 
 function setRunning(nextRunning) {
@@ -129,22 +129,22 @@ function setRunning(nextRunning) {
 
 function updateMascotExpression() {
   if (!isRunning || phase === PHASE_BREAK) {
-    DynamicIsland.mascot.setExpression("idle");
+    SuperIsland.mascot.setExpression("idle");
     return;
   }
-  DynamicIsland.mascot.setExpression("working");
+  SuperIsland.mascot.setExpression("working");
 }
 
 function switchPhase() {
   var wasFocus = phase === PHASE_FOCUS;
   if (wasFocus) {
     sessionsCompleted += 1;
-    DynamicIsland.store.set("sessionsCompleted", sessionsCompleted);
+    SuperIsland.store.set("sessionsCompleted", sessionsCompleted);
   }
   phase = wasFocus ? PHASE_BREAK : PHASE_FOCUS;
   remainingSeconds = currentPhaseDuration();
   if (settingBool("notifyOnComplete", true)) {
-    DynamicIsland.notifications.send({
+    SuperIsland.notifications.send({
       title: wasFocus ? "Break started" : "Break ended",
       body: wasFocus
         ? "Session " + sessionsCompleted + " complete. Break is now running."
@@ -152,7 +152,7 @@ function switchPhase() {
       sound: settingBool("playSound", true)
     });
   }
-  DynamicIsland.playFeedback("success");
+  SuperIsland.playFeedback("success");
   if (wasFocus) { setRunning(true); revealIsland(); }
   else { setRunning(false); revealIsland(); }
   updateMascotExpression();
@@ -312,7 +312,7 @@ function controlBtn(iconName, actionID, size, primary) {
 // Module
 // ---------------------------------------------------------------------------
 
-DynamicIsland.registerModule({
+SuperIsland.registerModule({
   onActivate: function() {
     loadState();
     if (isRunning) startTimer();

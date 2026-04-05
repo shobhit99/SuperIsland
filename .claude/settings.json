@@ -2,7 +2,7 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:masko.ai)",
-      "Bash(curl -s \"https://masko.ai/api/mascot-templates/otto\" -o /Users/shobhit/Documents/projects/workview-os/dynamic/DynamicIsland/Resources/otto.json)"
+      "Bash(curl -s \"https://masko.ai/api/mascot-templates/otto\" -o /Users/shobhit/Documents/projects/workview-os/dynamic/SuperIsland/Resources/otto.json)"
     ]
   }
 }

@@ -1,10 +1,10 @@
-# DynamicIsland Extension SDK — JavaScript API
+# SuperIsland Extension SDK — JavaScript API
 
 ## Context
 
-DynamicIsland is a native macOS app (Swift/SwiftUI, macOS 14+) that transforms the MacBook notch area into an interactive Dynamic Island. It currently has 8 built-in modules: Now Playing, Volume HUD, Brightness HUD, Battery, Connectivity, Calendar, Weather, and Notifications.
+SuperIsland is a native macOS app (Swift/SwiftUI, macOS 14+) that transforms the MacBook notch area into an interactive Super Island. It currently has 8 built-in modules: Now Playing, Volume HUD, Brightness HUD, Battery, Connectivity, Calendar, Weather, and Notifications.
 
-We want to make DynamicIsland **hackable and extensible** — allowing the community to build, distribute, and install third-party extensions using **JavaScript/TypeScript**, similar to how Raycast extensions work. Extensions run inside a JavaScriptCore sandbox and describe their UI declaratively — the host app renders them natively in SwiftUI.
+We want to make SuperIsland **hackable and extensible** — allowing the community to build, distribute, and install third-party extensions using **JavaScript/TypeScript**, similar to how Raycast extensions work. Extensions run inside a JavaScriptCore sandbox and describe their UI declaratively — the host app renders them natively in SwiftUI.
 
 Current repo layout:
 - `ExtensionHost/` contains the host-side runtime used by the macOS app
@@ -122,15 +122,15 @@ Published extensions are distributed as `.zip` files. The CLI compiles TS → JS
 ```
 
 Supported permissions currently:
-- `notifications` — send macOS notifications and read mirrored notification feed via `DynamicIsland.system`
+- `notifications` — send macOS notifications and read mirrored notification feed via `SuperIsland.system`
 - `storage` — persist extension-scoped key/value state
-- `network` — make requests through `DynamicIsland.http.fetch()`
-- `usage` — read local Codex and Claude usage summaries through `DynamicIsland.system.getAIUsage()`
+- `network` — make requests through `SuperIsland.http.fetch()`
+- `usage` — read local Codex and Claude usage summaries through `SuperIsland.system.getAIUsage()`
 
 `capabilities.notificationFeed`:
 - When `true`, the extension is not shown as a separate module in island cycling.
-- `DynamicIsland.island.activate()` targets the shared Notifications module.
-- `DynamicIsland.notifications.send(...)` is mirrored into the shared Dynamic Island notifications feed.
+- `SuperIsland.island.activate()` targets the shared Notifications module.
+- `SuperIsland.notifications.send(...)` is mirrored into the shared Super Island notifications feed.
 
 #### 1.3 JavaScriptCore Bridge (Swift Side)
 
@@ -148,7 +148,7 @@ final class ExtensionJSRuntime {
         context = JSContext()!
         self.extensionID = extensionID
 
-        // Inject the DynamicIsland global API
+        // Inject the SuperIsland global API
         injectAPI()
 
         // Load the extension's index.js
@@ -157,17 +157,17 @@ final class ExtensionJSRuntime {
     }
 
     private func injectAPI() {
-        // The DynamicIsland global namespace
+        // The SuperIsland global namespace
         let di = JSValue(newObjectIn: context)!
-        context.setObject(di, forKeyedSubscript: "DynamicIsland" as NSString)
+        context.setObject(di, forKeyedSubscript: "SuperIsland" as NSString)
 
-        // DynamicIsland.registerModule(config)
+        // SuperIsland.registerModule(config)
         let register: @convention(block) (JSValue) -> Void = { [weak self] config in
             self?.handleRegistration(config)
         }
         di.setObject(register, forKeyedSubscript: "registerModule" as NSString)
 
-        // DynamicIsland.store — persistent key-value storage
+        // SuperIsland.store — persistent key-value storage
         let store = JSValue(newObjectIn: context)!
         let storeGet: @convention(block) (String) -> JSValue = { [weak self] key in
             // Read from UserDefaults scoped to extension
@@ -181,7 +181,7 @@ final class ExtensionJSRuntime {
         store.setObject(storeSet, forKeyedSubscript: "set" as NSString)
         di.setObject(store, forKeyedSubscript: "store" as NSString)
 
-        // DynamicIsland.island — island control
+        // SuperIsland.island — island control
         let island = JSValue(newObjectIn: context)!
         let activate: @convention(block) (Bool) -> Void = { [weak self] autoDismiss in
             guard let self else { return }
@@ -196,7 +196,7 @@ final class ExtensionJSRuntime {
         island.setObject(dismiss, forKeyedSubscript: "dismiss" as NSString)
         di.setObject(island, forKeyedSubscript: "island" as NSString)
 
-        // DynamicIsland.notifications
+        // SuperIsland.notifications
         let notifications = JSValue(newObjectIn: context)!
         let notify: @convention(block) (JSValue) -> Void = { opts in
             let title = opts.forProperty("title")?.toString() ?? ""
@@ -207,7 +207,7 @@ final class ExtensionJSRuntime {
         notifications.setObject(notify, forKeyedSubscript: "send" as NSString)
         di.setObject(notifications, forKeyedSubscript: "notifications" as NSString)
 
-        // DynamicIsland.http — sandboxed network (only if "network" permission granted)
+        // SuperIsland.http — sandboxed network (only if "network" permission granted)
         let http = JSValue(newObjectIn: context)!
         let fetch: @convention(block) (String, JSValue?) -> JSValue = { url, options in
             // Perform URLSession request, return Promise-like JSValue
@@ -216,7 +216,7 @@ final class ExtensionJSRuntime {
         http.setObject(fetch, forKeyedSubscript: "fetch" as NSString)
         di.setObject(http, forKeyedSubscript: "http" as NSString)
 
-        // DynamicIsland.timers — setInterval/setTimeout
+        // SuperIsland.timers — setInterval/setTimeout
         let setInterval: @convention(block) (JSValue, Double) -> Int = { callback, ms in
             // Schedule repeating timer, return ID
             ...
@@ -261,14 +261,14 @@ final class ExtensionJSRuntime {
 }
 ```
 
-#### 1.4 Extension JavaScript API (`DynamicIsland` global)
+#### 1.4 Extension JavaScript API (`SuperIsland` global)
 
-This is what extension developers use. The following is the **TypeScript type definition** shipped as `@dynamicisland/sdk`:
+This is what extension developers use. The following is the **TypeScript type definition** shipped as `@superisland/sdk`:
 
 ```typescript
-// @dynamicisland/sdk — TypeScript definitions
+// @superisland/sdk — TypeScript definitions
 
-declare namespace DynamicIsland {
+declare namespace SuperIsland {
 
   // ─── Module Registration ───────────────────────────────
 
@@ -550,7 +550,7 @@ type Color = "white" | "gray" | "red" | "green" | "blue" | "yellow"
 The SDK ships a `View` helper so extension code reads cleanly. This is a thin wrapper that produces the JSON objects above:
 
 ```typescript
-// Shipped as part of @dynamicisland/sdk — injected into JSContext as `View` global
+// Shipped as part of @superisland/sdk — injected into JSContext as `View` global
 
 const View = {
   // Layout
@@ -616,10 +616,10 @@ const View = {
 };
 ```
 
-Shared components are also injected on `DynamicIsland.components`. The reusable reply/input tray is available as:
+Shared components are also injected on `SuperIsland.components`. The reusable reply/input tray is available as:
 
 ```typescript
-DynamicIsland.components.inputComposer({
+SuperIsland.components.inputComposer({
   placeholder: "Reply",
   action: "submit",
   id: "reply-box",
@@ -647,7 +647,7 @@ Each extension gets its own `JSContext` (JavaScriptCore). This provides:
 - **No filesystem access** — no `fs`, `require`, `import` (only the injected globals)
 - **No DOM** — no `document`, `window`, `XMLHttpRequest`
 - **No eval** — `eval()` and `Function()` constructor are disabled
-- **Controlled network** — only `DynamicIsland.http.fetch()` (proxied through Swift `URLSession`)
+- **Controlled network** — only `SuperIsland.http.fetch()` (proxied through Swift `URLSession`)
 - **Rate limiting** — max 10 activations/minute, max 60 HTTP requests/minute per extension
 
 ```swift
@@ -658,9 +658,9 @@ final class ExtensionSandbox {
         context.evaluateScript("delete globalThis.eval")
         context.evaluateScript("delete globalThis.Function")
 
-        // Only inject DynamicIsland.http if "network" permission granted
+        // Only inject SuperIsland.http if "network" permission granted
         if !permissions.contains("network") {
-            // DynamicIsland.http.fetch will throw "Permission denied"
+            // SuperIsland.http.fetch will throw "Permission denied"
         }
 
         // Memory limit: 50MB per extension
@@ -694,7 +694,7 @@ final class ExtensionManager: ObservableObject {
     @Published var extensionStates: [String: ExtensionViewState] = [:]
 
     /// Directory where extensions are installed.
-    /// ~/Library/Application Support/DynamicIsland/Extensions/
+    /// ~/Library/Application Support/SuperIsland/Extensions/
     let extensionsDirectory: URL
 
     /// Discover all installed extensions from disk.
@@ -998,7 +998,7 @@ struct ViewNodeRenderer: View {
 - **Review**: CI checks manifest, permissions, bundle size + manual review for dangerous permissions
 
 ```json
-// registry.json — hosted at https://extensions.dynamicisland.app/registry.json
+// registry.json — hosted at https://extensions.superisland.app/registry.json
 {
   "version": 1,
   "extensions": [
@@ -1065,20 +1065,20 @@ final class ExtensionStoreClient: ObservableObject {
 
 ### Phase 5: Developer Tools & CLI
 
-#### 5.1 CLI Tool (`npx @dynamicisland/cli`)
+#### 5.1 CLI Tool (`npx @superisland/cli`)
 
 ```bash
 # Create a new extension from template
-npx @dynamicisland/cli create "Pomodoro Timer" --id com.me.pomodoro
+npx @superisland/cli create "Pomodoro Timer" --id com.me.pomodoro
 
 # Start dev mode (watches for changes, hot-reloads into running app)
-npx @dynamicisland/cli dev
+npx @superisland/cli dev
 
 # Build (compile TS → JS, validate manifest, package .zip)
-npx @dynamicisland/cli build
+npx @superisland/cli build
 
 # Publish to the extension registry
-npx @dynamicisland/cli publish
+npx @superisland/cli publish
 ```
 
 #### 5.2 Scaffolded Project
@@ -1106,13 +1106,13 @@ pomodoro/
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "dynamicisland dev",
-    "build": "dynamicisland build",
-    "publish": "dynamicisland publish"
+    "dev": "superisland dev",
+    "build": "superisland build",
+    "publish": "superisland publish"
   },
   "devDependencies": {
-    "@dynamicisland/sdk": "^1.0.0",
-    "@dynamicisland/cli": "^1.0.0",
+    "@superisland/sdk": "^1.0.0",
+    "@superisland/cli": "^1.0.0",
     "typescript": "^5.0.0"
   }
 }
@@ -1120,7 +1120,7 @@ pomodoro/
 
 #### 5.3 Hot-Reload Protocol
 
-The CLI communicates with the running DynamicIsland app via a local Unix socket or Bonjour:
+The CLI communicates with the running SuperIsland app via a local Unix socket or Bonjour:
 
 1. CLI watches `src/` for changes
 2. On change: compile TS → JS
@@ -1132,7 +1132,7 @@ The CLI communicates with the running DynamicIsland app via a local Unix socket 
 /// Listens for dev tool reload commands on a Unix socket.
 final class ExtensionDevServer {
     private var server: NWListener?
-    let socketPath = "/tmp/dynamicisland-dev.sock"
+    let socketPath = "/tmp/superisland-dev.sock"
 
     func start() {
         // Listen on Unix domain socket
@@ -1240,7 +1240,7 @@ type Permission =
 
 #### 7.2 Runtime Enforcement
 
-- `JSContext` has no filesystem access by default — all storage goes through `DynamicIsland.store`
+- `JSContext` has no filesystem access by default — all storage goes through `SuperIsland.store`
 - Network requests are proxied through Swift's `URLSession` — can be logged, rate-limited, or blocked
 - `shellCommand` requires explicit user approval per command via a system dialog
 - Extensions that throw >10 uncaught errors in 1 minute are auto-disabled
@@ -1293,36 +1293,36 @@ function timerCompleted() {
 
   if (!isBreak) {
     sessionsCompleted++;
-    DynamicIsland.store.set("sessionsCompleted", sessionsCompleted);
+    SuperIsland.store.set("sessionsCompleted", sessionsCompleted);
   }
 
   isBreak = !isBreak;
-  const breakDuration = (DynamicIsland.settings.get("breakDuration") || 5) * 60;
-  const workDuration = (DynamicIsland.settings.get("workDuration") || 25) * 60;
+  const breakDuration = (SuperIsland.settings.get("breakDuration") || 5) * 60;
+  const workDuration = (SuperIsland.settings.get("workDuration") || 25) * 60;
   totalDuration = isBreak ? breakDuration : workDuration;
   remaining = totalDuration;
 
-  if (DynamicIsland.settings.get("notifyOnComplete") !== false) {
-    DynamicIsland.notifications.send({
+  if (SuperIsland.settings.get("notifyOnComplete") !== false) {
+    SuperIsland.notifications.send({
       title: isBreak ? "Time for a break!" : "Break's over!",
       body: isBreak ? `You've completed ${sessionsCompleted} sessions` : "Let's focus!",
-      sound: DynamicIsland.settings.get("playSound") !== false,
+      sound: SuperIsland.settings.get("playSound") !== false,
     });
   }
 
-  DynamicIsland.playFeedback("success");
+  SuperIsland.playFeedback("success");
 }
 
-DynamicIsland.registerModule({
+SuperIsland.registerModule({
   onActivate() {
-    sessionsCompleted = DynamicIsland.store.get("sessionsCompleted") || 0;
-    totalDuration = (DynamicIsland.settings.get("workDuration") || 25) * 60;
+    sessionsCompleted = SuperIsland.store.get("sessionsCompleted") || 0;
+    totalDuration = (SuperIsland.settings.get("workDuration") || 25) * 60;
     remaining = totalDuration;
   },
 
   onDeactivate() {
     if (timerID) clearInterval(timerID);
-    DynamicIsland.store.set("sessionsCompleted", sessionsCompleted);
+    SuperIsland.store.set("sessionsCompleted", sessionsCompleted);
   },
 
   onAction(actionID, value) {
@@ -1331,7 +1331,7 @@ DynamicIsland.registerModule({
         isRunning = !isRunning;
         if (isRunning) {
           timerID = setInterval(tick, 1000);
-          DynamicIsland.island.activate(false);
+          SuperIsland.island.activate(false);
         } else {
           clearInterval(timerID);
           timerID = null;
@@ -1435,14 +1435,14 @@ DynamicIsland.registerModule({
 ## Implementation Order
 
 1. **ViewNode types & renderer** — Define `ViewNode` enum in Swift, build `ViewNodeRenderer` SwiftUI view
-2. **JSContext bridge** — Create `ExtensionJSRuntime` with injected `DynamicIsland` global, `View` helpers, timers, console
+2. **JSContext bridge** — Create `ExtensionJSRuntime` with injected `SuperIsland` global, `View` helpers, timers, console
 3. **Extension lifecycle** — `ExtensionManager` to discover, load, activate, deactivate extensions
 4. **Dynamic module routing** — `ActiveModule` enum, update `CompactView`/`ExpandedView`/`FullExpandedView` routing
-5. **Storage & settings** — `DynamicIsland.store`, `DynamicIsland.settings`, settings schema renderer
+5. **Storage & settings** — `SuperIsland.store`, `SuperIsland.settings`, settings schema renderer
 6. **Sandbox & permissions** — Lock down JSContext, enforce permission model
 7. **Store client** — Fetch registry, download, install, update extensions
 8. **Store UI** — Browse, Installed, Developer tabs in Settings
-9. **CLI tool** — `@dynamicisland/cli` for create, dev, build, publish
+9. **CLI tool** — `@superisland/cli` for create, dev, build, publish
 10. **Hot-reload** — Unix socket dev server, file watcher, live reload
 11. **Pomodoro reference extension** — Prove the SDK works end-to-end
 
@@ -1452,7 +1452,7 @@ DynamicIsland.registerModule({
 
 ```
 ┌─────────────────────────────────────────────┐
-│              DynamicIsland App              │
+│              SuperIsland App              │
 │                                             │
 │  ┌─────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ AppState│  │ Built-in │  │ Extension │  │
@@ -1471,7 +1471,7 @@ DynamicIsland.registerModule({
 │  │       JSContext (per extension)        │  │
 │  │                                       │  │
 │  │  ┌──────────────┐  ┌──────────────┐   │  │
-│  │  │ DynamicIsland│  │   View.*     │   │  │
+│  │  │ SuperIsland│  │   View.*     │   │  │
 │  │  │ (global API) │  │  (helpers)   │   │  │
 │  │  └──────────────┘  └──────────────┘   │  │
 │  │                                       │  │
@@ -1523,4 +1523,4 @@ DynamicIsland.registerModule({
 - Custom window/popover support (extensions only render inside the island)
 - App Store distribution (use our own store)
 - Paid extensions or monetization (all free for v1)
-- Node.js APIs (`fs`, `path`, `crypto`, etc.) — only the injected DynamicIsland globals
+- Node.js APIs (`fs`, `path`, `crypto`, etc.) — only the injected SuperIsland globals

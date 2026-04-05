@@ -1,6 +1,6 @@
 # AI Usage Rings Extension
 
-Displays Codex + Claude usage/availability inside DynamicIsland with circular indicators.
+Displays Codex + Claude usage/availability inside SuperIsland with circular indicators.
 
 ## Colors
 
@@ -10,7 +10,7 @@ Displays Codex + Claude usage/availability inside DynamicIsland with circular in
 
 ## Permissions
 
-- `usage` (required for `DynamicIsland.system.getAIUsage()`)
+- `usage` (required for `SuperIsland.system.getAIUsage()`)
 
 ## Data Sources
 
