@@ -34,12 +34,17 @@ struct CompactView: View {
     }
 
     /// Resolves which module to actually display, applying priority rules:
-    /// 1. Volume/brightness HUDs always win (transient system events).
+    /// 1. Volume/brightness HUDs win in expanded state (the HUD is actively showing).
+    ///    In compact state they yield to Now Playing so music reclaims the pill after dismiss.
     /// 2. Music (isPlaying) beats passive modules — battery and shelf.
     /// 3. Everything else shows as requested.
     private var resolvedModule: ActiveModule? {
         guard let module = appState.activeModule else { return nil }
         if case .builtIn(let t) = module, t == .volumeHUD || t == .brightnessHUD {
+            // In compact state the HUD has already dismissed — let music take over.
+            if nowPlaying.isPlaying && appState.currentState == .compact {
+                return .builtIn(.nowPlaying)
+            }
             return module
         }
         if nowPlaying.isPlaying, case .builtIn(let t) = module, t == .battery || t == .shelf {

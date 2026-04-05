@@ -48,7 +48,28 @@ xcodebuild -exportArchive \
   -exportOptionsPlist exportOptions.plist \
   -exportPath "${BUILD_DIR}"
 
-echo "==> Verifying signature from export..."
+echo "==> Bundling Node.js runtime..."
+NODE_VERSION="20.19.0"
+NODE_TMP="$(mktemp -d)"
+curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-arm64.tar.gz" \
+  | tar -xz -C "${NODE_TMP}" --strip-components=2 "node-v${NODE_VERSION}-darwin-arm64/bin/node"
+cp "${NODE_TMP}/node" "${APP_PATH}/Contents/Resources/node"
+chmod +x "${APP_PATH}/Contents/Resources/node"
+rm -rf "${NODE_TMP}"
+echo "   Bundled node v${NODE_VERSION} ($(du -sh "${APP_PATH}/Contents/Resources/node" | cut -f1))"
+
+echo "==> Re-signing app (required after injecting node binary)..."
+# Sign the bundled node binary with JIT entitlements (V8 requires executable memory)
+NODE_ENTITLEMENTS="SuperIsland/node.entitlements"
+codesign --sign "${SIGNING_IDENTITY}" --force --options runtime \
+  --entitlements "${NODE_ENTITLEMENTS}" \
+  "${APP_PATH}/Contents/Resources/node"
+# Re-sign the entire app bundle
+codesign --sign "${SIGNING_IDENTITY}" --force --deep --options runtime \
+  --entitlements "${ENTITLEMENTS}" \
+  "${APP_PATH}"
+
+echo "==> Verifying signature..."
 codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
 
 echo "==> Preparing DMG contents..."
@@ -80,6 +101,5 @@ xcrun stapler validate "${DMG_PATH}"
 spctl --assess --type open --context context:primary-signature --verbose "${DMG_PATH}"
 
 echo ""
-echo "SUCCESS: ${DMG_PATH} is signed, notarized, and ready for distribution!"
-echo "   File: $(du -h "${DMG_PATH}" | cut -f1) -- ${DMG_PATH}"
-echo "   Open the mounted DMG, then drag ${APP_NAME}.app into Applications."
+echo "SUCCESS: ${DMG_PATH} is signed, notarized, and ready to ship!"
+echo "   Size: $(du -h "${DMG_PATH}" | cut -f1) -- ${DMG_PATH}"

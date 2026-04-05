@@ -409,17 +409,32 @@ final class NowPlayingManager: ObservableObject {
     }
 
     private func mediaRemoteAdapterResources() -> (scriptURL: URL, frameworkURL: URL)? {
-        if let resourceURL = Bundle.main.resourceURL {
-            let adapterDirectory = resourceURL.appendingPathComponent("MediaRemoteAdapter", isDirectory: true)
-            let scriptURL = adapterDirectory.appendingPathComponent("mediaremote-adapter.pl")
-            let frameworkURL = adapterDirectory.appendingPathComponent("MediaRemoteAdapter.framework")
+        let fm = FileManager.default
 
-            if FileManager.default.fileExists(atPath: scriptURL.path),
-               FileManager.default.fileExists(atPath: frameworkURL.path) {
+        // Xcode copies the .pl script to Contents/Resources and the .framework to
+        // Contents/Frameworks — check those canonical bundle locations first.
+        if let resourceURL = Bundle.main.resourceURL,
+           let frameworksURL = Bundle.main.privateFrameworksURL {
+            let scriptURL = resourceURL.appendingPathComponent("mediaremote-adapter.pl")
+            let frameworkURL = frameworksURL.appendingPathComponent("MediaRemoteAdapter.framework")
+            if fm.fileExists(atPath: scriptURL.path),
+               fm.fileExists(atPath: frameworkURL.path) {
                 return (scriptURL, frameworkURL)
             }
         }
 
+        // Legacy layout: both files inside a MediaRemoteAdapter/ subfolder in Resources.
+        if let resourceURL = Bundle.main.resourceURL {
+            let dir = resourceURL.appendingPathComponent("MediaRemoteAdapter", isDirectory: true)
+            let scriptURL = dir.appendingPathComponent("mediaremote-adapter.pl")
+            let frameworkURL = dir.appendingPathComponent("MediaRemoteAdapter.framework")
+            if fm.fileExists(atPath: scriptURL.path),
+               fm.fileExists(atPath: frameworkURL.path) {
+                return (scriptURL, frameworkURL)
+            }
+        }
+
+        // Dev fallback: resolve relative to source file (only works on the build machine).
         let sourceRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -428,8 +443,8 @@ final class NowPlayingManager: ObservableObject {
         let scriptURL = adapterDirectory.appendingPathComponent("mediaremote-adapter.pl")
         let frameworkURL = adapterDirectory.appendingPathComponent("MediaRemoteAdapter.framework")
 
-        guard FileManager.default.fileExists(atPath: scriptURL.path),
-              FileManager.default.fileExists(atPath: frameworkURL.path) else {
+        guard fm.fileExists(atPath: scriptURL.path),
+              fm.fileExists(atPath: frameworkURL.path) else {
             return nil
         }
 
@@ -439,7 +454,12 @@ final class NowPlayingManager: ObservableObject {
     // MARK: - AppleScript Fallback
 
     private func refreshPreferredSource() {
-        guard !adapterDidDeliverUpdate else { return }
+        // If the adapter is active but nothing is currently playing through it,
+        // Chrome may be the source — it doesn't reliably register with MediaRemote.
+        // In that case fall through to the Chrome AppleScript path.
+        if adapterDidDeliverUpdate, !title.isEmpty {
+            return
+        }
         let currentSource = sourceName
 
         appleScriptQueue.async { [weak self] in

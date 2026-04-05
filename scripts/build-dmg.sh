@@ -36,6 +36,16 @@ if [ -z "${BUILT_APP}" ]; then
 fi
 cp -R "${BUILT_APP}" "${APP_PATH}"
 
+echo "==> Bundling Node.js runtime..."
+NODE_VERSION="20.19.0"
+NODE_TMP="$(mktemp -d)"
+curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-arm64.tar.gz" \
+  | tar -xz -C "${NODE_TMP}" --strip-components=2 "node-v${NODE_VERSION}-darwin-arm64/bin/node"
+cp "${NODE_TMP}/node" "${APP_PATH}/Contents/Resources/node"
+chmod +x "${APP_PATH}/Contents/Resources/node"
+rm -rf "${NODE_TMP}"
+echo "   Bundled node v${NODE_VERSION} ($(du -sh "${APP_PATH}/Contents/Resources/node" | cut -f1))"
+
 echo "==> Code signing for local testing..."
 # An unsigned app can't register with TCC (Calendar, Location, etc. won't appear in System Settings).
 # Sign with any available development or Developer ID certificate if one exists.

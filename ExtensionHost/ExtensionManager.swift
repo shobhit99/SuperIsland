@@ -401,14 +401,27 @@ final class WhatsAppWebBridge: ObservableObject {
     }
 
     private static var providerDirectory: URL {
+        // Prefer the bundled copy (copied by the post-compile script in project.yml)
+        if let bundleResources = Bundle.main.resourceURL {
+            let bundled = bundleResources.appendingPathComponent(
+                "BundledExtensions/whatsapp-web/provider", isDirectory: true)
+            if FileManager.default.fileExists(atPath: bundled.path) {
+                return bundled
+            }
+        }
+        // Dev fallback: resolve relative to source file (only valid on the original dev machine)
         let sourceFileURL = URL(fileURLWithPath: #filePath)
-        let extensionHostDirectory = sourceFileURL.deletingLastPathComponent()
-        let repoRoot = extensionHostDirectory.deletingLastPathComponent()
+        let repoRoot = sourceFileURL.deletingLastPathComponent().deletingLastPathComponent()
         return repoRoot.appendingPathComponent("Extensions/whatsapp-web/provider", isDirectory: true)
     }
 
     private var providerScriptURL: URL {
-        Self.providerDirectory.appendingPathComponent("index.mjs", isDirectory: false)
+        // Prefer pre-bundled single-file build (no node_modules needed at runtime)
+        let bundleURL = Self.providerDirectory.appendingPathComponent("bundle.cjs", isDirectory: false)
+        if FileManager.default.fileExists(atPath: bundleURL.path) {
+            return bundleURL
+        }
+        return Self.providerDirectory.appendingPathComponent("index.mjs", isDirectory: false)
     }
 
     private var bridgeRefreshSignature: String {
@@ -569,9 +582,10 @@ final class WhatsAppWebBridge: ObservableObject {
         guard let nodeExecutableURL = resolveNodeExecutableURL() else {
             performBridgeUpdate {
                 connectionState = .error
-                statusText = "Node.js not found"
-                lastError = "Unable to resolve a Node.js executable for the WhatsApp realtime provider"
+                statusText = "Node.js required"
+                lastError = "Node.js is not installed. Please install it from nodejs.org, then restart Super Island."
             }
+            DispatchQueue.main.async { Self.showNodeJSInstallAlert() }
             return
         }
 
@@ -670,10 +684,29 @@ final class WhatsAppWebBridge: ObservableObject {
         }
     }
 
+    private static func showNodeJSInstallAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Node.js Required for WhatsApp"
+        alert.informativeText = "The WhatsApp integration needs Node.js to run. It's a free, one-time install — just download the macOS installer from nodejs.org and restart Super Island."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Download Node.js")
+        alert.addButton(withTitle: "Dismiss")
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(URL(string: "https://nodejs.org/en/download")!)
+        }
+    }
+
     private func resolveNodeExecutableURL() -> URL? {
         if let cachedNodeExecutableURL,
            fileManager.isExecutableFile(atPath: cachedNodeExecutableURL.path) {
             return cachedNodeExecutableURL
+        }
+
+        // Bundled node binary (injected into app bundle by build scripts — no system install needed)
+        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("node"),
+           fileManager.isExecutableFile(atPath: bundled.path) {
+            cachedNodeExecutableURL = bundled
+            return bundled
         }
 
         let envPathCandidates = (ProcessInfo.processInfo.environment["PATH"] ?? "")
