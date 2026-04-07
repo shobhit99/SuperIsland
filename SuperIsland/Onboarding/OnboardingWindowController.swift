@@ -44,6 +44,7 @@ final class OnboardingWindowController {
 
         // When another app deactivates (e.g. System Settings closes after granting),
         // reclaim focus so the onboarding window comes back.
+        // Exception: don't steal focus while System Settings is open (e.g. for accessibility grant).
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didDeactivateApplicationNotification,
             object: nil,
@@ -52,6 +53,9 @@ final class OnboardingWindowController {
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                // Don't pull the onboarding in front if the user is interacting with System Settings
+                let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                if frontmost == "com.apple.systempreferences" { return }
                 self?.bringToFront()
             }
         }

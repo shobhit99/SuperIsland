@@ -45,8 +45,15 @@ final class WeatherManager: NSObject, ObservableObject {
     // MARK: - Location
 
     func requestLocationAndFetch() {
-        locationManager.requestWhenInUseAuthorization()
-        locationManager.requestLocation()
+        switch locationManager.authorizationStatus {
+        case .authorizedAlways, .authorized:
+            locationManager.startUpdatingLocation()
+        case .notDetermined:
+            locationManager.requestAlwaysAuthorization()
+            // locationManagerDidChangeAuthorization will call startUpdatingLocation() once granted
+        default:
+            break
+        }
     }
 
     // MARK: - Fetching (Open-Meteo free API)
@@ -238,12 +245,22 @@ final class WeatherManager: NSObject, ObservableObject {
 // MARK: - CLLocationManagerDelegate
 
 extension WeatherManager: CLLocationManagerDelegate {
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorized:
+            manager.startUpdatingLocation()
+        default:
+            break
+        }
+    }
+
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
+        manager.stopUpdatingLocation()
         fetchWeather(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        print("Location error: \(error)")
+        NSLog("SuperIsland: location error — \(error.localizedDescription), status=\(locationManager.authorizationStatus.rawValue)")
     }
 }

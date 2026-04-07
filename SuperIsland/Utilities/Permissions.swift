@@ -225,7 +225,7 @@ final class PermissionsManager {
 
         // .notDetermined — request authorization, then open Settings as fallback
         NSApp.activate(ignoringOtherApps: true)
-        locationManager?.requestWhenInUseAuthorization()
+        locationManager?.requestAlwaysAuthorization()
 
         // If the system dialog doesn't appear (LSUIElement quirk), open Settings
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in

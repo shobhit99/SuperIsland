@@ -81,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if state.calendarEnabled, PermissionsManager.shared.check(.calendar) {
             _ = CalendarManager.shared
         }
-        if state.weatherEnabled, PermissionsManager.shared.check(.location) {
+        if state.weatherEnabled {
             _ = WeatherManager.shared
         }
         if state.notificationsEnabled {

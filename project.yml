@@ -38,6 +38,7 @@ targets:
       path: SuperIsland/SuperIsland.entitlements
       properties:
         com.apple.security.personal-information.calendars: true
+        com.apple.security.personal-information.location: true
         com.apple.security.automation.apple-events: true
     postCompileScripts:
       - name: "Copy Built-in Extensions"

@@ -41,6 +41,10 @@
     <string>SuperIsland needs calendar access to show upcoming events.</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>SuperIsland needs Bluetooth access to show connected device notifications.</string>
+    <key>NSLocationUsageDescription</key>
+    <string>SuperIsland needs location access for weather information.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>SuperIsland needs location access for weather information.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>SuperIsland needs location access for weather information.</string>
     <key>NSMicrophoneUsageDescription</key>
