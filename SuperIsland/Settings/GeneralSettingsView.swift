@@ -121,7 +121,7 @@ struct GeneralSettingsView: View {
                 SettingToggleRow(title: "Show on all Spaces", isOn: $appState.showOnAllSpaces)
                 SettingRowDivider()
                 HStack {
-                    Text("Animation speed").font(.system(size: 13))
+                    Text("Animation Speed").font(.system(size: 13))
                     Spacer()
                     Picker("", selection: $appState.animationSpeed) {
                         Text("Normal").tag(1.0)

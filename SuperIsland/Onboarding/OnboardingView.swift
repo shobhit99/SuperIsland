@@ -501,7 +501,7 @@ private struct GesturesScreen: View {
 
             Spacer(minLength: 0)
 
-            PrimaryButton(title: "Continue", action: next)
+            PrimaryButton(title: "Understood", action: next)
         }
         .frame(maxWidth: OnboardingMetrics.contentWidth, maxHeight: .infinity)
         .onAppear {
