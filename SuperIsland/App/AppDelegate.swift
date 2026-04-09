@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Carbon.HIToolbox
+import Combine
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -8,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let linearOAuthStoreKey = "extensions.\(linearExtensionID).store.oauth"
     private var islandWindowController: IslandWindowController?
     private var onboardingWindowController: OnboardingWindowController?
+    private var updateWindowController: UpdateWindowController?
+    private var updateCancellable: AnyCancellable?
     private var statusItem: NSStatusItem?
     private var didBootstrapApp = false
     private static var fallbackSettingsWindowController: NSWindowController?
@@ -97,6 +100,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         extensions.activateDiscoveredExtensions()
 
         UpdateChecker.shared.checkIfDue()
+        observeUpdateState()
+    }
+
+    private func observeUpdateState() {
+        updateCancellable = UpdateChecker.shared.$checkState
+            .compactMap { state -> (String, URL)? in
+                if case .updateAvailable(let version, let url) = state { return (version, url) }
+                return nil
+            }
+            .first()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] version, url in
+                // Small delay so the app settles before showing the dialog
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    self?.showUpdateDialog(version: version, releaseURL: url)
+                }
+            }
+    }
+
+    private func showUpdateDialog(version: String, releaseURL: URL) {
+        let controller = UpdateWindowController(version: version, releaseURL: releaseURL)
+        updateWindowController = controller
+        controller.show()
     }
 
     private func registerURLHandler() {
