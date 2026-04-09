@@ -4,7 +4,7 @@ import Foundation
 final class UpdateChecker: ObservableObject {
     static let shared = UpdateChecker()
 
-    private static let apiURL = URL(string: "https://api.github.com/repos/SuperCmdLabs/SuperIsland/releases/latest")!
+    private static let apiURL = URL(string: "https://api.github.com/repos/shobhit99/superisland/releases/latest")!
     private static let lastCheckedKey = "updateChecker.lastCheckedAt"
     private static let dailyInterval: TimeInterval = 86400
 
