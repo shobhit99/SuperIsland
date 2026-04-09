@@ -23,7 +23,7 @@ final class CalendarManager: ObservableObject {
     private let store = EKEventStore()
     private var refreshTimer: Timer?
     private var preEventTimer: Timer?
-    private let calendarQueue = DispatchQueue(label: "com.workview.SuperIsland.calendar", qos: .userInitiated)
+    private let calendarQueue = DispatchQueue(label: "superisland.calendar", qos: .userInitiated)
     @Published var datesWithEvents: Set<Date> = []
 
     var preEventMinutes: Int {

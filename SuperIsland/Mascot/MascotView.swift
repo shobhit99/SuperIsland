@@ -43,7 +43,7 @@ struct MascotRendererView: View {
     }
 
     private var shouldHideMascot: Bool {
-        extensionID == "com.workview.pomodoro" && !manager.showInPomodoro
+        extensionID == "superisland.pomodoro" && !manager.showInPomodoro
     }
 }
 

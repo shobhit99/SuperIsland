@@ -74,7 +74,7 @@ Example:
 
 ```json
 {
-  "id": "com.workview.pomodoro",
+  "id": "superisland.pomodoro",
   "name": "Pomodoro Timer",
   "version": "1.0.0",
   "main": "index.js",

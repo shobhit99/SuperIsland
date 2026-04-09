@@ -31,7 +31,7 @@ final class VolumeManager: ObservableObject {
     private var muteListenerBlock: AudioObjectPropertyListenerBlock?
     private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
     private var mediaPollTimer: Timer?
-    private let appleScriptQueue = DispatchQueue(label: "com.workview.applescript", qos: .utility)
+    private let appleScriptQueue = DispatchQueue(label: "superisland.applescript", qos: .utility)
 
     private init() {
         setupDefaultDevice()

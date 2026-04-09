@@ -27,7 +27,7 @@ Drop your extension folder into `Extensions/` and it will be discovered automati
 
 ```json
 {
-  "id": "com.yourname.your-extension",
+  "id": "superisland.your-extension",
   "name": "My Extension",
   "version": "1.0.0",
   "minAppVersion": "1.0.0",

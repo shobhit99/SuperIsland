@@ -5,7 +5,7 @@ import Combine
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private static let linearExtensionID = "com.workview.linear-mentions"
+    private static let linearExtensionID = "superisland.linear-mentions"
     private static let linearOAuthStoreKey = "extensions.\(linearExtensionID).store.oauth"
     private var islandWindowController: IslandWindowController?
     private var onboardingWindowController: OnboardingWindowController?

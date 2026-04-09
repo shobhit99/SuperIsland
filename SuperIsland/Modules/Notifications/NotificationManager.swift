@@ -35,7 +35,7 @@ struct IslandNotification: Identifiable {
 @MainActor
 final class NotificationManager: ObservableObject {
     private static let accessibilityPromptedDefaultsKey = "notifications.accessibilityPrompted"
-    private static let whatsappExtensionID = "com.workview.whatsapp-web"
+    private static let whatsappExtensionID = "superisland.whatsapp-web"
 
     private struct WhatsAppLogEvent {
         let eventID: String
@@ -60,8 +60,8 @@ final class NotificationManager: ObservableObject {
     @Published var hasPermission: Bool = false
 
     private let maxNotifications = 10
-    private let logMonitorQueue = DispatchQueue(label: "com.workview.dynamic.whatsapp-log-monitor", qos: .utility)
-    private let deliveredMonitorQueue = DispatchQueue(label: "com.workview.dynamic.notifications-delivered-monitor", qos: .utility)
+    private let logMonitorQueue = DispatchQueue(label: "superisland.whatsapp-log-monitor", qos: .utility)
+    private let deliveredMonitorQueue = DispatchQueue(label: "superisland.notifications-delivered-monitor", qos: .utility)
     private var whatsappLogMonitorTimer: DispatchSourceTimer?
     private var deliveredNotificationMonitorTimer: DispatchSourceTimer?
     private var seenWhatsAppEventIDs: [String] = []

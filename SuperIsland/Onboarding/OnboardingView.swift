@@ -568,21 +568,21 @@ private struct OnboardingExtensionInfo: Identifiable {
 
     static let available: [OnboardingExtensionInfo] = [
         OnboardingExtensionInfo(
-            id: "com.workview.pomodoro",
+            id: "superisland.pomodoro",
             name: "Pomodoro Timer",
             description: "Focus timer with countdown in the island",
             fallbackIcon: "timer",
             badge: nil
         ),
         OnboardingExtensionInfo(
-            id: "com.workview.whatsapp-web",
+            id: "superisland.whatsapp-web",
             name: "WhatsApp Web",
             description: "Route WhatsApp messages to the island",
             fallbackIcon: "message.fill",
             badge: "Requires Login"
         ),
         OnboardingExtensionInfo(
-            id: "com.workview.ai-usage",
+            id: "superisland.ai-usage",
             name: "AI Usage",
             description: "Claude & Codex usage rings in the notch",
             fallbackIcon: "brain.head.profile",
