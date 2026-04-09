@@ -78,7 +78,7 @@ struct AdvancedSettingsView: View {
             Text("Checking...").font(.system(size: 11)).foregroundColor(.secondary)
         case .upToDate:
             Text("You're up to date").font(.system(size: 11)).foregroundColor(.green)
-        case .updateAvailable(let version, _):
+        case .updateAvailable(let version, _, _):
             Text("Version \(version) available").font(.system(size: 11)).foregroundColor(.orange)
         case .failed(let message):
             Text(message).font(.system(size: 11)).foregroundColor(.red)
@@ -90,10 +90,16 @@ struct AdvancedSettingsView: View {
         switch updateChecker.checkState {
         case .checking:
             ProgressView().controlSize(.small)
-        case .updateAvailable(_, let url):
-            Button("Download") { NSWorkspace.shared.open(url) }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+        case .updateAvailable(let version, let releaseURL, let downloadURL):
+            Button("Update") {
+                if let downloadURL {
+                    AutoUpdater.shared.start(downloadURL: downloadURL, releaseURL: releaseURL)
+                } else {
+                    NSWorkspace.shared.open(releaseURL)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
         default:
             Button("Check for Updates") { updateChecker.checkNow() }
                 .buttonStyle(.bordered)

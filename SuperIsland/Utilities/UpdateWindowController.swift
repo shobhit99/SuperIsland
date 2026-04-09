@@ -5,7 +5,7 @@ import SwiftUI
 final class UpdateWindowController {
     private let window: NSWindow
 
-    init(version: String, releaseURL: URL) {
+    init(version: String, releaseURL: URL, downloadURL: URL?) {
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 210),
             styleMask: [.titled, .fullSizeContentView],
@@ -31,13 +31,23 @@ final class UpdateWindowController {
         let rootView = UpdateDialogView(
             version: version,
             releaseURL: releaseURL,
+            downloadURL: downloadURL,
             onDismiss: { [weak self] in self?.close() }
         )
         window.contentViewController = NSHostingController(rootView: rootView)
     }
 
     func show() {
-        window.center()
+        if let screen = NSScreen.main {
+            let sf = screen.visibleFrame
+            let origin = NSPoint(
+                x: sf.midX - window.frame.width / 2,
+                y: sf.midY - window.frame.height / 2
+            )
+            window.setFrameOrigin(origin)
+        } else {
+            window.center()
+        }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }

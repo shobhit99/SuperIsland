@@ -12,7 +12,7 @@ final class UpdateChecker: ObservableObject {
         case idle
         case checking
         case upToDate
-        case updateAvailable(latestVersion: String, releaseURL: URL)
+        case updateAvailable(latestVersion: String, releaseURL: URL, downloadURL: URL?)
         case failed(String)
     }
 
@@ -59,11 +59,15 @@ final class UpdateChecker: ObservableObject {
                 return
             }
 
+            let assets = json["assets"] as? [[String: Any]] ?? []
+            let dmgAsset = assets.first { ($0["name"] as? String)?.hasSuffix(".dmg") == true }
+            let downloadURL = (dmgAsset?["browser_download_url"] as? String).flatMap { URL(string: $0) }
+
             let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
             let latestVersion = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
 
             if isNewer(latestVersion, than: currentVersion) {
-                checkState = .updateAvailable(latestVersion: latestVersion, releaseURL: releaseURL)
+                checkState = .updateAvailable(latestVersion: latestVersion, releaseURL: releaseURL, downloadURL: downloadURL)
             } else {
                 checkState = .upToDate
             }
