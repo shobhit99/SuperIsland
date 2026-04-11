@@ -273,6 +273,7 @@ final class AppState: ObservableObject {
     @AppStorage("general.expandedAutoDismissDelay") var expandedAutoDismissDelay: Double = 1.0
     @AppStorage("general.notchHapticIntensity") var notchHapticIntensity = NotchHapticIntensity.medium.rawValue
     @AppStorage("general.lockFullExpandedInPlace") var lockFullExpandedInPlace = false
+    @AppStorage("general.hideSideSlots") var hideSideSlots = false
     @AppStorage("onboarding.completed") var onboardingCompleted = false
     @AppStorage("debug.alwaysShowOnboarding") var debugAlwaysShowOnboarding = false
 
@@ -795,6 +796,7 @@ final class AppState: ObservableObject {
 
     var shouldUseMinimalCompactLayout: Bool {
         guard presentationHasNotch,
+              !hideSideSlots,
               compactMinimalSideExpansion > 0,
               let module = compactPresentationModule else {
             return false

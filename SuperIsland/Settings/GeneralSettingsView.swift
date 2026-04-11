@@ -119,6 +119,10 @@ struct GeneralSettingsView: View {
             SettingSectionLabel(title: "Display")
             SettingGroup {
                 SettingToggleRow(title: "Show on all Spaces", isOn: $appState.showOnAllSpaces)
+                if appState.presentationHasNotch {
+                    SettingRowDivider()
+                    SettingToggleRow(title: "Hide side slots", isOn: $appState.hideSideSlots)
+                }
                 SettingRowDivider()
                 HStack {
                     Text("Animation Speed").font(.system(size: 13))

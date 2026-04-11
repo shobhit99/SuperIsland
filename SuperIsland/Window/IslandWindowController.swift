@@ -251,6 +251,9 @@ final class IslandWindowController {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.panel?.setVisibleInScreenRecordings(self.appState.showInScreenRecordings)
+                // Keep the compact frame in sync with settings that change its
+                // content size (e.g. toggling "Hide side slots" on notch Macs).
+                self.updateCompactFrameIfNeeded()
             }
         }
     }
