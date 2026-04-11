@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var updateWindowController: UpdateWindowController?
     private var updateCancellable: AnyCancellable?
     private var statusItem: NSStatusItem?
+    private var menuBarDefaultsObserver: NSObjectProtocol?
     private var didBootstrapApp = false
     private static var fallbackSettingsWindowController: NSWindowController?
 
@@ -31,12 +32,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !didBootstrapApp else { return }
         didBootstrapApp = true
         setupIslandWindow()
-        setupMenuBar()
+        applyMenuBarVisibility()
+        observeMenuBarSetting()
         initializeManagers()
     }
 
     private func showOnboardingIfNeeded() {
-        setupMenuBar()
+        applyMenuBarVisibility()
+        observeMenuBarSetting()
 
         // LSUIElement apps can't reliably bring windows to the front.
         // Temporarily become a regular app so the onboarding window appears.
@@ -202,12 +205,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Menu Bar
 
-    private func setupMenuBar() {
-        guard AppState.shared.showMenuBarIcon else { return }
+    private func applyMenuBarVisibility() {
+        if AppState.shared.showMenuBarIcon {
+            installStatusItem()
+        } else {
+            removeStatusItem()
+        }
+    }
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    private func installStatusItem() {
+        guard statusItem == nil else { return }
 
-        if let button = statusItem?.button {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+
+        if let button = item.button {
             button.image = NSImage(systemSymbolName: Constants.menuBarIconName, accessibilityDescription: "SuperIsland")
         }
 
@@ -219,11 +230,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let modulesItem = NSMenuItem(title: "Modules", action: nil, keyEquivalent: "")
         let modulesMenu = NSMenu()
         for module in ModuleType.allCases {
-            let item = NSMenuItem(title: module.displayName, action: #selector(toggleModule(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = module.rawValue
-            item.state = AppState.shared.isModuleEnabled(module) ? .on : .off
-            modulesMenu.addItem(item)
+            let moduleItem = NSMenuItem(title: module.displayName, action: #selector(toggleModule(_:)), keyEquivalent: "")
+            moduleItem.target = self
+            moduleItem.representedObject = module.rawValue
+            moduleItem.state = AppState.shared.isModuleEnabled(module) ? .on : .off
+            modulesMenu.addItem(moduleItem)
         }
         modulesItem.submenu = modulesMenu
         menu.addItem(modulesItem)
@@ -233,7 +244,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(makeMenuItem(title: "Quit SuperIsland", action: #selector(quitApp), keyEquivalent: "q"))
 
-        statusItem?.menu = menu
+        item.menu = menu
+        statusItem = item
+    }
+
+    private func removeStatusItem() {
+        guard let item = statusItem else { return }
+        NSStatusBar.system.removeStatusItem(item)
+        statusItem = nil
+    }
+
+    private func observeMenuBarSetting() {
+        guard menuBarDefaultsObserver == nil else { return }
+        menuBarDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.applyMenuBarVisibility()
+            }
+        }
     }
 
     private func makeMenuItem(title: String, action: Selector, keyEquivalent: String = "") -> NSMenuItem {
