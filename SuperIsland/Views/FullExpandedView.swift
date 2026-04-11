@@ -55,8 +55,23 @@ struct FullExpandedView: View {
         }
     }
 
-    private var contentHorizontalPadding: CGFloat {
+    /// The tab actually being rendered — falls back to `.home` when the
+    /// selected tab points to a module that can't currently be presented
+    /// (e.g. a disabled Notifications module). This keeps the Home view's
+    /// padding stable when the fallback to `HomeScreenView()` kicks in.
+    private var effectiveSelectedTab: FullExpandedTab {
         switch appState.fullExpandedSelectedTab {
+        case .home:
+            return .home
+        case .module(let module):
+            return appState.canPresentFullExpandedModule(module)
+                ? .module(module)
+                : .home
+        }
+    }
+
+    private var contentHorizontalPadding: CGFloat {
+        switch effectiveSelectedTab {
         case .home:
             return 0
         case .module(.extension_):
@@ -69,7 +84,7 @@ struct FullExpandedView: View {
     }
 
     private var contentBottomPadding: CGFloat {
-        switch appState.fullExpandedSelectedTab {
+        switch effectiveSelectedTab {
         case .home:
             return 0
         case .module(.extension_):
@@ -297,7 +312,9 @@ struct FullExpandedTopBarView: View {
         HStack(spacing: 8) {
             lockButton
             batteryButton
-            notificationButton
+            if appState.notificationsEnabled {
+                notificationButton
+            }
             settingsButton
         }
         .padding(.leading, settingsLeadingInset)
