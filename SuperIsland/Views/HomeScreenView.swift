@@ -241,6 +241,16 @@ private struct HomeCalendarPanel: View {
 
 private struct HomeWeatherPanel: View {
     @ObservedObject private var manager = WeatherManager.shared
+    @ObservedObject private var appState = AppState.shared
+
+    private func formattedTemp(_ celsius: Double) -> String {
+        switch appState.temperatureUnit {
+        case .celsius:
+            return "\(Int(celsius.rounded()))°"
+        case .fahrenheit:
+            return "\(Int((celsius * 9 / 5 + 32).rounded()))°"
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -263,7 +273,7 @@ private struct HomeWeatherPanel: View {
                             )
 
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("\(Int(manager.weather.temperature))°")
+                            Text(formattedTemp(manager.weather.temperature))
                                 .font(HomeTypography.temperatureFont)
                                 .foregroundStyle(HomeTypography.primaryText)
 
@@ -284,13 +294,13 @@ private struct HomeWeatherPanel: View {
                     HStack(spacing: 8) {
                         weatherStat(
                             title: "High",
-                            value: "\(Int(manager.weather.temperatureHigh))°",
+                            value: formattedTemp(manager.weather.temperatureHigh),
                             icon: "arrow.up.circle.fill",
                             tint: Color.orange.opacity(0.88)
                         )
                         weatherStat(
                             title: "Low",
-                            value: "\(Int(manager.weather.temperatureLow))°",
+                            value: formattedTemp(manager.weather.temperatureLow),
                             icon: "arrow.down.circle.fill",
                             tint: Color.cyan.opacity(0.88)
                         )
