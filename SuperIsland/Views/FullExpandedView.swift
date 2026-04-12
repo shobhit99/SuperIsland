@@ -36,7 +36,7 @@ struct FullExpandedView: View {
     @ViewBuilder
     private func content(for module: ActiveModule) -> some View {
         switch module {
-        case .builtIn(.volumeHUD), .builtIn(.brightnessHUD):
+        case .builtIn(.volumeHUD):
             SystemHUDExpandedView()
         case .builtIn(.battery):
             BatteryExpandedView()
@@ -311,7 +311,9 @@ struct FullExpandedTopBarView: View {
     private var trailingShoulderControls: some View {
         HStack(spacing: 8) {
             lockButton
-            batteryButton
+            if appState.batteryEnabled {
+                batteryButton
+            }
             if appState.notificationsEnabled {
                 notificationButton
             }

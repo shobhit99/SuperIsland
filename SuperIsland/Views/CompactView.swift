@@ -24,7 +24,7 @@ struct CompactView: View {
     }
 
     private var horizontalPadding: CGFloat {
-        let isNowPlayingActive = appState.activeBuiltInModule == .nowPlaying || (appState.activeModule == nil && !nowPlaying.title.isEmpty)
+        let isNowPlayingActive = appState.activeBuiltInModule == .nowPlaying || (appState.nowPlayingEnabled && appState.activeModule == nil && !nowPlaying.title.isEmpty)
         let base: CGFloat = isNowPlayingActive ? 4 : 12
         // On non-notch Macs, add padding to keep content within the arch walls.
         if appState.usesWideCompactLayout {
@@ -34,20 +34,22 @@ struct CompactView: View {
     }
 
     /// Resolves which module to actually display, applying priority rules:
-    /// 1. Volume/brightness HUDs win in expanded state (the HUD is actively showing).
-    ///    In compact state they yield to Now Playing so music reclaims the pill after dismiss.
+    /// 1. Volume HUD wins in expanded state (the HUD is actively showing).
+    ///    In compact state it yields to Now Playing so music reclaims the pill after dismiss.
     /// 2. Music (isPlaying) beats passive modules — battery and shelf.
     /// 3. Everything else shows as requested.
+    /// Music overrides only apply when Now Playing is enabled in settings.
     private var resolvedModule: ActiveModule? {
         guard let module = appState.activeModule else { return nil }
-        if case .builtIn(let t) = module, t == .volumeHUD || t == .brightnessHUD {
+        if case .builtIn(let t) = module, t == .volumeHUD {
             // In compact state the HUD has already dismissed — let music take over.
-            if nowPlaying.isPlaying && appState.currentState == .compact {
+            if appState.nowPlayingEnabled, nowPlaying.isPlaying, appState.currentState == .compact {
                 return .builtIn(.nowPlaying)
             }
             return module
         }
-        if nowPlaying.isPlaying, case .builtIn(let t) = module, t == .battery || t == .shelf {
+        if appState.nowPlayingEnabled, nowPlaying.isPlaying,
+           case .builtIn(let t) = module, t == .battery || t == .shelf {
             return .builtIn(.nowPlaying)
         }
         return module
@@ -59,7 +61,7 @@ struct CompactView: View {
                 switch module {
                 case .builtIn(.nowPlaying):
                     NowPlayingCompactView()
-                case .builtIn(.volumeHUD), .builtIn(.brightnessHUD):
+                case .builtIn(.volumeHUD):
                     SystemHUDCompactView()
                 case .builtIn(.battery):
                     BatteryCompactView()
@@ -76,7 +78,7 @@ struct CompactView: View {
                 case .extension_(let extensionID):
                     ExtensionRendererView(extensionID: extensionID, displayMode: .compact)
                 }
-            } else if !nowPlaying.title.isEmpty {
+            } else if appState.nowPlayingEnabled, !nowPlaying.title.isEmpty {
                 NowPlayingCompactView()
             } else {
                 BatteryCompactView()

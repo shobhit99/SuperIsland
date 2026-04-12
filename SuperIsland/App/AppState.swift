@@ -19,7 +19,6 @@ enum IslandState: Equatable {
 enum ModuleType: String, CaseIterable, Identifiable {
     case nowPlaying
     case volumeHUD
-    case brightnessHUD
     case battery
     case shelf
     case connectivity
@@ -32,7 +31,6 @@ enum ModuleType: String, CaseIterable, Identifiable {
         switch self {
         case .nowPlaying: return "Now Playing"
         case .volumeHUD: return "Volume"
-        case .brightnessHUD: return "Brightness"
         case .battery: return "Battery"
         case .shelf: return "Shelf"
         case .connectivity: return "Connectivity"
@@ -46,7 +44,6 @@ enum ModuleType: String, CaseIterable, Identifiable {
         switch self {
         case .nowPlaying: return "music.note"
         case .volumeHUD: return "speaker.wave.2.fill"
-        case .brightnessHUD: return "sun.max.fill"
         case .battery: return "battery.100"
         case .shelf: return "tray.full.fill"
         case .connectivity: return "wifi"
@@ -249,7 +246,6 @@ final class AppState: ObservableObject {
     // Module enabled states (persisted via UserDefaults)
     @AppStorage("module.nowPlaying.enabled") var nowPlayingEnabled = true
     @AppStorage("module.volumeHUD.enabled") var volumeHUDEnabled = true
-    @AppStorage("module.brightnessHUD.enabled") var brightnessHUDEnabled = true
     @AppStorage("module.battery.enabled") var batteryEnabled = true
     @AppStorage("module.shelf.enabled") var shelfEnabled = true
     @AppStorage("module.connectivity.enabled") var connectivityEnabled = true
@@ -699,7 +695,6 @@ final class AppState: ObservableObject {
         switch module {
         case .nowPlaying: return nowPlayingEnabled
         case .volumeHUD: return volumeHUDEnabled
-        case .brightnessHUD: return brightnessHUDEnabled
         case .battery: return batteryEnabled
         case .shelf: return shelfEnabled
         case .connectivity: return connectivityEnabled
@@ -718,7 +713,7 @@ final class AppState: ObservableObject {
 
     private func isCyclableIslandModule(_ module: ModuleType) -> Bool {
         switch module {
-        case .volumeHUD, .brightnessHUD, .battery:
+        case .volumeHUD, .battery:
             return false
         default:
             return true
@@ -766,10 +761,11 @@ final class AppState: ObservableObject {
 
     var compactPresentationModule: ActiveModule? {
         let nowPlaying = NowPlayingManager.shared
-        let hasCompactMediaCandidate =
+        let hasCompactMediaCandidate = nowPlayingEnabled && (
             !nowPlaying.title.isEmpty ||
             nowPlaying.albumArt != nil ||
             !nowPlaying.sourceName.isEmpty
+        )
         let mediaModule: ActiveModule? = hasCompactMediaCandidate
             ? .builtIn(.nowPlaying)
             : nil
