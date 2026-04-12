@@ -507,6 +507,11 @@ final class NowPlayingManager: ObservableObject {
     }
 
     nonisolated private func fetchSpotifyViaAppleScript() -> Bool {
+        // Don't compile any `tell application "Spotify"` AppleScript when
+        // Spotify isn't installed — doing so causes macOS to pop the
+        // "Where is Spotify?" Finder picker on every launch (issue #8).
+        guard isSpotifyInstalled() else { return false }
+
         let script = """
         tell application "System Events"
             if not (exists process "Spotify") then return "NOT_RUNNING"
@@ -552,6 +557,8 @@ final class NowPlayingManager: ObservableObject {
     }
 
     nonisolated private func fetchSpotifyArtwork() {
+        guard isSpotifyInstalled() else { return }
+
         let script = """
         tell application "Spotify"
             return artwork url of current track
@@ -1089,6 +1096,10 @@ final class NowPlayingManager: ObservableObject {
         value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    nonisolated private func isSpotifyInstalled() -> Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client") != nil
     }
 
     private func isApplicationRunning(_ name: String) -> Bool {
