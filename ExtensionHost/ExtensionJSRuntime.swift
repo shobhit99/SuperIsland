@@ -161,14 +161,14 @@ final class ExtensionJSRuntime {
         }
 
         if rawValue.isNumber {
-            return max(1, Int(rawValue.toInt32()))
+            return max(0, Int(rawValue.toInt32()))
         }
 
         if rawValue.isObject,
            let result = rawValue.call(withArguments: []),
            !result.isUndefined,
            !result.isNull {
-            return max(1, Int(result.toInt32()))
+            return max(0, Int(result.toInt32()))
         }
 
         return 1

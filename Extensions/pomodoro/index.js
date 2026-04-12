@@ -352,7 +352,7 @@ SuperIsland.registerModule({
       return View.text(formatTime(remainingSeconds), { style: "monospacedSmall", color: "white" });
     },
     precedence: function() {
-      return isRunning ? 1 : 2;
+      return isRunning ? 1 : 0;
     }
   },
 

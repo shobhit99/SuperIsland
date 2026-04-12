@@ -711,6 +711,15 @@ final class AppState: ObservableObject {
         return module
     }
 
+    /// Returns `true` when an extension reports precedence 0, meaning it
+    /// considers itself inactive (e.g. a paused Pomodoro timer) and should
+    /// not take over the compact view or the default full-expanded tab.
+    func isExtensionInactive(_ module: ActiveModule) -> Bool {
+        guard case .extension_(let extensionID) = module else { return false }
+        let precedence = ExtensionManager.shared.extensionStates[extensionID]?.minimalCompactPrecedence ?? 1
+        return precedence == 0
+    }
+
     private func isCyclableIslandModule(_ module: ModuleType) -> Bool {
         switch module {
         case .volumeHUD, .battery:
@@ -771,6 +780,12 @@ final class AppState: ObservableObject {
             : nil
 
         guard let activeModule else {
+            return mediaModule
+        }
+
+        // Extensions with precedence 0 are inactive — treat them as if
+        // no module is active so the compact view falls back to media or default.
+        if isExtensionInactive(activeModule) {
             return mediaModule
         }
 
@@ -1133,7 +1148,7 @@ final class AppState: ObservableObject {
             nextTab = .module(.builtIn(.shelf))
         } else if prefersHome {
             nextTab = .home
-        } else if let activeModule, supportsFullExpandedModule(activeModule) {
+        } else if let activeModule, !isExtensionInactive(activeModule), supportsFullExpandedModule(activeModule) {
             nextTab = .module(activeModule)
         } else {
             nextTab = .home

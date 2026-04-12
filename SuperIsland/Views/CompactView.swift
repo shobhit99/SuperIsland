@@ -41,6 +41,9 @@ struct CompactView: View {
     /// Music overrides only apply when Now Playing is enabled in settings.
     private var resolvedModule: ActiveModule? {
         guard let module = appState.activeModule else { return nil }
+        // Extensions with precedence 0 are inactive — fall through to the
+        // default compact content (now playing or battery).
+        if appState.isExtensionInactive(module) { return nil }
         if case .builtIn(let t) = module, t == .volumeHUD {
             // In compact state the HUD has already dismissed — let music take over.
             if appState.nowPlayingEnabled, nowPlaying.isPlaying, appState.currentState == .compact {
