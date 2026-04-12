@@ -230,7 +230,7 @@ struct ExtensionsSettingsView: View {
 
                 if manager.runtimes[manifest.id] != nil {
                     Button("Deactivate") {
-                        manager.deactivate(extensionID: manifest.id)
+                        manager.disableByUser(extensionID: manifest.id)
                     }
                     .buttonStyle(.bordered)
                 }

@@ -129,13 +129,45 @@ final class ExtensionManager: ObservableObject {
         }
     }
 
+    // MARK: - User-disabled persistence
+
+    private static let userDisabledExtensionsKey = "extensions.userDisabled"
+
+    private func userDisabledIDs() -> Set<String> {
+        let array = UserDefaults.standard.stringArray(forKey: Self.userDisabledExtensionsKey) ?? []
+        return Set(array)
+    }
+
+    private func persistUserDisabledIDs(_ ids: Set<String>) {
+        UserDefaults.standard.set(Array(ids), forKey: Self.userDisabledExtensionsKey)
+    }
+
+    func isUserDisabled(extensionID: String) -> Bool {
+        userDisabledIDs().contains(extensionID)
+    }
+
+    /// Deactivates the extension and persists the disabled state so it stays off after restart.
+    func disableByUser(extensionID: String) {
+        var ids = userDisabledIDs()
+        ids.insert(extensionID)
+        persistUserDisabledIDs(ids)
+        deactivate(extensionID: extensionID)
+    }
+
     func activateDiscoveredExtensions() {
-        for manifest in installed {
+        let disabled = userDisabledIDs()
+        for manifest in installed where !disabled.contains(manifest.id) {
             activate(extensionID: manifest.id)
         }
     }
 
     func activate(extensionID: String) {
+        // When a user explicitly activates an extension, clear any persisted disabled state.
+        var ids = userDisabledIDs()
+        if ids.remove(extensionID) != nil {
+            persistUserDisabledIDs(ids)
+        }
+
         guard runtimes[extensionID] == nil else { return }
         guard let manifest = installed.first(where: { $0.id == extensionID }) else { return }
 
@@ -267,6 +299,11 @@ final class ExtensionManager: ObservableObject {
 
     func uninstall(extensionID: String) throws {
         deactivate(extensionID: extensionID)
+
+        var ids = userDisabledIDs()
+        if ids.remove(extensionID) != nil {
+            persistUserDisabledIDs(ids)
+        }
 
         let installDirectory = installedExtensionsDirectory.appendingPathComponent(extensionID, isDirectory: true)
         if fileManager.fileExists(atPath: installDirectory.path) {
