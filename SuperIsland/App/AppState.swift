@@ -885,9 +885,14 @@ final class AppState: ObservableObject {
         let islandSize = size(for: state)
         switch state {
         case .compact:
+            // Window must be exactly island-sized so the transparent area
+            // outside the pill doesn't absorb clicks (see issue #1 / #15).
+            // The +20 animation buffer is unnecessary: when collapsing, the
+            // window stays at expanded size for 0.55s while the animation
+            // runs, then shrinks here — by which point the animation is done.
             return CGSize(
                 width: islandSize.width,
-                height: islandSize.height + 20
+                height: islandSize.height
             )
         case .expanded, .fullExpanded:
             return CGSize(
