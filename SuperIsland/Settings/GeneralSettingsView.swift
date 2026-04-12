@@ -122,10 +122,9 @@ struct GeneralSettingsView: View {
                 if appState.presentationHasNotch {
                     SettingRowDivider()
                     SettingToggleRow(title: "Hide side slots", isOn: $appState.hideSideSlots)
-                } else {
-                    SettingRowDivider()
-                    SettingToggleRow(title: "Hide on fullscreen", isOn: $appState.hideOnFullscreen)
                 }
+                SettingRowDivider()
+                SettingToggleRow(title: "Hide on fullscreen", isOn: $appState.hideOnFullscreen)
                 SettingRowDivider()
                 HStack {
                     Text("Animation Speed").font(.system(size: 13))

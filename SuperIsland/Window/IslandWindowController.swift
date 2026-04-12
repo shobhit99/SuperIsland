@@ -265,13 +265,14 @@ final class IslandWindowController {
         }
     }
 
-    // MARK: - Fullscreen hiding (non-notch Macs)
+    // MARK: - Fullscreen hiding
     //
-    // On non-notch Macs the island floats over normal app windows, which
-    // is distracting when another app is in true fullscreen (e.g. a video
-    // player). When the user opts in via Settings we hide the panel while
-    // any non-SuperIsland window matches the screen frame exactly, and
-    // restore it as soon as that fullscreen window goes away.
+    // When the user opts in via Settings we hide the panel while any
+    // non-SuperIsland window matches the screen frame exactly (the classic
+    // signature of a native macOS fullscreen app), and restore it as soon
+    // as that fullscreen window goes away. Works on both notch and non-notch
+    // Macs — on notch Macs the user may still prefer the island hidden when
+    // watching fullscreen video etc.
 
     private func observeFullscreenChanges() {
         // activeSpaceDidChange fires when the user enters/exits fullscreen
@@ -301,10 +302,7 @@ final class IslandWindowController {
     private func updateFullscreenVisibility() {
         guard let panel else { return }
 
-        // The feature is scoped to non-notch Macs per issue #18 — on notch
-        // Macs the island lives in the hardware cutout and doesn't overlap
-        // fullscreen content.
-        let shouldConsider = appState.hideOnFullscreen && !appState.presentationHasNotch
+        let shouldConsider = appState.hideOnFullscreen
         guard shouldConsider else {
             if isHiddenForFullscreen {
                 isHiddenForFullscreen = false
