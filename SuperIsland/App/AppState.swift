@@ -274,6 +274,7 @@ final class AppState: ObservableObject {
     @AppStorage("general.notchHapticIntensity") var notchHapticIntensity = NotchHapticIntensity.medium.rawValue
     @AppStorage("general.lockFullExpandedInPlace") var lockFullExpandedInPlace = false
     @AppStorage("general.hideSideSlots") var hideSideSlots = false
+    @AppStorage("general.hideOnFullscreen") var hideOnFullscreen = false
     @AppStorage("onboarding.completed") var onboardingCompleted = false
     @AppStorage("debug.alwaysShowOnboarding") var debugAlwaysShowOnboarding = false
 
