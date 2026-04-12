@@ -25,8 +25,11 @@ final class IslandWindowController {
     private let appState = AppState.shared
     private var screenObserver: Any?
     private var defaultsObserver: Any?
+    private var activeSpaceObserver: Any?
+    private var fullscreenPollTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
     private var shrinkWorkItem: DispatchWorkItem?
+    private var isHiddenForFullscreen = false
 
     func showIsland() {
         let panel = IslandPanel()
@@ -68,6 +71,8 @@ final class IslandWindowController {
         observeSettingsChanges()
         observeStateChanges()
         observeCompactLayoutChanges()
+        observeFullscreenChanges()
+        updateFullscreenVisibility()
     }
 
     func hideIsland() {
@@ -254,8 +259,111 @@ final class IslandWindowController {
                 // Keep the compact frame in sync with settings that change its
                 // content size (e.g. toggling "Hide side slots" on notch Macs).
                 self.updateCompactFrameIfNeeded()
+                // Re-evaluate fullscreen visibility when the toggle changes.
+                self.updateFullscreenVisibility()
             }
         }
+    }
+
+    // MARK: - Fullscreen hiding (non-notch Macs)
+    //
+    // On non-notch Macs the island floats over normal app windows, which
+    // is distracting when another app is in true fullscreen (e.g. a video
+    // player). When the user opts in via Settings we hide the panel while
+    // any non-SuperIsland window matches the screen frame exactly, and
+    // restore it as soon as that fullscreen window goes away.
+
+    private func observeFullscreenChanges() {
+        // activeSpaceDidChange fires when the user enters/exits fullscreen
+        // (each fullscreen app gets its own space) or switches spaces.
+        activeSpaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateFullscreenVisibility()
+            }
+        }
+
+        // Low-frequency safety net: some fullscreen transitions (e.g. the
+        // native video player going fullscreen in-place) don't always fire
+        // a space change notification, so re-check every 2s while the
+        // controller is alive. The check is cheap (CGWindowListCopyWindowInfo
+        // with bounds only) and only runs as long as the app is up.
+        fullscreenPollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateFullscreenVisibility()
+            }
+        }
+    }
+
+    private func updateFullscreenVisibility() {
+        guard let panel else { return }
+
+        // The feature is scoped to non-notch Macs per issue #18 — on notch
+        // Macs the island lives in the hardware cutout and doesn't overlap
+        // fullscreen content.
+        let shouldConsider = appState.hideOnFullscreen && !appState.presentationHasNotch
+        guard shouldConsider else {
+            if isHiddenForFullscreen {
+                isHiddenForFullscreen = false
+                panel.orderFrontRegardless()
+            }
+            return
+        }
+
+        let screen = panel.screen
+            ?? ScreenDetector.activeScreen
+            ?? ScreenDetector.primaryScreen
+            ?? NSScreen.screens.first
+        guard let screen else { return }
+
+        let fullscreen = Self.isFullscreenWindowPresent(on: screen)
+
+        if fullscreen && !isHiddenForFullscreen {
+            isHiddenForFullscreen = true
+            panel.orderOut(nil)
+        } else if !fullscreen && isHiddenForFullscreen {
+            isHiddenForFullscreen = false
+            panel.orderFrontRegardless()
+        }
+    }
+
+    /// Returns true when any on-screen window from another process exactly
+    /// covers the given screen's frame — the classic signature of a native
+    /// macOS fullscreen app.
+    private static func isFullscreenWindowPresent(on screen: NSScreen) -> Bool {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let info = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return false
+        }
+
+        let ourPID = Int(ProcessInfo.processInfo.processIdentifier)
+        let screenFrame = screen.frame
+
+        for window in info {
+            // Skip windows owned by SuperIsland itself.
+            if let pid = window[kCGWindowOwnerPID as String] as? Int, pid == ourPID {
+                continue
+            }
+            // Only consider windows in the normal content layer. The menu
+            // bar, Dock, and status items live on non-zero layers.
+            if let layer = window[kCGWindowLayer as String] as? Int, layer != 0 {
+                continue
+            }
+            guard let boundsDict = window[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else {
+                continue
+            }
+            // CGWindow bounds use pixel sizes; compare width/height with a
+            // small tolerance to guard against rounding on Retina screens.
+            if abs(rect.width - screenFrame.width) < 1.5
+                && abs(rect.height - screenFrame.height) < 1.5 {
+                return true
+            }
+        }
+        return false
     }
 
     deinit {
@@ -265,6 +373,10 @@ final class IslandWindowController {
         if let observer = defaultsObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = activeSpaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        fullscreenPollTimer?.invalidate()
         cancellables.removeAll()
     }
 }
