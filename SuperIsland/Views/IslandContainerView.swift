@@ -152,28 +152,33 @@ struct IslandContainerView: View {
         appState.currentState == .compact ? appState.idleOpacity : 1.0
     }
 
+    // Shadows are intentionally disabled in the compact state. The island
+    // panel is non-activating and sits in the transparent region around the
+    // notch — any non-zero shadow pixel in that transparent region gets
+    // captured by the panel's hit test and blocks clicks from reaching apps
+    // underneath (see issue #1).
     private var ambientShadowOpacity: Double {
-        appState.currentState == .compact ? 0.18 : 0.38
+        appState.currentState == .compact ? 0.0 : 0.38
     }
 
     private var ambientShadowRadius: CGFloat {
-        appState.currentState == .compact ? 3 : 8
+        appState.currentState == .compact ? 0 : 8
     }
 
     private var ambientShadowYOffset: CGFloat {
-        appState.currentState == .compact ? 2 : 6
+        appState.currentState == .compact ? 0 : 6
     }
 
     private var keyShadowOpacity: Double {
-        appState.currentState == .compact ? 0.32 : 0.58
+        appState.currentState == .compact ? 0.0 : 0.58
     }
 
     private var keyShadowRadius: CGFloat {
-        appState.currentState == .compact ? 5 : 14
+        appState.currentState == .compact ? 0 : 14
     }
 
     private var keyShadowYOffset: CGFloat {
-        appState.currentState == .compact ? 4 : 10
+        appState.currentState == .compact ? 0 : 10
     }
 
     // MARK: - Expanded Layout
