@@ -4,7 +4,6 @@ import AppKit
 struct SystemHUDExpandedView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var volumeManager = VolumeManager.shared
-    @ObservedObject private var brightnessManager = BrightnessManager.shared
 
     @State private var overshootScale: CGFloat = 1.0
 
@@ -116,7 +115,6 @@ struct SystemHUDExpandedView: View {
     private var iconName: String {
         switch appState.activeBuiltInModule {
         case .volumeHUD: return volumeManager.volumeIconName
-        case .brightnessHUD: return brightnessManager.brightnessIconName
         default: return "speaker.wave.2.fill"
         }
     }
@@ -124,7 +122,6 @@ struct SystemHUDExpandedView: View {
     private var label: String {
         switch appState.activeBuiltInModule {
         case .volumeHUD: return "Volume"
-        case .brightnessHUD: return "Brightness"
         default: return ""
         }
     }
@@ -132,7 +129,6 @@ struct SystemHUDExpandedView: View {
     private var currentValue: Float {
         switch appState.activeBuiltInModule {
         case .volumeHUD: return volumeManager.volume
-        case .brightnessHUD: return brightnessManager.brightness
         default: return 0
         }
     }
@@ -147,11 +143,6 @@ struct SystemHUDExpandedView: View {
             return Binding(
                 get: { volumeManager.volume },
                 set: { volumeManager.setVolume($0) }
-            )
-        case .brightnessHUD:
-            return Binding(
-                get: { brightnessManager.brightness },
-                set: { brightnessManager.setBrightness($0) }
             )
         default:
             return .constant(0)

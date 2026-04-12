@@ -9,7 +9,7 @@ struct ExpandedView: View {
                 switch module {
                 case .builtIn(.nowPlaying):
                     NowPlayingExpandedView()
-                case .builtIn(.volumeHUD), .builtIn(.brightnessHUD):
+                case .builtIn(.volumeHUD):
                     SystemHUDExpandedView()
                 case .builtIn(.battery):
                     BatteryExpandedView()

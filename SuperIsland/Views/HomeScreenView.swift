@@ -2,12 +2,16 @@ import SwiftUI
 import EventKit
 
 struct HomeScreenView: View {
+    @ObservedObject private var appState = AppState.shared
+
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            HomeNowPlayingPanel()
-                .frame(width: 228, alignment: .topLeading)
+            if appState.nowPlayingEnabled {
+                HomeNowPlayingPanel()
+                    .frame(width: 228, alignment: .topLeading)
 
-            homeDivider
+                homeDivider
+            }
 
             HomeCalendarPanel()
                 .frame(maxWidth: .infinity, alignment: .topLeading)

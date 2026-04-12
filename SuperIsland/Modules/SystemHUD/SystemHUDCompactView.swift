@@ -3,7 +3,6 @@ import SwiftUI
 struct SystemHUDCompactView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var volumeManager = VolumeManager.shared
-    @ObservedObject private var brightnessManager = BrightnessManager.shared
 
     var body: some View {
         HStack(spacing: 8) {
@@ -35,8 +34,6 @@ struct SystemHUDCompactView: View {
         switch appState.activeBuiltInModule {
         case .volumeHUD:
             return volumeManager.volumeIconName
-        case .brightnessHUD:
-            return brightnessManager.brightnessIconName
         default:
             return "speaker.wave.2.fill"
         }
@@ -46,8 +43,6 @@ struct SystemHUDCompactView: View {
         switch appState.activeBuiltInModule {
         case .volumeHUD:
             return volumeManager.volume
-        case .brightnessHUD:
-            return brightnessManager.brightness
         default:
             return 0
         }

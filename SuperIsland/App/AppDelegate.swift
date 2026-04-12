@@ -76,7 +76,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Eagerly initialize all enabled managers so they start monitoring
         if state.nowPlayingEnabled { _ = NowPlayingManager.shared }
         if state.volumeHUDEnabled { _ = VolumeManager.shared }
-        if state.brightnessHUDEnabled { _ = BrightnessManager.shared }
         if state.batteryEnabled { _ = BatteryManager.shared }
         if state.connectivityEnabled {
             _ = WiFiManager.shared
@@ -291,7 +290,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch module {
         case .nowPlaying: AppState.shared.nowPlayingEnabled = newState
         case .volumeHUD: AppState.shared.volumeHUDEnabled = newState
-        case .brightnessHUD: AppState.shared.brightnessHUDEnabled = newState
         case .battery: AppState.shared.batteryEnabled = newState
         case .shelf: AppState.shared.shelfEnabled = newState
         case .connectivity: AppState.shared.connectivityEnabled = newState

@@ -11,8 +11,6 @@ struct ModuleSettingsView: View {
                 SettingToggleRow(title: "Now Playing", isOn: $appState.nowPlayingEnabled)
                 SettingRowDivider()
                 SettingToggleRow(title: "Volume HUD", isOn: $appState.volumeHUDEnabled)
-                SettingRowDivider()
-                SettingToggleRow(title: "Brightness HUD", isOn: $appState.brightnessHUDEnabled)
             }
 
             SettingSectionLabel(title: "System")

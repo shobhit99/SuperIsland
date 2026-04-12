@@ -2,7 +2,7 @@
 
 ## Context
 
-SuperIsland is a native macOS app (Swift/SwiftUI, macOS 14+) that transforms the MacBook notch area into an interactive Super Island. It currently has 8 built-in modules: Now Playing, Volume HUD, Brightness HUD, Battery, Connectivity, Calendar, Weather, and Notifications.
+SuperIsland is a native macOS app (Swift/SwiftUI, macOS 14+) that transforms the MacBook notch area into an interactive Super Island. It currently has 7 built-in modules: Now Playing, Volume HUD, Battery, Connectivity, Calendar, Weather, and Notifications.
 
 We want to make SuperIsland **hackable and extensible** — allowing the community to build, distribute, and install third-party extensions using **JavaScript/TypeScript**, similar to how Raycast extensions work. Extensions run inside a JavaScriptCore sandbox and describe their UI declaratively — the host app renders them natively in SwiftUI.
 
