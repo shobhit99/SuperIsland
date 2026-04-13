@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ModuleSettingsView: View {
     @EnvironmentObject var appState: AppState
+    @ObservedObject private var extensionManager = ExtensionManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -46,7 +47,66 @@ struct ModuleSettingsView: View {
                 SettingRowDivider()
                 SettingToggleRow(title: "Notifications", isOn: $appState.notificationsEnabled)
             }
+
+            SettingSectionLabel(title: "Home")
+            SettingGroup {
+                HomeWidgetPickerRow(
+                    title: "Left widget",
+                    selection: $appState.homeLeadingWidget,
+                    options: appState.homeWidgetOptions
+                )
+                SettingRowDivider()
+                HomeWidgetPickerRow(
+                    title: "Center widget",
+                    selection: $appState.homeCenterWidget,
+                    options: appState.homeWidgetOptions
+                )
+                SettingRowDivider()
+                HomeWidgetPickerRow(
+                    title: "Right widget",
+                    selection: $appState.homeTrailingWidget,
+                    options: appState.homeWidgetOptions
+                )
+            }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct HomeWidgetPickerRow: View {
+    let title: String
+    @Binding var selection: HomeWidgetSelection
+    let options: [HomeWidgetOption]
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13))
+
+                Text(currentSelectionSubtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Picker("", selection: $selection) {
+                ForEach(options) { option in
+                    Label(option.label, systemImage: option.iconName)
+                        .tag(option.selection)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(width: 180, alignment: .trailing)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+    }
+
+    private var currentSelectionSubtitle: String {
+        options.first(where: { $0.selection == selection })?.label ?? selection.displayName
     }
 }

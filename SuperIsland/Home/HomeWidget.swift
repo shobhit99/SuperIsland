@@ -1,11 +1,11 @@
 import Foundation
 
-enum HomeWidgetSelection: Hashable, Identifiable {
+enum HomeWidgetSelection: Hashable, Identifiable, RawRepresentable {
     case none
     case builtIn(ModuleType)
     case extension_(String)
 
-    init(rawValue: String) {
+    init?(rawValue: String) {
         if rawValue == Self.none.rawValue {
             self = .none
         } else if rawValue.hasPrefix("builtIn."),

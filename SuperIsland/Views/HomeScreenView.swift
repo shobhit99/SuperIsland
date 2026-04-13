@@ -3,25 +3,30 @@ import EventKit
 
 struct HomeScreenView: View {
     @ObservedObject private var appState = AppState.shared
+    @ObservedObject private var extensionManager = ExtensionManager.shared
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            if appState.nowPlayingEnabled {
-                HomeNowPlayingPanel()
-                    .frame(width: 228, alignment: .topLeading)
+        if visibleWidgets.isEmpty {
+            HomeEmptyState(
+                icon: "square.grid.2x2",
+                title: "Home is empty",
+                subtitle: "Choose widgets in Settings > Modules > Home."
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            HStack(alignment: .top, spacing: 14) {
+                ForEach(Array(visibleWidgets.enumerated()), id: \.element.id) { index, widget in
+                    homeWidgetView(for: widget.selection)
+                        .frame(maxWidth: widget.width == nil ? .infinity : nil, alignment: .topLeading)
+                        .frame(width: widget.width, alignment: .topLeading)
 
-                homeDivider
+                    if index < visibleWidgets.count - 1 {
+                        homeDivider
+                    }
+                }
             }
-
-            HomeCalendarPanel()
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-
-            homeDivider
-
-            HomeWeatherPanel()
-                .frame(width: 150, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var homeDivider: some View {
@@ -29,6 +34,62 @@ struct HomeScreenView: View {
             .fill(Color.white.opacity(0.08))
             .frame(width: 1)
             .padding(.vertical, 4)
+    }
+
+    private var visibleWidgets: [HomeWidgetLayout] {
+        appState.homeWidgetSelections.enumerated().compactMap { index, selection in
+            let resolvedSelection = appState.resolvedHomeWidgetSelection(selection)
+            guard resolvedSelection != .none else { return nil }
+
+            return HomeWidgetLayout(
+                id: "\(index)-\(resolvedSelection.rawValue)",
+                selection: resolvedSelection,
+                width: preferredWidth(for: resolvedSelection)
+            )
+        }
+    }
+
+    private func preferredWidth(for selection: HomeWidgetSelection) -> CGFloat? {
+        switch selection {
+        case .builtIn(.nowPlaying):
+            return 228
+        case .builtIn(.weather):
+            return 150
+        case .extension_, .builtIn(.calendar), .builtIn(.battery), .builtIn(.connectivity),
+             .builtIn(.notifications), .builtIn(.shelf), .builtIn(.volumeHUD), .none:
+            return nil
+        }
+    }
+
+    @ViewBuilder
+    private func homeWidgetView(for selection: HomeWidgetSelection) -> some View {
+        switch selection {
+        case .builtIn(.nowPlaying):
+            HomeNowPlayingPanel()
+        case .builtIn(.calendar):
+            HomeCalendarPanel()
+        case .builtIn(.weather):
+            HomeWeatherPanel()
+        case .extension_(let extensionID):
+            HomeExtensionPanel(extensionID: extensionID)
+        case .none, .builtIn:
+            EmptyView()
+        }
+    }
+}
+
+private struct HomeWidgetLayout: Identifiable {
+    let id: String
+    let selection: HomeWidgetSelection
+    let width: CGFloat?
+}
+
+private struct HomeExtensionPanel: View {
+    let extensionID: String
+
+    var body: some View {
+        ExtensionRendererView(extensionID: extensionID, displayMode: .expanded)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
