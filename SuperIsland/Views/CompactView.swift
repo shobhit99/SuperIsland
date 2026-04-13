@@ -75,6 +75,8 @@ struct CompactView: View {
                     WeatherCompactView()
                 case .builtIn(.notifications):
                     NotificationCompactView()
+                case .builtIn(.teleprompter):
+                    TeleprompterCompactView()
                 case .extension_(let extensionID):
                     ExtensionRendererView(extensionID: extensionID, displayMode: .compact)
                 }

@@ -296,6 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .calendar: AppState.shared.calendarEnabled = newState
         case .weather: AppState.shared.weatherEnabled = newState
         case .notifications: AppState.shared.notificationsEnabled = newState
+        case .teleprompter: AppState.shared.teleprompterEnabled = newState
         }
         sender.state = newState ? .on : .off
     }

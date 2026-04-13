@@ -23,6 +23,8 @@ struct ExpandedView: View {
                     WeatherExpandedView()
                 case .builtIn(.notifications):
                     NotificationExpandedView()
+                case .builtIn(.teleprompter):
+                    TeleprompterExpandedView()
                 case .extension_(let extensionID):
                     ExtensionRendererView(extensionID: extensionID, displayMode: .expanded)
                 }
