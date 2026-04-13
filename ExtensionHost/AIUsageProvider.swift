@@ -37,7 +37,8 @@ enum AIUsageProvider {
         return existing ?? [
             "updatedAt": Int(nowDate.timeIntervalSince1970),
             "codex": ["available": false, "source": "loading"] as [String: Any],
-            "claude": ["available": false, "source": "loading"] as [String: Any]
+            "claude": ["available": false, "source": "loading"] as [String: Any],
+            "gemini": ["available": false, "source": "loading"] as [String: Any]
         ]
     }
 
@@ -56,7 +57,8 @@ enum AIUsageProvider {
             let payload: [String: Any] = [
                 "updatedAt": now,
                 "codex": buildCodexPayload(updatedAt: now),
-                "claude": buildClaudePayload(updatedAt: now)
+                "claude": buildClaudePayload(updatedAt: now),
+                "gemini": buildGeminiPayload(updatedAt: now)
             ]
 
             cacheLock.lock()
@@ -712,6 +714,75 @@ enum AIUsageProvider {
         }
 
         return best?.name
+    }
+
+    // MARK: - Gemini
+
+    private static func buildGeminiPayload(updatedAt: Int) -> [String: Any] {
+        if let localSummary = loadJSONDictionary(fromCandidates: homePathCandidates([
+            ".gemini/usage-summary.json",
+            ".config/gemini/usage-summary.json"
+        ])) {
+            return buildGeminiPayloadFromLocalSummary(localSummary, updatedAt: updatedAt)
+        }
+
+        let hasAuth = loadGeminiOAuthToken() != nil
+        return [
+            "available": hasAuth,
+            "remainingPercent": NSNull(),
+            "source": hasAuth ? "auth-token" : "unavailable",
+            "updatedAt": updatedAt
+        ]
+    }
+
+    private static func buildGeminiPayloadFromLocalSummary(_ data: [String: Any], updatedAt: Int) -> [String: Any] {
+        let remainingPercent = geminiRemainingPercent(from: data)
+        var payload: [String: Any] = [
+            "available": true,
+            "source": "local-summary",
+            "updatedAt": data["updatedAt"] ?? updatedAt
+        ]
+        payload["remainingPercent"] = remainingPercent ?? NSNull()
+        return payload
+    }
+
+    private static func geminiRemainingPercent(from payload: [String: Any]) -> Double? {
+        let candidates: [Any?] = [
+            payload["remainingPercent"],
+            payload["remaining_percent"],
+            payload["percentRemaining"],
+            payload["remaining"],
+            payload["availablePercent"]
+        ]
+        for candidate in candidates {
+            if let value = asDoubleOrNil(candidate) {
+                return max(0, min(100, value))
+            }
+        }
+        return nil
+    }
+
+    private static func loadGeminiOAuthToken() -> String? {
+        for credPath in homePathCandidates([
+            ".gemini/oauth_creds.json",
+            ".gemini/credentials.json",
+            ".config/gemini/oauth_creds.json",
+            ".config/gemini/credentials.json"
+        ]) {
+            let url = URL(fileURLWithPath: credPath)
+            guard FileManager.default.fileExists(atPath: url.path),
+                  let data = try? Data(contentsOf: url),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+            if let token = object["access_token"] as? String, !token.isEmpty {
+                return token
+            }
+            if let token = object["token"] as? String, !token.isEmpty {
+                return token
+            }
+        }
+        return nil
     }
 
     // MARK: - Shared

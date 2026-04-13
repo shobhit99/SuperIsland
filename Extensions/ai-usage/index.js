@@ -245,6 +245,43 @@ function claudeModel(usage) {
   };
 }
 
+function geminiModel(usage) {
+  const gemini = asObject(usage && usage.gemini);
+  const source = gemini && typeof gemini.source === "string" ? gemini.source : null;
+  if (!gemini || gemini.available !== true) {
+    return {
+      title: "Gemini",
+      text: "--",
+      remaining: 0,
+      progress: 0,
+      color: "gray",
+      detail: withSource("Not available", source)
+    };
+  }
+
+  const explicitRemaining = toNumber(gemini.remainingPercent, null);
+  if (explicitRemaining !== null) {
+    const remaining = clamp(explicitRemaining, 0, 100);
+    return {
+      title: "Gemini",
+      text: formatPercent(remaining),
+      remaining,
+      progress: remaining / 100,
+      color: colorForRemaining(remaining),
+      detail: withSource("Usage data", source)
+    };
+  }
+
+  return {
+    title: "Gemini",
+    text: "OK",
+    remaining: 75,
+    progress: 0.75,
+    color: "green",
+    detail: withSource("Available", source)
+  };
+}
+
 function ringWithPercent(model, lineWidth) {
   return View.hstack([
     View.circularProgress(model.progress, {
@@ -269,12 +306,15 @@ SuperIsland.registerModule({
     const usage = usageSnapshot();
     const codex = codexModel(usage);
     const claude = claudeModel(usage);
+    const gemini = geminiModel(usage);
 
     return View.hstack([
       ringWithPercent(codex, 2.5),
       View.spacer(),
+      ringWithPercent(gemini, 2.5),
+      View.spacer(),
       ringWithPercent(claude, 2.5)
-    ], { spacing: 8, align: "center" });
+    ], { spacing: 6, align: "center" });
   },
 
   minimalCompact: {
@@ -291,11 +331,13 @@ SuperIsland.registerModule({
     trailing() {
       const usage = usageSnapshot();
       const claude = claudeModel(usage);
+      const gemini = geminiModel(usage);
+      const shown = gemini.remaining <= claude.remaining ? gemini : claude;
       return View.frame(
-        View.circularProgress(claude.progress, {
+        View.circularProgress(shown.progress, {
           total: 1,
           lineWidth: 3,
-          color: claude.color
+          color: shown.color
         }),
         { maxWidth: 1000, alignment: "trailing" }
       );
@@ -306,6 +348,7 @@ SuperIsland.registerModule({
     const usage = usageSnapshot();
     const codex = codexModel(usage);
     const claude = claudeModel(usage);
+    const gemini = geminiModel(usage);
 
     return View.hstack([
       View.vstack([
@@ -313,7 +356,15 @@ SuperIsland.registerModule({
         View.hstack([
           View.circularProgress(codex.progress, { total: 1, lineWidth: 4, color: codex.color }),
           View.text(codex.text, { style: "monospaced", color: codex.color })
-        ], { spacing: 8, align: "center" })
+        ], { spacing: 6, align: "center" })
+      ], { spacing: 4, align: "center" }),
+
+      View.vstack([
+        View.text("Gemini", { style: "caption", color: "gray" }),
+        View.hstack([
+          View.circularProgress(gemini.progress, { total: 1, lineWidth: 4, color: gemini.color }),
+          View.text(gemini.text, { style: "monospaced", color: gemini.color })
+        ], { spacing: 6, align: "center" })
       ], { spacing: 4, align: "center" }),
 
       View.vstack([
@@ -321,15 +372,16 @@ SuperIsland.registerModule({
         View.hstack([
           View.circularProgress(claude.progress, { total: 1, lineWidth: 4, color: claude.color }),
           View.text(claude.text, { style: "monospaced", color: claude.color })
-        ], { spacing: 8, align: "center" })
+        ], { spacing: 6, align: "center" })
       ], { spacing: 4, align: "center" })
-    ], { spacing: 12, align: "center", distribution: "fillEqually" });
+    ], { spacing: 10, align: "center", distribution: "fillEqually" });
   },
 
   fullExpanded() {
     const usage = usageSnapshot();
     const codex = codexModel(usage);
     const claude = claudeModel(usage);
+    const gemini = geminiModel(usage);
 
     return View.vstack([
       View.text("AI Usage", { style: "title", color: "white" }),
@@ -342,13 +394,20 @@ SuperIsland.registerModule({
           View.text(`Session ${percentLabel(codex.sessionRemaining)}`, { style: "footnote", color: "gray" })
         ], { spacing: 4, align: "center" }),
         View.vstack([
+          View.circularProgress(gemini.progress, { total: 1, lineWidth: 6, color: gemini.color }),
+          View.text("Gemini", { style: "caption", color: "gray" }),
+          View.text(gemini.text, { style: "monospaced", color: gemini.color }),
+          View.text("--", { style: "footnote", color: "gray" }),
+          View.text("--", { style: "footnote", color: "gray" })
+        ], { spacing: 4, align: "center" }),
+        View.vstack([
           View.circularProgress(claude.progress, { total: 1, lineWidth: 6, color: claude.color }),
           View.text("Claude", { style: "caption", color: "gray" }),
           View.text(claude.text, { style: "monospaced", color: claude.color }),
           View.text(`Week ${percentLabel(claude.weeklyRemaining)}`, { style: "footnote", color: "gray" }),
           View.text(`Session ${percentLabel(claude.sessionRemaining)}`, { style: "footnote", color: "gray" })
         ], { spacing: 4, align: "center" })
-      ], { spacing: 20, align: "center", distribution: "fillEqually" })
+      ], { spacing: 14, align: "center", distribution: "fillEqually" })
     ], { spacing: 10, align: "center" });
   }
 });
