@@ -255,6 +255,9 @@ final class AppState: ObservableObject {
     @AppStorage("module.notifications.enabled") var notificationsEnabled = true
     @AppStorage("module.shelf.autoOpenOnDrop") var shelfAutoOpenOnDrop = true
     @AppStorage("module.shelf.defaultToShelf") var shelfDefaultToShelf = false
+    @AppStorage("home.widget.leading") var homeLeadingWidget: HomeWidgetSelection = .builtIn(.nowPlaying)
+    @AppStorage("home.widget.center") var homeCenterWidget: HomeWidgetSelection = .builtIn(.calendar)
+    @AppStorage("home.widget.trailing") var homeTrailingWidget: HomeWidgetSelection = .builtIn(.weather)
 
     // Appearance settings
     @AppStorage("appearance.cornerRadius") var cornerRadius: Double = 18.0
@@ -704,6 +707,64 @@ final class AppState: ObservableObject {
         }
     }
 
+    var homeWidgetSelections: [HomeWidgetSelection] {
+        [homeLeadingWidget, homeCenterWidget, homeTrailingWidget]
+    }
+
+    var homeWidgetOptions: [HomeWidgetOption] {
+        var options = [
+            HomeWidgetOption(selection: .none, label: HomeWidgetSelection.none.displayName, iconName: HomeWidgetSelection.none.iconName)
+        ]
+
+        options.append(contentsOf: supportedHomeBuiltInModules.map { module in
+            HomeWidgetOption(
+                selection: .builtIn(module),
+                label: HomeWidgetSelection.builtIn(module).displayName,
+                iconName: module.iconName
+            )
+        })
+
+        options.append(contentsOf: ExtensionManager.shared.installed
+            .filter(canSelectHomeExtension)
+            .map { manifest in
+                HomeWidgetOption(
+                    selection: .extension_(manifest.id),
+                    label: HomeWidgetSelection.extension_(manifest.id).displayName,
+                    iconName: HomeWidgetSelection.extension_(manifest.id).iconName
+                )
+            })
+
+        for selection in homeWidgetSelections where !options.contains(where: { $0.selection == selection }) {
+            options.append(
+                HomeWidgetOption(
+                    selection: selection,
+                    label: selection.displayName,
+                    iconName: selection.iconName
+                )
+            )
+        }
+
+        return options
+    }
+
+    func resolvedHomeWidgetSelection(_ selection: HomeWidgetSelection) -> HomeWidgetSelection {
+        isHomeWidgetVisible(selection) ? selection : .none
+    }
+
+    func isHomeWidgetVisible(_ selection: HomeWidgetSelection) -> Bool {
+        switch selection {
+        case .none:
+            return false
+        case .builtIn(let module):
+            return supportedHomeBuiltInModules.contains(module) && isModuleEnabled(module)
+        case .extension_(let extensionID):
+            guard let manifest = ExtensionManager.shared.installed.first(where: { $0.id == extensionID }) else {
+                return false
+            }
+            return canSelectHomeExtension(manifest)
+        }
+    }
+
     var activeBuiltInModule: ModuleType? {
         guard case .builtIn(let module) = activeModule else {
             return nil
@@ -718,6 +779,14 @@ final class AppState: ObservableObject {
         default:
             return true
         }
+    }
+
+    private var supportedHomeBuiltInModules: [ModuleType] {
+        [.nowPlaying, .calendar, .weather]
+    }
+
+    private func canSelectHomeExtension(_ manifest: ExtensionManifest) -> Bool {
+        manifest.capabilities.expanded && !manifest.capabilities.notificationFeed
     }
 
     var availableModules: [ActiveModule] {
