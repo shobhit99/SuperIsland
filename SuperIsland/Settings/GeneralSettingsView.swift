@@ -180,6 +180,13 @@ struct GeneralSettingsView: View {
                     .frame(width: 120)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
+
+                SettingRowDivider()
+                SettingToggleRow(
+                    title: "Enable Command+Q to quit",
+                    description: "Turn this off to prevent accidental quits while using the notch",
+                    isOn: $appState.quitHotkeyEnabled
+                )
             }
 
             // Permissions

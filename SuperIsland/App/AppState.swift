@@ -268,6 +268,7 @@ final class AppState: ObservableObject {
     @AppStorage("general.showInScreenRecordings") var showInScreenRecordings = false
     @AppStorage("general.expandedAutoDismissDelay") var expandedAutoDismissDelay: Double = 1.0
     @AppStorage("general.notchHapticIntensity") var notchHapticIntensity = NotchHapticIntensity.medium.rawValue
+    @AppStorage("general.quitHotkeyEnabled") var quitHotkeyEnabled = true
     @AppStorage("general.lockFullExpandedInPlace") var lockFullExpandedInPlace = false
     @AppStorage("general.hideSideSlots") var hideSideSlots = false
     @AppStorage("general.hideOnFullscreen") var hideOnFullscreen = false

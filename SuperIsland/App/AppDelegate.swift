@@ -207,6 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func applyMenuBarVisibility() {
         if AppState.shared.showMenuBarIcon {
             installStatusItem()
+            statusItem?.menu = makeStatusMenu()
         } else {
             removeStatusItem()
         }
@@ -221,6 +222,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = NSImage(systemSymbolName: Constants.menuBarIconName, accessibilityDescription: "SuperIsland")
         }
 
+        item.menu = makeStatusMenu()
+        statusItem = item
+    }
+
+    private func makeStatusMenu() -> NSMenu {
         let menu = NSMenu()
         menu.addItem(makeMenuItem(title: "Now Playing", action: #selector(showNowPlaying)))
         menu.addItem(makeMenuItem(title: "Battery", action: #selector(showBattery)))
@@ -241,10 +247,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(makeMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(makeMenuItem(title: "Quit SuperIsland", action: #selector(quitApp), keyEquivalent: "q"))
+        menu.addItem(
+            makeMenuItem(
+                title: "Quit SuperIsland",
+                action: #selector(quitApp),
+                keyEquivalent: AppState.shared.quitHotkeyEnabled ? "q" : ""
+            )
+        )
 
-        item.menu = menu
-        statusItem = item
+        return menu
     }
 
     private func removeStatusItem() {
@@ -341,5 +352,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard AppState.shared.quitHotkeyEnabled || !isQuitHotkeyEvent(sender.currentEvent) else {
+            return .terminateCancel
+        }
+        return .terminateNow
+    }
+
+    private func isQuitHotkeyEvent(_ event: NSEvent?) -> Bool {
+        guard let event,
+              event.type == .keyDown,
+              event.charactersIgnoringModifiers?.lowercased() == "q" else {
+            return false
+        }
+
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return modifiers.contains(.command)
+            && !modifiers.contains(.control)
+            && !modifiers.contains(.option)
+            && !modifiers.contains(.function)
     }
 }
