@@ -819,6 +819,34 @@ final class ExtensionJSRuntime {
         return JSValue(object: value, in: context)
     }
 
+    private func makeHTTPSession(timeout: TimeInterval) -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout
+        return URLSession(configuration: configuration)
+    }
+
+    private func logFetchError(_ error: Error, urlString: String) {
+        let nsError = error as NSError
+        let userInfoSummary = nsError.userInfo
+            .map { key, value in
+                let renderedKey = String(describing: key)
+                let renderedValue = String(describing: value)
+                return "\(renderedKey)=\(renderedValue)"
+            }
+            .sorted()
+            .joined(separator: ", ")
+
+        let message = userInfoSummary.isEmpty
+            ? "HTTP fetch failed for \(urlString) domain=\(nsError.domain) code=\(nsError.code)"
+            : "HTTP fetch failed for \(urlString) domain=\(nsError.domain) code=\(nsError.code) userInfo={\(userInfoSummary)}"
+        ExtensionLogger.shared.log(extensionID, .warning, message)
+    }
+
     private func fetchSync(urlString: String, options: JSValue?) -> JSValue? {
         guard manifest.permissions.contains("network") else {
             context.exception = JSValue(newErrorFromMessage: "Permission denied: network", in: context)
@@ -844,21 +872,44 @@ final class ExtensionJSRuntime {
             }
         }
 
+        let timeout: TimeInterval = 15
+        let session = makeHTTPSession(timeout: timeout)
         let semaphore = DispatchSemaphore(value: 0)
         var responseStatus = 0
         var responseData = Data()
         var responseError: Error?
 
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+        let task = session.dataTask(with: request) { data, response, error in
             responseData = data ?? Data()
             responseStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
             responseError = error
             semaphore.signal()
         }
         task.resume()
-        _ = semaphore.wait(timeout: .now() + 15)
+
+        let waitResult = semaphore.wait(timeout: .now() + timeout)
+
+        if waitResult == .timedOut {
+            task.cancel()
+            session.invalidateAndCancel()
+            let timeoutError = NSError(
+                domain: NSURLErrorDomain,
+                code: NSURLErrorTimedOut,
+                userInfo: [NSLocalizedDescriptionKey: "Request timed out"]
+            )
+            logFetchError(timeoutError, urlString: urlString)
+            return JSValue(object: [
+                "status": responseStatus,
+                "data": NSNull(),
+                "text": "",
+                "error": timeoutError.localizedDescription
+            ], in: context)
+        }
+
+        session.finishTasksAndInvalidate()
 
         if let responseError {
+            logFetchError(responseError, urlString: urlString)
             return JSValue(object: [
                 "status": responseStatus,
                 "data": NSNull(),
