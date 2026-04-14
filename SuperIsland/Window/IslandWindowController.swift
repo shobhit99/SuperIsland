@@ -90,8 +90,17 @@ final class IslandWindowController {
         )
     }
 
+    /// Display explicitly chosen by the user in Advanced Settings, if set and
+    /// the display is still connected. Returning nil means "Automatic".
+    private var userSelectedScreen: NSScreen? {
+        let id = appState.displayIdentifier
+        guard !id.isEmpty else { return nil }
+        return ScreenDetector.screen(withIDString: id)
+    }
+
     private func applyFrame(size: CGSize, to panel: IslandPanel, display: Bool = true) {
-        guard let screen = panel.screen
+        guard let screen = userSelectedScreen
+            ?? panel.screen
             ?? ScreenDetector.activeScreen
             ?? ScreenDetector.primaryScreen
             ?? NSScreen.screens.first else { return }
@@ -231,6 +240,16 @@ final class IslandWindowController {
         applyFrame(size: appState.windowSize, to: panel)
     }
 
+    /// Move the panel onto the user-selected display if it isn't already there.
+    /// Called whenever settings change; cheap no-op when nothing to do.
+    private func relocateToPreferredDisplayIfNeeded() {
+        guard let panel, let preferred = userSelectedScreen else { return }
+        if panel.screen == preferred { return }
+        // Re-applying the frame recomputes origin against the new screen's
+        // notch / frame anchors; size stays whatever it currently is.
+        applyFrame(size: panel.frame.size, to: panel)
+    }
+
     // MARK: - Screen & Settings
 
     private func observeScreenChanges() {
@@ -259,6 +278,8 @@ final class IslandWindowController {
                 // Keep the compact frame in sync with settings that change its
                 // content size (e.g. toggling "Hide side slots" on notch Macs).
                 self.updateCompactFrameIfNeeded()
+                // Move to the user-picked display if that setting changed.
+                self.relocateToPreferredDisplayIfNeeded()
                 // Re-evaluate fullscreen visibility when the toggle changes.
                 self.updateFullscreenVisibility()
             }
