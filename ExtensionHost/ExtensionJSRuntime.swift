@@ -831,10 +831,14 @@ final class ExtensionJSRuntime {
 
         var request = URLRequest(url: url)
         if let options {
-            if let method = options.forProperty("method")?.toString(), !method.isEmpty {
+            if let methodValue = options.forProperty("method"),
+               !methodValue.isUndefined, !methodValue.isNull,
+               let method = methodValue.toString(), !method.isEmpty {
                 request.httpMethod = method
             }
-            if let body = options.forProperty("body")?.toString() {
+            if let bodyValue = options.forProperty("body"),
+               !bodyValue.isUndefined, !bodyValue.isNull,
+               let body = bodyValue.toString() {
                 request.httpBody = body.data(using: .utf8)
             }
             if let headers = options.forProperty("headers")?.toDictionary() as? [String: String] {
@@ -849,16 +853,37 @@ final class ExtensionJSRuntime {
         var responseData = Data()
         var responseError: Error?
 
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            responseData = data ?? Data()
-            responseStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
-            responseError = error
-            semaphore.signal()
+        // Dispatch the network task to a background queue so that blocking the
+        // calling thread (main thread) with semaphore.wait() doesn't prevent
+        // URLSession from processing its run-loop callbacks. Without this,
+        // URLSession fails with NSURLErrorDataLengthExceedsMaximum (-1103)
+        // ("resource exceeds maximum size") because the main run loop is
+        // blocked and cannot deliver network events.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let task = URLSession.shared.dataTask(with: request) { data, response, error in
+                responseData = data ?? Data()
+                responseStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+                responseError = error
+                semaphore.signal()
+            }
+            task.resume()
         }
-        task.resume()
-        _ = semaphore.wait(timeout: .now() + 15)
+
+        if semaphore.wait(timeout: .now() + 15) == .timedOut {
+            return JSValue(object: [
+                "status": 0,
+                "data": NSNull(),
+                "text": "",
+                "error": "Request timed out"
+            ], in: context)
+        }
 
         if let responseError {
+            let nsError = responseError as NSError
+            ExtensionLogger.shared.log(
+                extensionID, .warning,
+                "fetchSync error — domain: \(nsError.domain), code: \(nsError.code), description: \(nsError.localizedDescription)"
+            )
             return JSValue(object: [
                 "status": responseStatus,
                 "data": NSNull(),
