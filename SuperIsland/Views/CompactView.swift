@@ -11,7 +11,9 @@ struct CompactView: View {
                let module = appState.compactPresentationModule {
                 minimalCompactContent(for: module)
             } else if appState.usesWideCompactLayout,
-                      case .extension_(let extensionID) = appState.activeModule {
+                      let module = appState.activeModule,
+                      case .extension_(let extensionID) = module,
+                      !appState.isExtensionInactive(module) {
                 WideCompactLayout(
                     leading: AnyView(ExtensionRendererView(extensionID: extensionID, displayMode: .minimalLeading)),
                     trailing: AnyView(ExtensionRendererView(extensionID: extensionID, displayMode: .minimalTrailing))
