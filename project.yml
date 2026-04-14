@@ -10,6 +10,10 @@ settings:
     SWIFT_VERSION: "5.9"
     MACOSX_DEPLOYMENT_TARGET: "14.0"
     ARCHS: "$(ARCHS_STANDARD)"
+packages:
+  Aptabase:
+    url: https://github.com/aptabase/aptabase-swift
+    from: "0.3.0"
 targets:
   SuperIsland:
     type: application
@@ -22,6 +26,8 @@ targets:
         excludes:
           - "**/.DS_Store"
           - "**/*.md"
+    dependencies:
+      - package: Aptabase
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.workview.SuperIsland
