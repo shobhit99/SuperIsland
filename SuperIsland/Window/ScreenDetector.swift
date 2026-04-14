@@ -71,4 +71,44 @@ enum ScreenDetector {
     static var primaryScreen: NSScreen? {
         NSScreen.main
     }
+
+    /// Stable, per-display identifier string (`CGDirectDisplayID` as text).
+    /// Persisted in settings so the user's chosen display survives relaunches.
+    static func displayIDString(for screen: NSScreen) -> String? {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        guard let number = screen.deviceDescription[key] as? NSNumber else {
+            return nil
+        }
+        return String(number.uint32Value)
+    }
+
+    /// Find a screen by the identifier produced by `displayIDString`.
+    static func screen(withIDString id: String) -> NSScreen? {
+        guard !id.isEmpty else { return nil }
+        return NSScreen.screens.first { displayIDString(for: $0) == id }
+    }
+
+    /// Human-readable list of the connected screens for the display picker.
+    /// First entry is always "Automatic" (empty id == follow default rules).
+    struct ScreenOption: Identifiable, Hashable {
+        let id: String           // "" for Automatic, otherwise CGDirectDisplayID string
+        let name: String
+    }
+
+    static func availableScreenOptions() -> [ScreenOption] {
+        var options: [ScreenOption] = [ScreenOption(id: "", name: "Automatic")]
+        for screen in NSScreen.screens {
+            guard let id = displayIDString(for: screen) else { continue }
+            let name: String
+            if #available(macOS 14.0, *), !screen.localizedName.isEmpty {
+                name = screen.localizedName
+            } else {
+                let size = screen.frame.size
+                name = "Display (\(Int(size.width))×\(Int(size.height)))"
+            }
+            let suffix = hasNotch(screen: screen) ? " — notch" : ""
+            options.append(ScreenOption(id: id, name: name + suffix))
+        }
+        return options
+    }
 }

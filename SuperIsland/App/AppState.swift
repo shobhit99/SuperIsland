@@ -276,6 +276,9 @@ final class AppState: ObservableObject {
     @AppStorage("general.lockFullExpandedInPlace") var lockFullExpandedInPlace = false
     @AppStorage("general.hideSideSlots") var hideSideSlots = false
     @AppStorage("general.hideOnFullscreen") var hideOnFullscreen = false
+    /// User-chosen display for the island. Empty string == "Automatic"
+    /// (original fallback chain: panel.screen → cursor → primary).
+    @AppStorage("general.displayIdentifier") var displayIdentifier: String = ""
     /// Trackpad two-finger and drag swipes on the island surface (cycle modules, expand/dismiss).
     @AppStorage("general.islandSurfaceSwipeEnabled") var islandSurfaceSwipeEnabled = true
     @AppStorage("onboarding.completed") var onboardingCompleted = false
