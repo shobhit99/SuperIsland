@@ -1,0 +1,23 @@
+{
+  "sections": [
+    {
+      "title": "CLI Hooks",
+      "fields": [
+        {
+          "type": "toggle",
+          "key": "hooksClaudeCode",
+          "label": "Claude Code",
+          "default": true,
+          "description": "Install hooks into ~/.claude/settings.json to track Claude Code session state (Working / Waiting / Idle / Error)."
+        },
+        {
+          "type": "toggle",
+          "key": "hooksCodex",
+          "label": "Codex CLI",
+          "default": false,
+          "description": "Enable official Codex hooks by setting features.codex_hooks in ~/.codex/config.toml and installing command hooks in ~/.codex/hooks.json for Working / Idle / Error tracking."
+        }
+      ]
+    }
+  ]
+}

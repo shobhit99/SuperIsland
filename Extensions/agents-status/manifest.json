@@ -1,0 +1,23 @@
+{
+  "id": "superisland.agents-status",
+  "name": "Agents Status",
+  "version": "1.4.0",
+  "minAppVersion": "1.0.0",
+  "main": "index.js",
+  "author": { "name": "yanlin" },
+  "description": "Live Claude Code and Codex CLI session status (Working / Waiting / Idle / Error) as a 5x5 pixel animation, with multi-session focus support.",
+  "icon": "icon.svg",
+  "license": "MIT",
+  "categories": ["productivity", "dev-tools"],
+  "permissions": ["network", "storage", "notifications"],
+  "capabilities": {
+    "compact": true,
+    "expanded": true,
+    "fullExpanded": true,
+    "minimalCompact": true,
+    "backgroundRefresh": true,
+    "settings": true
+  },
+  "refreshInterval": 0.1,
+  "activationTriggers": ["manual", "timer"]
+}
