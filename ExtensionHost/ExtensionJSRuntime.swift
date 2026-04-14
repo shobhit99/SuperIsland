@@ -32,6 +32,34 @@ final class ExtensionJSRuntime {
     private var nextTimerID: Int = 1
     private var didActivate = false
 
+    /// Retains the Swift block passed to JavaScriptCore for `SuperIsland.__fetchSync` / `fetchSyncNative`.
+    /// A local `let` inside `injectHTTP` can be the last strong reference; once it goes out of scope,
+    /// JSC may leave the JS wrapper pointing at a collected native, so JS-callable natives become invalid.
+    private var fetchSyncBridge: (@convention(block) (String, JSValue?) -> JSValue?)?
+
+    /// `SuperIsland.http.fetch` implemented entirely in Swift (no JS closure calling a JS-wrapped native).
+    /// Avoids `nativeSync`/`sync` becoming `undefined` when JSC drops JS-side references to the same block.
+    private var httpFetchBridge: (@convention(block) (String, JSValue?) -> JSValue)?
+
+    /// Strong reference to the JS function object for `http.fetch` (alongside `httpFetchBridge`).
+    private var httpFetchJSValue: JSValue?
+
+    /// Pins `httpFetchJSValue` for the `JSContext` lifetime (extra guard against JSC collecting the wrapper).
+    private var httpFetchManaged: JSManagedValue?
+
+    /// Dedicated session (not `URLSession.shared`) to avoid pool / HTTP2 edge issues with some CDNs that
+    /// can surface as NSURLError -1005 while `curl` and browsers still work.
+    private static let extensionFetchSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 45
+        configuration.timeoutIntervalForResource = 90
+        configuration.httpMaximumConnectionsPerHost = 4
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        configuration.httpShouldSetCookies = false
+        return URLSession(configuration: configuration)
+    }()
+
     private let defaults = UserDefaults.standard
     private var islandActivationModule: ActiveModule {
         manifest.capabilities.notificationFeed ? .builtIn(.notifications) : .extension_(extensionID)
@@ -48,7 +76,12 @@ final class ExtensionJSRuntime {
         self.manager = manager
 
         ExtensionSandbox.configureContext(context, extensionID: manifest.id, permissions: manifest.permissions)
-        injectAPI()
+        try injectAPI()
+        // Do not let the extension entry script clear a JS exception from API injection (otherwise a
+        // failed `injectHTTP` is silently ignored and `SuperIsland.http.fetch` can be missing/broken).
+        if let injectionException = context.exception?.toString() {
+            throw RuntimeError.scriptEvaluationFailed("API injection failed: \(injectionException)")
+        }
 
         guard let script = try? String(contentsOf: manifest.entryURL, encoding: .utf8) else {
             throw RuntimeError.scriptReadFailed(manifest.entryURL)
@@ -127,7 +160,7 @@ final class ExtensionJSRuntime {
         }
     }
 
-    private func injectAPI() {
+    private func injectAPI() throws {
         let superIsland = JSValue(newObjectIn: context)!
         context.setObject(superIsland, forKeyedSubscript: "SuperIsland" as NSString)
 
@@ -137,6 +170,14 @@ final class ExtensionJSRuntime {
         injectIslandControls(into: superIsland)
         injectNotifications(into: superIsland)
         injectHTTP(into: superIsland)
+        // Later `evaluateScript` calls clear `context.exception`; fail fast if HTTP bridge threw or
+        // did not bind (see JavaScriptCore: exceptions are cleared on successful eval).
+        if let ex = context.exception?.toString() {
+            throw RuntimeError.scriptEvaluationFailed("injectHTTP: \(ex)")
+        }
+        if manifest.permissions.contains("network") {
+            try verifySuperIslandHttpFetch(superIsland: superIsland)
+        }
         injectSystem(into: superIsland)
         injectFeedback(into: superIsland)
         injectMascot(into: superIsland)
@@ -144,6 +185,16 @@ final class ExtensionJSRuntime {
         injectTimers()
         injectViewHelpers()
         injectComponents()
+    }
+
+    /// Confirms `SuperIsland.http.fetch` exists before later injection scripts run (they clear `exception`).
+    private func verifySuperIslandHttpFetch(superIsland: JSValue) throws {
+        guard let http = superIsland.forProperty("http"), !http.isUndefined, !http.isNull else {
+            throw RuntimeError.scriptEvaluationFailed("SuperIsland.http is missing")
+        }
+        guard let fetch = http.forProperty("fetch"), !fetch.isUndefined, !fetch.isNull else {
+            throw RuntimeError.scriptEvaluationFailed("SuperIsland.http.fetch is missing")
+        }
     }
 
     private func injectModuleRegistration(into superIsland: JSValue) {
@@ -286,16 +337,54 @@ final class ExtensionJSRuntime {
     }
 
     private func injectHTTP(into superIsland: JSValue) {
-        let fetchSync: @convention(block) (String, JSValue?) -> JSValue? = { [weak self] urlString, options in
-            guard let self else { return nil }
-            return self.fetchSync(urlString: urlString, options: options)
+        // Strong `self`; store on `self` so the block outlives `injectHTTP` — see `fetchSyncBridge`.
+        fetchSyncBridge = { [self] urlString, options in
+            self.fetchSync(urlString: urlString, options: options)
         }
+        let fetchSync = fetchSyncBridge!
 
         superIsland.setObject(fetchSync, forKeyedSubscript: "__fetchSync" as NSString)
+        // Plain name on the bridge object (no leading `__`): some JSC paths resolve `SuperIsland.__fetchSync`
+        // as undefined during the first script pass; this key is used as the primary JS resolver target.
+        superIsland.setObject(fetchSync, forKeyedSubscript: "fetchSyncNative" as NSString)
+        // Globals: set on both `JSContext` and `globalObject` so bare identifiers / globalThis match.
+        context.setObject(fetchSync, forKeyedSubscript: "__superIslandFetchSyncNative" as NSString)
+        context.globalObject.setObject(fetchSync, forKeyedSubscript: "__superIslandFetchSyncNative" as NSString)
 
         if manifest.permissions.contains("network") {
+            httpFetchBridge = { [self] urlString, options in
+                let payload: JSValue = self.fetchSync(urlString: urlString, options: options)
+                    ?? JSValue(nullIn: self.context)
+                if let promise = self.context.objectForKeyedSubscript("Promise"),
+                   !promise.isUndefined,
+                   let out = promise.invokeMethod("resolve", withArguments: [payload]) {
+                    return out
+                }
+                return payload
+            }
+            let httpFetch = httpFetchBridge!
+            guard let jsFn = JSValue(object: httpFetch, in: context) else {
+                ExtensionLogger.shared.log(extensionID, .error, "http.fetch: could not wrap bridge in JSValue")
+                context.evaluateScript(
+                    "SuperIsland.http = { fetch: function() { throw new Error('SuperIsland http bridge init failed'); } };"
+                )
+                return
+            }
+            httpFetchJSValue = jsFn
+            httpFetchManaged = JSManagedValue(value: jsFn, andOwner: context)
+            context.setObject(jsFn, forKeyedSubscript: "superIslandFetchHTTP" as NSString)
+            context.globalObject.setObject(jsFn, forKeyedSubscript: "superIslandFetchHTTP" as NSString)
+
+            // Bind in JS: `{ fetch: fn }` stores the function reference on the object (see JSValue /
+            // JavaScriptCore). `JSValue.setObject` onto a sub-object was unreliable for `fetch` in some builds.
             context.evaluateScript(
-                "SuperIsland.http = { fetch: function(url, options) { return Promise.resolve(SuperIsland.__fetchSync(url, options)); } };"
+                """
+                var __siHttpFn = globalThis.superIslandFetchHTTP;
+                if (typeof __siHttpFn !== 'function') {
+                  throw new Error('superIslandFetchHTTP is not a function');
+                }
+                SuperIsland.http = { fetch: __siHttpFn };
+                """
             )
         } else {
             context.evaluateScript(
@@ -834,47 +923,78 @@ final class ExtensionJSRuntime {
             if let method = options.forProperty("method")?.toString(), !method.isEmpty {
                 request.httpMethod = method
             }
-            if let body = options.forProperty("body")?.toString() {
-                request.httpBody = body.data(using: .utf8)
-            }
             if let headers = options.forProperty("headers")?.toDictionary() as? [String: String] {
                 for (key, value) in headers {
                     request.setValue(value, forHTTPHeaderField: key)
                 }
             }
+            let methodUpper = (request.httpMethod ?? "GET").uppercased()
+            if methodUpper != "GET", methodUpper != "HEAD",
+               let body = options.forProperty("body")?.toString(), !body.isEmpty {
+                request.httpBody = body.data(using: .utf8)
+            }
         }
 
-        let semaphore = DispatchSemaphore(value: 0)
-        var responseStatus = 0
-        var responseData = Data()
-        var responseError: Error?
-
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            responseData = data ?? Data()
-            responseStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
-            responseError = error
-            semaphore.signal()
+        // Avoid pooling a broken keep-alive to some CDN edges (can contribute to -1005); callers can override.
+        if request.value(forHTTPHeaderField: "Connection") == nil {
+            request.setValue("close", forHTTPHeaderField: "Connection")
         }
-        task.resume()
-        _ = semaphore.wait(timeout: .now() + 15)
 
-        if let responseError {
+        // Retries help with transient -1005 drops on Wi-Fi / HTTP2 to Cloudflare that curl may not hit the same way.
+        let maxAttempts = 4
+        for attempt in 0..<maxAttempts {
+            let semaphore = DispatchSemaphore(value: 0)
+            var responseStatus = 0
+            var responseData = Data()
+            var responseError: Error?
+
+            let task = Self.extensionFetchSession.dataTask(with: request) { data, response, error in
+                responseData = data ?? Data()
+                responseStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+                responseError = error
+                semaphore.signal()
+            }
+            task.resume()
+            _ = semaphore.wait(timeout: .now() + 15)
+
+            if responseError == nil {
+                let text = String(data: responseData, encoding: .utf8) ?? ""
+                let parsedJSON = try? JSONSerialization.jsonObject(with: responseData)
+                return JSValue(object: [
+                    "status": responseStatus,
+                    "data": parsedJSON ?? NSNull(),
+                    "text": text
+                ], in: context)
+            }
+
+            if attempt + 1 < maxAttempts, Self.shouldRetryTransientURLError(responseError) {
+                Thread.sleep(forTimeInterval: 0.15 * pow(2.0, Double(attempt)))
+                continue
+            }
+
+            let message = responseError.map { $0.localizedDescription } ?? "Unknown error"
             return JSValue(object: [
                 "status": responseStatus,
                 "data": NSNull(),
                 "text": "",
-                "error": responseError.localizedDescription
+                "error": message
             ], in: context)
         }
 
-        let text = String(data: responseData, encoding: .utf8) ?? ""
-        let parsedJSON = try? JSONSerialization.jsonObject(with: responseData)
+        return JSValue(object: ["status": 0, "data": NSNull(), "text": "", "error": "Request failed"], in: context)
+    }
 
-        return JSValue(object: [
-            "status": responseStatus,
-            "data": parsedJSON ?? NSNull(),
-            "text": text
-        ], in: context)
+    /// Transient failures where an immediate second attempt sometimes succeeds (e.g. Cloudflare / Wi-Fi).
+    private static func shouldRetryTransientURLError(_ error: Error?) -> Bool {
+        guard let error else { return false }
+        let ns = error as NSError
+        guard ns.domain == NSURLErrorDomain else { return false }
+        switch ns.code {
+        case NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost:
+            return true
+        default:
+            return false
+        }
     }
 
     private func sendNotification(
