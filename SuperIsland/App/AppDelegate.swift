@@ -13,11 +13,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var updateCancellable: AnyCancellable?
     private var statusItem: NSStatusItem?
     private var menuBarDefaultsObserver: NSObjectProtocol?
+    private var quitHotkeyMonitor: Any?
     private var didBootstrapApp = false
     private static var fallbackSettingsWindowController: NSWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         registerURLHandler()
+        installQuitHotkeyMonitor()
 
         // defaults write com.workview.SuperIsland "debug.alwaysShowOnboarding" -bool true
         let shouldShowOnboarding = !AppState.shared.onboardingCompleted || AppState.shared.debugAlwaysShowOnboarding
@@ -25,6 +27,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showOnboardingIfNeeded()
         } else {
             bootstrapApp()
+        }
+    }
+
+    deinit {
+        if let quitHotkeyMonitor {
+            NSEvent.removeMonitor(quitHotkeyMonitor)
         }
     }
 
@@ -135,6 +143,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forEventClass: AEEventClass(kInternetEventClass),
             andEventID: AEEventID(kAEGetURL)
         )
+    }
+
+    private func installQuitHotkeyMonitor() {
+        guard quitHotkeyMonitor == nil else { return }
+
+        quitHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            QuitHotkeyGuard.shouldBlock(event) ? nil : event
+        }
     }
 
     @objc

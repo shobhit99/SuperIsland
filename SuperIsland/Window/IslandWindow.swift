@@ -5,6 +5,14 @@ final class IslandPanel: NSPanel {
     override var canBecomeMain: Bool { true }
     private static let showInScreenRecordingsDefaultsKey = "general.showInScreenRecordings"
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if QuitHotkeyGuard.shouldBlock(event) {
+            return true
+        }
+
+        return super.performKeyEquivalent(with: event)
+    }
+
     init() {
         let initialCompactSize = ScreenDetector.primaryScreen
             .flatMap(ScreenDetector.compactIslandMetrics(screen:))?
