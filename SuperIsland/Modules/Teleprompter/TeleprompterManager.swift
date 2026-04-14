@@ -112,10 +112,9 @@ final class TeleprompterManager: ObservableObject {
     }
 
     /// Seek the scroll position by `delta` pixels. Positive = forward (toward end).
-    /// Auto-pauses playback so the user's seek isn't immediately undone.
+    /// Additive to ongoing auto-scroll — does NOT pause playback.
     func nudgeOffset(by delta: CGFloat) {
         guard hasScript else { return }
-        if isPlaying || isCountingDown { pause() }
         scrollNudge += delta
     }
 
