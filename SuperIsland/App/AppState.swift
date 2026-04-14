@@ -25,6 +25,7 @@ enum ModuleType: String, CaseIterable, Identifiable {
     case calendar
     case weather
     case notifications
+    case teleprompter
     var id: String { rawValue }
 
     var displayName: String {
@@ -37,6 +38,7 @@ enum ModuleType: String, CaseIterable, Identifiable {
         case .calendar: return "Calendar"
         case .weather: return "Weather"
         case .notifications: return "Notifications"
+        case .teleprompter: return "Teleprompter"
         }
     }
 
@@ -50,6 +52,7 @@ enum ModuleType: String, CaseIterable, Identifiable {
         case .calendar: return "calendar"
         case .weather: return "cloud.sun.fill"
         case .notifications: return "bell.fill"
+        case .teleprompter: return "scroll"
         }
     }
 }
@@ -253,6 +256,7 @@ final class AppState: ObservableObject {
     @AppStorage("module.weather.enabled") var weatherEnabled = true
     @AppStorage("module.weather.temperatureUnit") var temperatureUnit: TemperatureUnit = .celsius
     @AppStorage("module.notifications.enabled") var notificationsEnabled = true
+    @AppStorage("module.teleprompter.enabled") var teleprompterEnabled = false
     @AppStorage("module.shelf.autoOpenOnDrop") var shelfAutoOpenOnDrop = true
     @AppStorage("module.shelf.defaultToShelf") var shelfDefaultToShelf = false
 
@@ -701,6 +705,7 @@ final class AppState: ObservableObject {
         case .calendar: return calendarEnabled
         case .weather: return weatherEnabled
         case .notifications: return notificationsEnabled
+        case .teleprompter: return teleprompterEnabled
         }
     }
 
