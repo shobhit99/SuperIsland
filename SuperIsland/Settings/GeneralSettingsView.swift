@@ -163,6 +163,8 @@ struct GeneralSettingsView: View {
             // Interaction
             SettingSectionLabel(title: "Interaction")
             SettingGroup {
+                SettingToggleRow(title: "Island surface swipes", isOn: $appState.islandSurfaceSwipeEnabled)
+                SettingRowDivider()
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Notch haptic intensity").font(.system(size: 13))
