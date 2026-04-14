@@ -256,7 +256,7 @@ final class AppState: ObservableObject {
     @AppStorage("module.weather.enabled") var weatherEnabled = true
     @AppStorage("module.weather.temperatureUnit") var temperatureUnit: TemperatureUnit = .celsius
     @AppStorage("module.notifications.enabled") var notificationsEnabled = true
-    @AppStorage("module.teleprompter.enabled") var teleprompterEnabled = true
+    @AppStorage("module.teleprompter.enabled") var teleprompterEnabled = false
     @AppStorage("module.shelf.autoOpenOnDrop") var shelfAutoOpenOnDrop = true
     @AppStorage("module.shelf.defaultToShelf") var shelfDefaultToShelf = false
 

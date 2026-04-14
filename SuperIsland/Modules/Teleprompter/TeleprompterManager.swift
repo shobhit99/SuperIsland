@@ -24,6 +24,10 @@ final class TeleprompterManager: ObservableObject {
     /// Incremented on reset so views can snap their scroll offset back to 0.
     @Published private(set) var resetToken: UUID = UUID()
 
+    /// Monotonically-increasing cumulative pixel nudge applied by scroll-wheel input.
+    /// The view subtracts the previously-consumed value to get the delta for each tick.
+    @Published private(set) var scrollNudge: CGFloat = 0
+
     // MARK: - Style settings (persisted)
 
     /// Pixels per second of scroll speed.
@@ -99,11 +103,20 @@ final class TeleprompterManager: ObservableObject {
         cancelCountdown()
         isPlaying = false
         pendingCountdown = true
+        scrollNudge = 0
         resetToken = UUID()
     }
 
     func togglePlayPause() {
         if isPlaying || isCountingDown { pause() } else { play() }
+    }
+
+    /// Seek the scroll position by `delta` pixels. Positive = forward (toward end).
+    /// Auto-pauses playback so the user's seek isn't immediately undone.
+    func nudgeOffset(by delta: CGFloat) {
+        guard hasScript else { return }
+        if isPlaying || isCountingDown { pause() }
+        scrollNudge += delta
     }
 
     // MARK: - Countdown

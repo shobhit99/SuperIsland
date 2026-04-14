@@ -1,10 +1,68 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Preference key for measuring text height
 
 private struct TextHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+// MARK: - Scroll-wheel catcher
+//
+// Transparent NSView that claims hits ONLY for scroll-wheel events.
+// Clicks and hovers pass straight through to the buttons layered above it.
+
+struct TeleprompterScrollWheelCatcher: NSViewRepresentable {
+    let onScroll: (CGFloat, Bool) -> Void   // (deltaY, hasPreciseScrollingDeltas)
+
+    func makeNSView(context: Context) -> NSView {
+        let view = _ScrollWheelNSView()
+        view.onScroll = onScroll
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? _ScrollWheelNSView)?.onScroll = onScroll
+    }
+}
+
+private final class _ScrollWheelNSView: NSView {
+    var onScroll: ((CGFloat, Bool) -> Void)?
+
+    override func scrollWheel(with event: NSEvent) {
+        onScroll?(event.scrollingDeltaY, event.hasPreciseScrollingDeltas)
+    }
+
+    /// Consume swipe gestures so Mission Control / Space switching never fires.
+    override func swipe(with event: NSEvent) { /* swallow */ }
+    override func beginGesture(with event: NSEvent) { /* swallow */ }
+    override func endGesture(with event: NSEvent) { /* swallow */ }
+
+    override func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
+        return true
+    }
+
+    override func wantsForwardedScrollEvents(for axis: NSEvent.GestureAxis) -> Bool {
+        return true
+    }
+
+    /// Claim hits for the whole gesture family — not just `.scrollWheel`.
+    /// When the user's scroll reaches a boundary, AppKit starts emitting
+    /// `.swipe` / `.beginGesture` / `.endGesture` events as separate types.
+    /// If we only claim `.scrollWheel`, those events slip through to the
+    /// system gesture recognizer and switch Spaces.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let event = window?.currentEvent else { return nil }
+        switch event.type {
+        case .scrollWheel, .swipe, .beginGesture, .endGesture,
+             .magnify, .rotate, .smartMagnify, .pressure, .gesture:
+            let local = convert(point, from: superview)
+            return bounds.contains(local) ? self : nil
+        default:
+            return nil
+        }
+    }
 }
 
 // MARK: - Scrolling text engine
@@ -16,6 +74,7 @@ struct TeleprompterScrollingTextView: View {
     @State private var offset: CGFloat = 0
     @State private var textHeight: CGFloat = 0
     @State private var scrollTimer: Timer?
+    @State private var appliedNudge: CGFloat = 0
 
     private var maxOffset: CGFloat {
         max(0, textHeight - containerHeight)
@@ -34,10 +93,17 @@ struct TeleprompterScrollingTextView: View {
         }
         .onChange(of: manager.resetToken) { _, _ in
             stopScrolling()
+            appliedNudge = manager.scrollNudge
             withAnimation(.easeOut(duration: 0.25)) { offset = 0 }
         }
         .onChange(of: manager.scriptText) { _, _ in
             offset = 0; textHeight = 0
+            appliedNudge = manager.scrollNudge
+        }
+        .onChange(of: manager.scrollNudge) { _, total in
+            let delta = total - appliedNudge
+            appliedNudge = total
+            offset = max(0, min(maxOffset, offset + delta))
         }
         .onDisappear { stopScrolling() }
     }
@@ -137,6 +203,7 @@ private struct TeleprompterExpandedInner: View {
 
 private struct TeleprompterFullExpandedInner: View {
     @ObservedObject private var manager = TeleprompterManager.shared
+    @State private var spaceMonitor: Any?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -151,6 +218,18 @@ private struct TeleprompterFullExpandedInner: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // ── Scroll-wheel catcher (transparent to clicks) ──────────────
+            if manager.hasScript {
+                TeleprompterScrollWheelCatcher { deltaY, isPrecise in
+                    let pxPerLine = manager.fontSize * 1.4
+                    // Direction: scroll UP = rewind, scroll DOWN = fast-forward.
+                    let nudge: CGFloat = isPrecise
+                        ? -deltaY * 1.2
+                        : -deltaY * pxPerLine
+                    manager.nudgeOffset(by: nudge)
+                }
+            }
 
             // ── 3-2-1 Countdown overlay ───────────────────────────────────
             if let n = manager.countdownValue {
@@ -172,6 +251,29 @@ private struct TeleprompterFullExpandedInner: View {
                 .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear  { installSpaceMonitor() }
+        .onDisappear { removeSpaceMonitor() }
+    }
+
+    // MARK: - Space-bar keyboard shortcut (app-local)
+
+    private func installSpaceMonitor() {
+        guard spaceMonitor == nil else { return }
+        spaceMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // keyCode 49 = space. Ignore when a text field has focus (editor window).
+            guard event.keyCode == 49,
+                  !(event.window?.firstResponder is NSTextView)
+            else { return event }
+            Task { @MainActor in manager.togglePlayPause() }
+            return nil // consume
+        }
+    }
+
+    private func removeSpaceMonitor() {
+        if let m = spaceMonitor {
+            NSEvent.removeMonitor(m)
+            spaceMonitor = nil
+        }
     }
 
     // MARK: Top bar

@@ -22,11 +22,12 @@ final class TeleprompterScriptEditorWindowController {
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(white: 0.07, alpha: 1)
 
-        // Position below the island (≈ 230pt from top of main screen).
+        // Open hugged to the top of the screen, just under the menu bar.
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let windowSize = NSSize(width: 560, height: 460)
-        let windowX = screen.frame.midX - windowSize.width / 2
-        let windowY = screen.frame.maxY - 310 - windowSize.height
+        let topMargin: CGFloat = 10
+        let windowX = screen.visibleFrame.midX - windowSize.width / 2
+        let windowY = screen.visibleFrame.maxY - topMargin - windowSize.height
         window.setFrameOrigin(NSPoint(x: windowX, y: windowY))
 
         window.makeKeyAndOrderFront(nil)
