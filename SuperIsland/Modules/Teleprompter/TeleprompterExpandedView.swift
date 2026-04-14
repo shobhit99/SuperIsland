@@ -87,6 +87,12 @@ struct TeleprompterScrollingTextView: View {
         }
         .clipped()
         .mask(bottomFade)
+        // Constrain hit-testing to the GeometryReader's rect and make the
+        // text itself non-interactive. Without this, the scrolled text's
+        // layout bounds (huge due to fixedSize + padding) can swallow clicks
+        // destined for sibling chrome like the island's lock/settings buttons.
+        .contentShape(Rectangle())
+        .allowsHitTesting(false)
         .onPreferenceChange(TextHeightKey.self) { textHeight = $0 }
         .onChange(of: manager.isPlaying) { _, playing in
             playing ? startScrolling() : stopScrolling()
