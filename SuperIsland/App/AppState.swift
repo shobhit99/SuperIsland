@@ -276,6 +276,8 @@ final class AppState: ObservableObject {
     @AppStorage("general.lockFullExpandedInPlace") var lockFullExpandedInPlace = false
     @AppStorage("general.hideSideSlots") var hideSideSlots = false
     @AppStorage("general.hideOnFullscreen") var hideOnFullscreen = false
+    /// Trackpad two-finger and drag swipes on the island surface (cycle modules, expand/dismiss).
+    @AppStorage("general.islandSurfaceSwipeEnabled") var islandSurfaceSwipeEnabled = true
     @AppStorage("onboarding.completed") var onboardingCompleted = false
     @AppStorage("debug.alwaysShowOnboarding") var debugAlwaysShowOnboarding = false
 

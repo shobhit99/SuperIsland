@@ -75,22 +75,18 @@ struct IslandContainerView: View {
             }
         }
         .contentShape(islandShape)
-        .onTrackpadSwipe { direction in
-            guard appState.currentState != .compact else { return }
-            handleHorizontalSwipe(direction)
-        }
+        .modifier(IslandSurfaceSwipeModifier(
+            enabled: appState.islandSurfaceSwipeEnabled,
+            isCompact: appState.currentState == .compact,
+            onTrackpad: { handleHorizontalSwipe($0) },
+            onDragEnded: { handleSwipe(value: $0) }
+        ))
         .onContinuousHover(coordinateSpace: .local) { phase in
             handleSurfaceHover(phase: phase, surfaceSize: surfaceSize)
         }
         .onTapGesture {
             handleSurfaceTap()
         }
-        .gesture(
-            DragGesture(minimumDistance: 8)
-                .onEnded { value in
-                    handleSwipe(value: value)
-                }
-        )
         .gesture(
             LongPressGesture(minimumDuration: 0.5)
                 .onEnded { _ in
@@ -429,5 +425,31 @@ struct IslandContainerView: View {
         isHoveringPreviousButton = false
         isHoveringNextButton = false
         syncHoverState()
+    }
+}
+
+private struct IslandSurfaceSwipeModifier: ViewModifier {
+    let enabled: Bool
+    let isCompact: Bool
+    let onTrackpad: (SwipeDirection) -> Void
+    let onDragEnded: (DragGesture.Value) -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .onTrackpadSwipe { direction in
+                    guard !isCompact else { return }
+                    onTrackpad(direction)
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 8)
+                        .onEnded { value in
+                            onDragEnded(value)
+                        }
+                )
+        } else {
+            content
+        }
     }
 }
