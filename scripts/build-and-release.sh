@@ -30,6 +30,11 @@ echo "==> Generating Xcode project..."
 xcodegen generate
 
 echo "==> Archiving..."
+# Note: Do NOT set BUILD_LIBRARY_FOR_DISTRIBUTION=YES. That flag is for
+# frameworks shipped as precompiled binaries; forcing it on makes every
+# SwiftPM dependency emit + verify a .swiftinterface, which fails on some
+# packages (e.g. Aptabase) and isn't useful for an app bundle.
+# SWIFT_VERIFY_EMITTED_MODULE_INTERFACE=NO kept as a safety net.
 xcodebuild archive \
   -project "${APP_NAME}.xcodeproj" \
   -scheme "${SCHEME}" \
@@ -37,16 +42,24 @@ xcodebuild archive \
   -archivePath "${ARCHIVE_PATH}" \
   -destination "generic/platform=macOS" \
   SKIP_INSTALL=NO \
-  BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+  SWIFT_VERIFY_EMITTED_MODULE_INTERFACE=NO \
   CODE_SIGN_STYLE=Automatic \
   DEVELOPMENT_TEAM="${TEAM_ID}" \
   ENABLE_HARDENED_RUNTIME=YES
 
-echo "==> Exporting archive..."
-xcodebuild -exportArchive \
-  -archivePath "${ARCHIVE_PATH}" \
-  -exportOptionsPlist exportOptions.plist \
-  -exportPath "${BUILD_DIR}"
+echo "==> Extracting app from archive..."
+# Skip `xcodebuild -exportArchive`: its IDEDistributionMethodManager is
+# flaky on Xcode 16 for Developer ID, and we re-sign the whole bundle
+# a few steps below anyway (after injecting the bundled node binary),
+# so whatever signature the export step would have applied is discarded.
+# Copying the .app directly out of the archive's Products is reliable.
+APP_IN_ARCHIVE="${ARCHIVE_PATH}/Products/Applications/${APP_NAME}.app"
+if [ ! -d "${APP_IN_ARCHIVE}" ]; then
+  echo "ERROR: ${APP_IN_ARCHIVE} not found after archive"
+  exit 1
+fi
+rm -rf "${APP_PATH}"
+cp -R "${APP_IN_ARCHIVE}" "${APP_PATH}"
 
 echo "==> Bundling Node.js runtime..."
 NODE_VERSION="20.19.0"
