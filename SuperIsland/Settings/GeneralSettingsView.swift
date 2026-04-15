@@ -163,6 +163,8 @@ struct GeneralSettingsView: View {
             // Interaction
             SettingSectionLabel(title: "Interaction")
             SettingGroup {
+                SettingToggleRow(title: "Island surface swipes", isOn: $appState.islandSurfaceSwipeEnabled)
+                SettingRowDivider()
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Notch haptic intensity").font(.system(size: 13))
@@ -180,6 +182,13 @@ struct GeneralSettingsView: View {
                     .frame(width: 120)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
+
+                SettingRowDivider()
+                SettingToggleRow(
+                    title: "Allow Command+Q to quit",
+                    description: "Turn this off to prevent accidental quits while interacting with the notch.",
+                    isOn: $appState.allowQuitHotkey
+                )
             }
 
             // Permissions

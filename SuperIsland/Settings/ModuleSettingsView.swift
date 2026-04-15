@@ -46,6 +46,23 @@ struct ModuleSettingsView: View {
                 SettingRowDivider()
                 SettingToggleRow(title: "Notifications", isOn: $appState.notificationsEnabled)
             }
+
+            SettingSectionLabel(title: "Productivity")
+            SettingGroup {
+                SettingToggleRow(title: "Teleprompter", isOn: $appState.teleprompterEnabled)
+                SettingRowDivider()
+                HStack {
+                    Text("Script")
+                        .font(.system(size: 13))
+                    Spacer(minLength: 8)
+                    Button("Edit Script…") {
+                        TeleprompterScriptEditorWindowController.show()
+                    }
+                    .font(.system(size: 12))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }

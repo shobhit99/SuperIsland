@@ -25,6 +25,7 @@ enum ModuleType: String, CaseIterable, Identifiable {
     case calendar
     case weather
     case notifications
+    case teleprompter
     var id: String { rawValue }
 
     var displayName: String {
@@ -37,6 +38,7 @@ enum ModuleType: String, CaseIterable, Identifiable {
         case .calendar: return "Calendar"
         case .weather: return "Weather"
         case .notifications: return "Notifications"
+        case .teleprompter: return "Teleprompter"
         }
     }
 
@@ -50,6 +52,7 @@ enum ModuleType: String, CaseIterable, Identifiable {
         case .calendar: return "calendar"
         case .weather: return "cloud.sun.fill"
         case .notifications: return "bell.fill"
+        case .teleprompter: return "scroll"
         }
     }
 }
@@ -253,6 +256,7 @@ final class AppState: ObservableObject {
     @AppStorage("module.weather.enabled") var weatherEnabled = true
     @AppStorage("module.weather.temperatureUnit") var temperatureUnit: TemperatureUnit = .celsius
     @AppStorage("module.notifications.enabled") var notificationsEnabled = true
+    @AppStorage("module.teleprompter.enabled") var teleprompterEnabled = false
     @AppStorage("module.shelf.autoOpenOnDrop") var shelfAutoOpenOnDrop = true
     @AppStorage("module.shelf.defaultToShelf") var shelfDefaultToShelf = false
 
@@ -268,9 +272,15 @@ final class AppState: ObservableObject {
     @AppStorage("general.showInScreenRecordings") var showInScreenRecordings = false
     @AppStorage("general.expandedAutoDismissDelay") var expandedAutoDismissDelay: Double = 1.0
     @AppStorage("general.notchHapticIntensity") var notchHapticIntensity = NotchHapticIntensity.medium.rawValue
+    @AppStorage(QuitHotkeyGuard.defaultsKey) var allowQuitHotkey = true
     @AppStorage("general.lockFullExpandedInPlace") var lockFullExpandedInPlace = false
     @AppStorage("general.hideSideSlots") var hideSideSlots = false
     @AppStorage("general.hideOnFullscreen") var hideOnFullscreen = false
+    /// User-chosen display for the island. Empty string == "Automatic"
+    /// (original fallback chain: panel.screen → cursor → primary).
+    @AppStorage("general.displayIdentifier") var displayIdentifier: String = ""
+    /// Trackpad two-finger and drag swipes on the island surface (cycle modules, expand/dismiss).
+    @AppStorage("general.islandSurfaceSwipeEnabled") var islandSurfaceSwipeEnabled = true
     @AppStorage("onboarding.completed") var onboardingCompleted = false
     @AppStorage("debug.alwaysShowOnboarding") var debugAlwaysShowOnboarding = false
 
@@ -701,6 +711,7 @@ final class AppState: ObservableObject {
         case .calendar: return calendarEnabled
         case .weather: return weatherEnabled
         case .notifications: return notificationsEnabled
+        case .teleprompter: return teleprompterEnabled
         }
     }
 
@@ -709,6 +720,15 @@ final class AppState: ObservableObject {
             return nil
         }
         return module
+    }
+
+    /// Returns `true` when an extension reports precedence 0, meaning it
+    /// considers itself inactive (e.g. a paused Pomodoro timer) and should
+    /// not take over the compact view or the default full-expanded tab.
+    func isExtensionInactive(_ module: ActiveModule) -> Bool {
+        guard case .extension_(let extensionID) = module else { return false }
+        let precedence = ExtensionManager.shared.extensionStates[extensionID]?.minimalCompactPrecedence ?? 1
+        return precedence == 0
     }
 
     private func isCyclableIslandModule(_ module: ModuleType) -> Bool {
@@ -771,6 +791,12 @@ final class AppState: ObservableObject {
             : nil
 
         guard let activeModule else {
+            return mediaModule
+        }
+
+        // Extensions with precedence 0 are inactive — treat them as if
+        // no module is active so the compact view falls back to media or default.
+        if isExtensionInactive(activeModule) {
             return mediaModule
         }
 
@@ -1133,7 +1159,7 @@ final class AppState: ObservableObject {
             nextTab = .module(.builtIn(.shelf))
         } else if prefersHome {
             nextTab = .home
-        } else if let activeModule, supportsFullExpandedModule(activeModule) {
+        } else if let activeModule, !isExtensionInactive(activeModule), supportsFullExpandedModule(activeModule) {
             nextTab = .module(activeModule)
         } else {
             nextTab = .home

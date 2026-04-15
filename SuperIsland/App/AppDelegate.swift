@@ -13,11 +13,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var updateCancellable: AnyCancellable?
     private var statusItem: NSStatusItem?
     private var menuBarDefaultsObserver: NSObjectProtocol?
+    private var quitHotkeyMonitor: Any?
     private var didBootstrapApp = false
     private static var fallbackSettingsWindowController: NSWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Analytics.start()
+        Analytics.track("app_launched", properties: [
+            "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
+            "build": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
+        ])
+
         registerURLHandler()
+        installQuitHotkeyMonitor()
 
         // defaults write com.workview.SuperIsland "debug.alwaysShowOnboarding" -bool true
         let shouldShowOnboarding = !AppState.shared.onboardingCompleted || AppState.shared.debugAlwaysShowOnboarding
@@ -32,6 +40,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Ensure the agents-status Python subprocess exits with us so port 7823
         // is released cleanly and no orphan is inherited by launchd.
         AgentsStatusBridge.shared.stop()
+    }
+
+    deinit {
+        if let quitHotkeyMonitor {
+            NSEvent.removeMonitor(quitHotkeyMonitor)
+        }
     }
 
     private func bootstrapApp() {
@@ -141,6 +155,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forEventClass: AEEventClass(kInternetEventClass),
             andEventID: AEEventID(kAEGetURL)
         )
+    }
+
+    private func installQuitHotkeyMonitor() {
+        guard quitHotkeyMonitor == nil else { return }
+
+        quitHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            QuitHotkeyGuard.shouldBlock(event) ? nil : event
+        }
     }
 
     @objc
@@ -302,6 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .calendar: AppState.shared.calendarEnabled = newState
         case .weather: AppState.shared.weatherEnabled = newState
         case .notifications: AppState.shared.notificationsEnabled = newState
+        case .teleprompter: AppState.shared.teleprompterEnabled = newState
         }
         sender.state = newState ? .on : .off
     }
