@@ -1307,13 +1307,17 @@ def _cc_canonical_events():
     # SubagentStop intentionally omitted: sub-agents finishing would otherwise
     # flip the parent session to Idle while the main agent is still working.
     return {
-        "SessionStart":     _cc_event_cmd("Idle"),
-        "UserPromptSubmit": _cc_event_cmd("Working"),
-        "PreToolUse":       _cc_event_cmd("Working"),
-        "PostToolUse":      _cc_event_cmd("Auto"),
-        "Notification":     _cc_event_cmd("Waiting"),
-        "Stop":             _cc_event_cmd("Idle"),
-        "SessionEnd":       _cc_event_cmd("Ended"),
+        "SessionStart":        _cc_event_cmd("Idle"),
+        "UserPromptSubmit":    _cc_event_cmd("Working"),
+        "PreToolUse":          _cc_event_cmd("Working"),
+        "PostToolUse":         _cc_event_cmd("Auto"),
+        # PostToolUseFailure is Claude Code's only reliable ESC-interrupt
+        # signal: its payload carries is_interrupt=true when the user hit
+        # ESC mid-tool. The hook script decodes that and emits Idle.
+        "PostToolUseFailure":  _cc_event_cmd("ToolFail"),
+        "Notification":        _cc_event_cmd("Waiting"),
+        "Stop":                _cc_event_cmd("Idle"),
+        "SessionEnd":          _cc_event_cmd("Ended"),
     }
 
 

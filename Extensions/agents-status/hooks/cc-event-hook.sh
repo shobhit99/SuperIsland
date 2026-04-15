@@ -49,6 +49,15 @@ if state == "Auto":
     # not agent errors. Keep the session Working; only CLI crashes or lost
     # processes flip to Error (detected server-side via dead PID).
     state = "Working"
+elif state == "ToolFail":
+    # PostToolUseFailure: fires when a tool call fails. `is_interrupt` is
+    # true when the failure was an ESC interrupt by the user — the only
+    # reliable signal for "user hit ESC", since Stop isn't dispatched in
+    # that case. Treat it as turn-end; regular tool failures keep Working.
+    if d.get("is_interrupt") is True:
+        state = "Idle"
+    else:
+        state = "Working"
 elif state == "Waiting":
     # Claude's Notification hook fires for two very different cases:
     #   1. Permission prompt: "Claude needs your permission to use <Tool>"
