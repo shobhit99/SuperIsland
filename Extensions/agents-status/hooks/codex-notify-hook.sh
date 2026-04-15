@@ -112,6 +112,7 @@ sys.stdout.write(json.dumps({
     "event": event,
     "session_id": d.get("session_id") or "default",
     "cwd": d.get("cwd") or "",
+    "transcript_path": d.get("transcript_path") or "",
     "title": title,
     "terminal": term,
     "pid": pid,

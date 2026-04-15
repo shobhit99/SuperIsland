@@ -535,6 +535,23 @@ def _sync_claude_startup_sessions(now, candidates):
         }
 
 
+def _tail_text(path, max_bytes=65536):
+    if not path:
+        return ""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return ""
+    try:
+        with open(path, "rb") as f:
+            if size > max_bytes:
+                f.seek(size - max_bytes)
+                f.readline()  # drop partial line
+            return f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
 def _claude_transcript_interrupted(transcript_path):
     # Claude Code doesn't fire the Stop hook when the user ESC-interrupts a
     # turn, but it does append a synthetic user entry whose text starts with
@@ -542,19 +559,8 @@ def _claude_transcript_interrupted(transcript_path):
     # or "...by user for tool use]" mid-tool). If that's the newest user
     # entry in the transcript, the turn is done — flip to Idle immediately
     # instead of waiting out CLAUDE_IDLE_GRACE.
-    if not transcript_path:
-        return False
-    try:
-        size = os.path.getsize(transcript_path)
-    except OSError:
-        return False
-    try:
-        with open(transcript_path, "rb") as f:
-            if size > 65536:
-                f.seek(size - 65536)
-                f.readline()  # drop partial line
-            chunk = f.read().decode("utf-8", errors="replace")
-    except OSError:
+    chunk = _tail_text(transcript_path)
+    if not chunk:
         return False
     for line in reversed(chunk.splitlines()):
         line = line.strip()
@@ -582,12 +588,40 @@ def _claude_transcript_interrupted(transcript_path):
     return False
 
 
+def _codex_transcript_interrupted(transcript_path, turn_id):
+    # Codex persists a model-visible <turn_aborted> marker into the transcript
+    # on ESC interrupt. There is no dedicated interrupt hook today, so treat
+    # the newest interrupted marker for the active turn as an immediate Idle.
+    chunk = _tail_text(transcript_path)
+    if not chunk or "<turn_aborted>" not in chunk:
+        return False
+
+    idx = chunk.rfind("<turn_aborted>")
+    if idx < 0:
+        return False
+    marker = chunk[idx:]
+    if "</turn_aborted>" in marker:
+        marker = marker[:marker.find("</turn_aborted>") + len("</turn_aborted>")]
+    if "<reason>interrupted</reason>" not in marker:
+        return False
+    if turn_id:
+        return f"<turn_id>{turn_id}</turn_id>" in marker
+    return True
+
+
 def _decay_working(now):
     # Auto-roll Working sessions to Idle after inactivity. Leaves title/cwd intact.
     for key, s in _sessions.items():
         if s["state"] != "Working":
             continue
         if s.get("agent") == "Codex" and s.get("turn_active"):
+            transcript = s.get("transcript_path") or ""
+            turn_id = s.get("turn_id") or ""
+            if _codex_transcript_interrupted(transcript, turn_id):
+                s["state"] = "Idle"
+                s["turn_active"] = False
+                s["turn_started_at"] = None
+                continue
             continue
         # Claude can "think" for long stretches between hook events, and
         # long-running tools like `npm install` can go minutes with zero
@@ -692,17 +726,22 @@ def _prune(now, ttl):
 def _mark_unexpected_claude_exits(now):
     # Claude's SessionEnd hook fires synchronously on normal exit and removes
     # the session. If the CLI process is gone but the session is still here,
-    # it crashed / was SIGKILLed / lost its network — surface Error briefly
-    # before the session gets pruned.
+    # it likely crashed / was SIGKILLed / lost its network. Only surface Error
+    # when the agent disappeared mid-turn; if Claude was already Idle, prune it
+    # directly so ordinary quits do not flash Error in the island.
     for s in _sessions.values():
         if s.get("agent") != "Claude":
             continue
         pid = s.get("pid")
         if not pid or _pid_alive(pid):
             continue
+        if not s.get("turn_active") and s.get("state") not in ("Working", "Waiting"):
+            continue
         if s.get("state") == "Error":
             continue
         s["state"] = "Error"
+        s["turn_active"] = False
+        s["turn_started_at"] = None
         s["last_event"] = "UnexpectedExit"
         s["updated_at"] = now
         s["error_expires_at"] = now + ERROR_DISPLAY_SECONDS
@@ -1171,23 +1210,40 @@ def _apply_event(data):
     session_id = data.get("session_id") or "default"
     event = data.get("event") or ""
     key = (agent, session_id)
-    # "Ended" is a pseudo-state that removes the session outright — fired by
-    # Claude Code's SessionEnd hook so Ctrl+C quits don't leave stale pills.
-    if state == "Ended":
-        with _lock:
-            existing = _sessions.pop(key, None)
-            existed = existing is not None
-            ended_pid = data.get("pid") or (existing.get("pid") if existing else None)
-            if ended_pid:
-                _remember_ended_pid(ended_pid)
-        return True, {"ok": True, "state": "Ended", "agent": agent, "session_id": session_id, "removed": existed}
-    if state not in VALID_STATES:
-        return False, {"error": "invalid state", "got": state}
-    now = time.time()
     try:
         incoming_pid = int(data.get("pid") or 0) or None
     except Exception:
         incoming_pid = None
+    # "Ended" is a pseudo-state that removes the session outright — fired by
+    # Claude Code's SessionEnd hook so Ctrl+C quits don't leave stale pills.
+    if state == "Ended":
+        now = time.time()
+        with _lock:
+            removed = []
+            if incoming_pid:
+                for other_key, other in list(_sessions.items()):
+                    if other.get("agent") != agent:
+                        continue
+                    if other.get("pid") != incoming_pid:
+                        continue
+                    removed.append(_sessions.pop(other_key, None))
+            existing = _sessions.pop(key, None)
+            if existing is not None:
+                removed.append(existing)
+            removed = [item for item in removed if item is not None]
+            existed = bool(removed)
+            ended_pid = incoming_pid
+            if not ended_pid:
+                for item in removed:
+                    if item.get("pid"):
+                        ended_pid = item.get("pid")
+                        break
+            if ended_pid:
+                _remember_ended_pid(ended_pid, now)
+        return True, {"ok": True, "state": "Ended", "agent": agent, "session_id": session_id, "removed": existed}
+    if state not in VALID_STATES:
+        return False, {"error": "invalid state", "got": state}
+    now = time.time()
     incoming_turn_id = data.get("turn_id") or None
     incoming_last_assistant_message = (
         data["last_assistant_message"] if "last_assistant_message" in data
@@ -1249,6 +1305,17 @@ def _apply_event(data):
                 turn_active = True
                 if not turn_started_at:
                     turn_started_at = now
+
+            if event:
+                error_expires_at = None
+        elif agent == "Claude":
+            if state in ("Working", "Waiting"):
+                turn_active = True
+                if not turn_started_at:
+                    turn_started_at = now
+            elif state == "Idle":
+                turn_active = False
+                turn_started_at = None
 
             if event:
                 error_expires_at = None
@@ -1417,7 +1484,7 @@ def cc_status():
     for event_name, bucket in hooks.items():
         if isinstance(bucket, list) and any(_cc_is_our_group(g) for g in bucket):
             present.append(event_name)
-    primary = {"UserPromptSubmit", "PreToolUse", "Stop"}
+    primary = {"UserPromptSubmit", "PreToolUse", "PostToolUseFailure", "Stop", "SessionEnd"}
     return {"installed": primary.issubset(set(present)), "events": sorted(present)}
 
 

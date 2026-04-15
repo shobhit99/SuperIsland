@@ -32,7 +32,8 @@ Claude Code / Codex hooks  --curl POST-->  127.0.0.1:7823  <--GET poll--  extens
   drop off the list.
 - Claude `Working` sessions auto-decay to `Idle` after 30 s of silence so a
   crashed hook can't leave a session stuck. Codex keeps `Working` for the
-  active turn until `Stop` arrives or the CLI exits.
+  active turn until `Stop` arrives, the CLI exits, or the transcript records
+  an interrupted `<turn_aborted>` marker.
 
 ## Install
 
@@ -78,10 +79,11 @@ curl http://127.0.0.1:7823/state
 | `SessionStart`          | Idle         |
 | `UserPromptSubmit`      | Working      |
 | `PreToolUse`            | Working      |
-| `PostToolUse` (ok)      | Working      |
-| `PostToolUse` (error)   | Error        |
+| `PostToolUse`           | Working      |
+| `PostToolUseFailure` (`is_interrupt=true`) | Idle |
 | `Notification`          | Waiting      |
-| `Stop` / `SubagentStop` | Idle         |
+| `Stop`                  | Idle         |
+| `SessionEnd`            | removes session |
 
 | Codex hook             | State        |
 | ---------------------- | ------------ |
@@ -93,7 +95,8 @@ curl http://127.0.0.1:7823/state
 
 For Codex, Bash command exit codes are treated as normal tool outcomes, not as
 agent errors. `Error` is only surfaced when an active Codex turn disappears
-unexpectedly before `Stop` arrives.
+unexpectedly before `Stop` arrives. There is no dedicated interrupt hook today,
+so ESC interrupts fall back to the transcript's `<turn_aborted>` marker.
 
 `PostToolUse` is currently limited by Codex itself to Bash payloads, per the
 official hooks docs. Other tool types are not intercepted there yet.
