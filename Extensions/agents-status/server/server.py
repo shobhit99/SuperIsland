@@ -48,6 +48,11 @@ WORKING_TIMEOUT = float(
     os.environ.get("AGENTS_STATUS_WORKING_TIMEOUT") or
     os.environ.get("CC_STATUS_WORKING_TIMEOUT", "30")
 )
+# How long a Claude session can sit "Working" with zero hook events AND a
+# stale transcript before we assume the Stop hook was missed (commonly: ESC
+# interrupt) and auto-flip to Idle. Generous enough that long-running tool
+# calls don't false-trip.
+CLAUDE_IDLE_GRACE = float(os.environ.get("AGENTS_STATUS_CLAUDE_IDLE_GRACE", "180"))
 ERROR_DISPLAY_SECONDS = float(os.environ.get("AGENTS_STATUS_ERROR_DISPLAY_SECONDS", "45"))
 SESSION_TTL_DEFAULT = float(os.environ.get("AGENTS_STATUS_SESSION_TTL", "1800"))  # 30 min
 CODEX_SCAN_INTERVAL = float(os.environ.get("AGENTS_STATUS_CODEX_SCAN_INTERVAL", "1.0"))
@@ -530,6 +535,53 @@ def _sync_claude_startup_sessions(now, candidates):
         }
 
 
+def _claude_transcript_interrupted(transcript_path):
+    # Claude Code doesn't fire the Stop hook when the user ESC-interrupts a
+    # turn, but it does append a synthetic user entry whose text starts with
+    # "[Request interrupted by user" (either "...by user]" for a plain turn
+    # or "...by user for tool use]" mid-tool). If that's the newest user
+    # entry in the transcript, the turn is done — flip to Idle immediately
+    # instead of waiting out CLAUDE_IDLE_GRACE.
+    if not transcript_path:
+        return False
+    try:
+        size = os.path.getsize(transcript_path)
+    except OSError:
+        return False
+    try:
+        with open(transcript_path, "rb") as f:
+            if size > 65536:
+                f.seek(size - 65536)
+                f.readline()  # drop partial line
+            chunk = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return False
+    for line in reversed(chunk.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            m = json.loads(line)
+        except Exception:
+            continue
+        if m.get("type") != "user":
+            continue
+        msg = m.get("message") or {}
+        content = msg.get("content")
+        text = ""
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            for c in content:
+                if isinstance(c, dict) and c.get("type") == "text":
+                    text = c.get("text") or ""
+                    break
+        if not text:
+            continue
+        return text.lstrip().startswith("[Request interrupted by user")
+    return False
+
+
 def _decay_working(now):
     # Auto-roll Working sessions to Idle after inactivity. Leaves title/cwd intact.
     for key, s in _sessions.items():
@@ -537,12 +589,34 @@ def _decay_working(now):
             continue
         if s.get("agent") == "Codex" and s.get("turn_active"):
             continue
-        # Claude can "think" for long stretches between hook events. As long
-        # as the CLI process is alive, trust Stop/SessionEnd to flip state —
-        # don't decay to Idle on silence alone (that misreads Thinking).
+        # Claude can "think" for long stretches between hook events, and
+        # long-running tools like `npm install` can go minutes with zero
+        # hooks AND zero transcript writes. Treat a session as still Working
+        # as long as EITHER the last hook event or the transcript mtime is
+        # recent. Only when both have been silent past CLAUDE_IDLE_GRACE do
+        # we assume the Stop hook was missed (e.g. ESC interrupt) and flip
+        # to Idle. The generous grace keeps long-tool sessions from false-
+        # flipping at the cost of slightly slower ESC recovery.
         if s.get("agent") == "Claude":
             pid = s.get("pid")
             if pid and _pid_alive(pid):
+                transcript = s.get("transcript_path") or ""
+                # Fast path: ESC-interrupt leaves a marker in the transcript,
+                # so we can flip to Idle right away without the long grace.
+                if _claude_transcript_interrupted(transcript):
+                    s["state"] = "Idle"
+                    s["turn_active"] = False
+                    s["turn_started_at"] = None
+                    continue
+                last_activity = s["updated_at"]
+                if transcript:
+                    try:
+                        last_activity = max(last_activity, os.path.getmtime(transcript))
+                    except OSError:
+                        pass
+                if (now - last_activity) <= CLAUDE_IDLE_GRACE:
+                    continue
+                s["state"] = "Idle"
                 continue
         if (now - s["updated_at"]) > WORKING_TIMEOUT:
             s["state"] = "Idle"
@@ -1133,16 +1207,17 @@ def _apply_event(data):
                     existing = dict(other)
                 _sessions.pop(other_key, None)
         elif agent == "Claude" and incoming_pid:
-            # Drop any synthetic placeholder that was auto-detected from the
-            # same Claude Code PID now that the real session_id is known.
+            # A single Claude Code process only ever owns one live session at a
+            # time. Seeing a new session_id under the same PID means the prior
+            # one is abandoned (e.g. `/clear`, or a Stop we missed on ESC),
+            # and any synthetic placeholder from the startup scanner is also
+            # redundant. Drop them all and inherit cwd/title if useful.
             for other_key, other in list(_sessions.items()):
                 if other_key == key:
                     continue
                 if other.get("agent") != "Claude":
                     continue
                 if other.get("pid") != incoming_pid:
-                    continue
-                if not other.get("synthetic"):
                     continue
                 if not existing:
                     existing = dict(other)
@@ -1209,6 +1284,9 @@ def _apply_event(data):
             "error_expires_at": error_expires_at,
             "updated_at": now,
             "synthetic": False,
+            "transcript_path": (
+                data.get("transcript_path") or existing.get("transcript_path") or ""
+            ),
         }
     return True, {"ok": True, "state": effective_state, "agent": agent, "session_id": session_id}
 

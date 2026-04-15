@@ -125,6 +125,7 @@ sys.stdout.write(json.dumps({
     "title": title,
     "terminal": term,
     "pid": pid,
+    "transcript_path": transcript,
 }))
 PY
 )

@@ -97,14 +97,23 @@ final class ExtensionManager: ObservableObject {
 
             let manifests = loadManifests(in: directory)
             for manifest in manifests {
-                if discovered[manifest.id] == nil {
-                    discovered[manifest.id] = manifest
+                if let existing = discovered[manifest.id] {
+                    // In dev builds the same extension legitimately appears in
+                    // both BundledExtensions (inside the built .app) and the
+                    // repo's Extensions/ directory. Same id + same version is
+                    // a harmless mirror — don't cry wolf. Different versions
+                    // means something is genuinely stale and worth surfacing.
+                    if existing.version != manifest.version {
+                        ExtensionLogger.shared.log(
+                            manifest.id,
+                            .warning,
+                            "Duplicate extension ID in discovery paths with differing versions " +
+                            "(keeping \(existing.version) at \(existing.bundleURL.path), " +
+                            "ignoring \(manifest.version) at \(manifest.bundleURL.path))"
+                        )
+                    }
                 } else {
-                    ExtensionLogger.shared.log(
-                        manifest.id,
-                        .warning,
-                        "Duplicate extension ID found in discovery paths; keeping first instance"
-                    )
+                    discovered[manifest.id] = manifest
                 }
 
                 if let settingsURL = manifest.settingsURL,

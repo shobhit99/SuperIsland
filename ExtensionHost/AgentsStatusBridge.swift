@@ -17,6 +17,8 @@ final class AgentsStatusBridge {
     private var cachedPythonURL: URL?
     private var didCleanupLegacyLaunchd = false
     private var didWarnPythonMissing = false
+    private var didWarnPortConflict = false
+    private var adoptedExternalServer = false
 
     private init() {}
 
@@ -58,6 +60,34 @@ final class AgentsStatusBridge {
             }
         }
         return result == 0
+    }
+
+    /// Quick synchronous probe of the server's `/health` endpoint. Returns true
+    /// only if the response looks like our bridge (matching port). Used to tell
+    /// apart an adoptable running instance from an unrelated process squatting
+    /// on the port.
+    private func probeOwnedHealth(timeout: TimeInterval = 0.5) -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:\(Self.port)/health") else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        request.httpMethod = "GET"
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var ok = false
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            defer { semaphore.signal() }
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  (json["ok"] as? Bool) == true,
+                  (json["port"] as? Int) == Self.port
+            else { return }
+            ok = true
+        }
+        task.resume()
+        _ = semaphore.wait(timeout: .now() + timeout + 0.1)
+        if !ok { task.cancel() }
+        return ok
     }
 
     func stop() {
@@ -159,6 +189,23 @@ final class AgentsStatusBridge {
 
     private func startServerIfNeeded() {
         guard shouldKeepRunning, serverProcess == nil else { return }
+
+        if isServerListening() {
+            if probeOwnedHealth() {
+                if !adoptedExternalServer {
+                    adoptedExternalServer = true
+                    ExtensionLogger.shared.log(Self.managedExtensionID, .info,
+                        "Port \(Self.port) already serving /health; adopting existing agents-status instance")
+                }
+                restartAttempts = 0
+                return
+            }
+            ExtensionLogger.shared.log(Self.managedExtensionID, .error,
+                "Port \(Self.port) is held by another process that does not look like agents-status; aborting start")
+            showPortConflictAlertOnce()
+            return
+        }
+        adoptedExternalServer = false
 
         guard let pythonURL = resolvePython3URL() else {
             ExtensionLogger.shared.log(Self.managedExtensionID, .error,
@@ -299,6 +346,19 @@ final class AgentsStatusBridge {
     }
 
     // MARK: - Alerts
+
+    private func showPortConflictAlertOnce() {
+        guard !didWarnPortConflict else { return }
+        didWarnPortConflict = true
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Agents Status port \(Self.port) is in use"
+            alert.informativeText = "Another process on this Mac is already listening on 127.0.0.1:\(Self.port). A leftover agents-status server from a previous Super Island run is the most common cause. Open Terminal and run `lsof -iTCP:\(Self.port) -sTCP:LISTEN` to find it, then quit that process (or reboot) and relaunch Super Island."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Got it")
+            _ = alert.runModal()
+        }
+    }
 
     private func showPythonMissingAlertOnce() {
         guard !didWarnPythonMissing else { return }
