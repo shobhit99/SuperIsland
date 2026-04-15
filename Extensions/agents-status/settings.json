@@ -14,7 +14,7 @@
           "type": "toggle",
           "key": "hooksCodex",
           "label": "Codex CLI",
-          "default": false,
+          "default": true,
           "description": "Enable official Codex hooks by setting features.codex_hooks in ~/.codex/config.toml and installing command hooks in ~/.codex/hooks.json for Working / Idle / Error tracking."
         }
       ]

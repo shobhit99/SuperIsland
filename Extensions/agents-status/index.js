@@ -331,9 +331,15 @@ function fetchState() {
         var list = res.data.sessions;
         sessions = (list && list.length) ? list : [];
         recomputeTop();
-        if (!bridgeOnline) dlog("online sessions=" + sessions.length);
+        var wasOffline = !bridgeOnline;
+        if (wasOffline) dlog("online sessions=" + sessions.length);
         bridgeOnline = true;
         activationFailed = false;
+        // Reconcile hooks on every offline→online transition so a late-starting
+        // or restarted bridge still gets its agent configs installed. The
+        // server's /hooks/install is idempotent, so re-firing is a no-op when
+        // already installed.
+        if (wasOffline) applyAllHooks();
       } else {
         if (bridgeOnline) dlog("bridge went offline status=" + status);
         bridgeOnline = false;
@@ -408,7 +414,7 @@ function reconcileHooks(agent, want) {
 
 function applyAllHooks() {
   reconcileHooks("claude", settingBool(SETTING_HOOKS_CC, true));
-  reconcileHooks("codex",  settingBool(SETTING_HOOKS_CODEX, false));
+  reconcileHooks("codex",  settingBool(SETTING_HOOKS_CODEX, true));
 }
 
 function startPolling() {

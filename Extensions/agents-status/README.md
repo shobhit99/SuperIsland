@@ -36,31 +36,23 @@ Claude Code / Codex hooks  --curl POST-->  127.0.0.1:7823  <--GET poll--  extens
 
 ## Install
 
-### 1. Install the extension
+The extension is bundled with Super Island — no scripts to run. Just enable it
+in **Super Island → Settings → Extensions**. The bridge server (`server.py`)
+starts automatically when the extension activates and stops when it's disabled
+or the app quits.
 
-```bash
-./scripts/apply-extensions.sh agents-status
-```
+Requirement: Python 3 must be available on PATH (`/opt/homebrew/bin/python3`,
+`/usr/local/bin/python3`, or `/usr/bin/python3`). On macOS, installing the
+Command Line Tools via `xcode-select --install` is enough.
 
-Then enable it in SuperIsland → Settings → Extensions.
-
-### 2. Start the bridge server
-
-```bash
-./agents-status/server/install.sh
-```
-
-This installs a `launchd` user agent that runs `server.py` at login and
-restarts it on crash. Logs: `~/Library/Logs/SuperIsland/agents-status.*.log`.
-
-Verify:
+Verify the bridge is running:
 
 ```bash
 curl http://127.0.0.1:7823/health
 # {"ok":true,"port":7823,"paused":false}
 ```
 
-### 3. Enable the agents you want
+### Enable the agents you want
 
 In the extension settings, toggle:
 
@@ -121,8 +113,8 @@ For stable Warp switching, give each agent tab a distinct custom title such as
 `repo-cc` and `repo-cx`. The island shows that tab title directly, and clicking
 the row switches to the matching Warp tab by its current on-screen index.
 
-Server env vars (set via the `launchd` plist — edit `install.sh` and reinstall
-if you need to change them):
+Server env vars (injected automatically by Super Island when the extension
+activates — the host owns the process, so no plist or launchd involvement):
 
 - `AGENTS_STATUS_PORT` — default `7823`
 - `AGENTS_STATUS_WORKING_TIMEOUT` — seconds before stale `Working` decays to `Idle` (default `30`)
@@ -130,22 +122,23 @@ if you need to change them):
 - `AGENTS_STATUS_CC_HOOK_SCRIPT` — path to the Claude Code hook script (`cc-event-hook.sh`)
 - `AGENTS_STATUS_CODEX_HOOK_SCRIPT` — path to the Codex hook bridge script
 
-## Upgrading from 1.2.x
+## Upgrading from 1.2.x / earlier
 
-1.3.0 renamed the hook script from `cc-posttool-hook.sh` to `cc-event-hook.sh`,
-added Codex support, and changed the `/event` payload shape. Re-run
-`./agents-status/server/install.sh` after updating, then toggle Claude Code
-off and back on in settings to rewrite the hook entries.
+The bridge is now managed by Super Island itself — old versions relied on a
+`launchd` user agent installed via `server/install.sh`. On first launch of the
+new extension, any `com.superisland.agents-status` or `com.superisland.cc-status`
+LaunchAgent left over from previous installs is booted out and its plist
+removed automatically, so there's nothing to clean up by hand.
 
-Recent versions also renamed the bridge's generic identifiers from `cc-status`
-to `agents-status` while keeping Claude-specific `cc-` names like
-`cc-event-hook.sh`.
+After upgrading, toggle Claude Code and/or Codex off and back on in settings
+to make sure the hook entries in `~/.claude/settings.json` and
+`~/.codex/hooks.json` point at the bundled hook scripts.
 
 ## Troubleshooting
 
-- **Island shows `offline`**: bridge isn't reachable. Check
-  `~/Library/Logs/SuperIsland/agents-status.err.log` and
-  `launchctl list | grep agents-status`.
+- **Island shows `offline`**: the bridge failed to start. Open
+  Super Island → Settings → Extensions → Agents Status → Logs to see the
+  Python process output, or verify `python3` is installed (see Install).
 - **No sessions appear**: make sure hooks are installed in the settings file
   your agent actually reads (user-level vs project-level for Claude Code,
   `~/.codex/config.toml` and `~/.codex/hooks.json` for Codex).

@@ -28,6 +28,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // Ensure the agents-status Python subprocess exits with us so port 7823
+        // is released cleanly and no orphan is inherited by launchd.
+        AgentsStatusBridge.shared.stop()
+    }
+
     private func bootstrapApp() {
         guard !didBootstrapApp else { return }
         didBootstrapApp = true

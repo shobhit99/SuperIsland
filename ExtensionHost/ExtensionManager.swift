@@ -174,6 +174,15 @@ final class ExtensionManager: ObservableObject {
         do {
             let runtime = try ExtensionJSRuntime(manifest: manifest, manager: self)
             runtimes[extensionID] = runtime
+
+            // Spin up the Python bridge BEFORE firing the JS onActivate hook —
+            // the extension's onActivate issues synchronous fetches against
+            // 127.0.0.1:7823 to install hooks, so the socket must be live.
+            if extensionID == AgentsStatusBridge.managedExtensionID {
+                AgentsStatusBridge.shared.start()
+                AgentsStatusBridge.shared.waitForListening()
+            }
+
             runtime.activate()
 
             startRefreshTimer(for: manifest)
@@ -198,6 +207,10 @@ final class ExtensionManager: ObservableObject {
         runtimes[extensionID]?.deactivate()
         runtimes.removeValue(forKey: extensionID)
         extensionStates.removeValue(forKey: extensionID)
+
+        if extensionID == AgentsStatusBridge.managedExtensionID {
+            AgentsStatusBridge.shared.stop()
+        }
 
         ExtensionLogger.shared.log(extensionID, .info, "Deactivated extension")
     }
