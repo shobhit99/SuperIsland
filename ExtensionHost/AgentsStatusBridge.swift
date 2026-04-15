@@ -19,6 +19,7 @@ final class AgentsStatusBridge {
     private var didWarnPythonMissing = false
     private var didWarnPortConflict = false
     private var adoptedExternalServer = false
+    private var adoptedServerPID: pid_t?
 
     private init() {}
 
@@ -62,18 +63,19 @@ final class AgentsStatusBridge {
         return result == 0
     }
 
-    /// Quick synchronous probe of the server's `/health` endpoint. Returns true
-    /// only if the response looks like our bridge (matching port). Used to tell
-    /// apart an adoptable running instance from an unrelated process squatting
-    /// on the port.
-    private func probeOwnedHealth(timeout: TimeInterval = 0.5) -> Bool {
-        guard let url = URL(string: "http://127.0.0.1:\(Self.port)/health") else { return false }
+    /// Quick synchronous probe of the server's `/health` endpoint. Returns the
+    /// server's PID when the response looks like our bridge (matching port), or
+    /// nil otherwise. The PID lets us terminate an adopted external server on
+    /// app shutdown, so a previously-orphaned instance doesn't survive forever.
+    private func probeOwnedHealth(timeout: TimeInterval = 0.5) -> pid_t? {
+        guard let url = URL(string: "http://127.0.0.1:\(Self.port)/health") else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         request.httpMethod = "GET"
 
         let semaphore = DispatchSemaphore(value: 0)
-        var ok = false
+        var resolvedPID: pid_t?
+        var matched = false
         let task = URLSession.shared.dataTask(with: request) { data, response, _ in
             defer { semaphore.signal() }
             guard let http = response as? HTTPURLResponse, http.statusCode == 200,
@@ -82,12 +84,15 @@ final class AgentsStatusBridge {
                   (json["ok"] as? Bool) == true,
                   (json["port"] as? Int) == Self.port
             else { return }
-            ok = true
+            matched = true
+            if let pid = json["pid"] as? Int, pid > 0 {
+                resolvedPID = pid_t(pid)
+            }
         }
         task.resume()
         _ = semaphore.wait(timeout: .now() + timeout + 0.1)
-        if !ok { task.cancel() }
-        return ok
+        if !matched { task.cancel() }
+        return resolvedPID
     }
 
     func stop() {
@@ -96,21 +101,42 @@ final class AgentsStatusBridge {
         restartWorkItem = nil
         restartAttempts = 0
 
-        guard let process = serverProcess else { return }
-        serverProcess = nil
-        guard process.isRunning else { return }
+        if let process = serverProcess {
+            serverProcess = nil
+            adoptedServerPID = nil
+            adoptedExternalServer = false
+            guard process.isRunning else { return }
+            process.terminate()
+            // Give the server a moment to shut down cleanly, then SIGKILL if needed
+            // so we don't leave port 7823 occupied.
+            let pid = process.processIdentifier
+            DispatchQueue.global(qos: .utility).async {
+                let deadline = Date().addingTimeInterval(1.0)
+                while process.isRunning && Date() < deadline {
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
+                if process.isRunning {
+                    kill(pid, SIGKILL)
+                }
+            }
+            return
+        }
 
-        process.terminate()
-        // Give the server a moment to shut down cleanly, then SIGKILL if needed
-        // so we don't leave port 7823 occupied.
-        let pid = process.processIdentifier
+        // No owned Process handle — we adopted an externally-spawned server
+        // (typically a leftover from a previously crashed app run). Terminate
+        // it by PID so the port is released and no orphan survives us.
+        guard let adoptedPID = adoptedServerPID else { return }
+        adoptedServerPID = nil
+        adoptedExternalServer = false
+        guard kill(adoptedPID, 0) == 0 else { return }  // already gone
+        kill(adoptedPID, SIGTERM)
         DispatchQueue.global(qos: .utility).async {
             let deadline = Date().addingTimeInterval(1.0)
-            while process.isRunning && Date() < deadline {
+            while kill(adoptedPID, 0) == 0 && Date() < deadline {
                 Thread.sleep(forTimeInterval: 0.05)
             }
-            if process.isRunning {
-                kill(pid, SIGKILL)
+            if kill(adoptedPID, 0) == 0 {
+                kill(adoptedPID, SIGKILL)
             }
         }
     }
@@ -191,11 +217,12 @@ final class AgentsStatusBridge {
         guard shouldKeepRunning, serverProcess == nil else { return }
 
         if isServerListening() {
-            if probeOwnedHealth() {
+            if let pid = probeOwnedHealth() {
+                adoptedServerPID = pid
                 if !adoptedExternalServer {
                     adoptedExternalServer = true
                     ExtensionLogger.shared.log(Self.managedExtensionID, .info,
-                        "Port \(Self.port) already serving /health; adopting existing agents-status instance")
+                        "Port \(Self.port) already serving /health; adopting existing agents-status instance (pid \(pid))")
                 }
                 restartAttempts = 0
                 return

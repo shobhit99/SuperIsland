@@ -1984,12 +1984,38 @@ def _focus_session_request(data):
     return _focus_session_terminal(session)
 
 
+_ALERT_SOUNDS = {
+    "start": "/System/Library/Sounds/Frog.aiff",
+    "stop":  "/System/Library/Sounds/Glass.aiff",
+}
+
+
+def _play_alert_sound(tone):
+    path = _ALERT_SOUNDS.get(tone)
+    if not path:
+        return None
+    afplay = shutil.which("afplay") or "/usr/bin/afplay"
+    try:
+        subprocess.Popen(
+            [afplay, path],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+        return True
+    except Exception as e:
+        sys.stderr.write(f"sound play failed: {e}\n")
+        sys.stderr.flush()
+        return False
+
+
 def _route_get(path):
     path_only, params = _parse_query(path)
     if path_only == "/state":
         return _build_response(200, "OK", _snapshot(_ttl_param(params)))
     if path_only == "/health":
-        return _build_response(200, "OK", {"ok": True, "port": PORT, "paused": _paused})
+        return _build_response(200, "OK", {"ok": True, "port": PORT, "paused": _paused, "pid": os.getpid()})
     if path_only == "/control/status":
         return _build_response(200, "OK", {"paused": _paused})
     if path_only == "/hooks/status":
@@ -2044,6 +2070,12 @@ def _route_post(path, body_bytes):
             return _build_response(200, "OK", {"ok": True, "agent": agent, "removed": events})
         except Exception as e:
             return _build_response(500, "Internal Error", {"error": str(e)})
+    if path_only == "/sound":
+        tone = (params.get("tone") or "").strip().lower()
+        played = _play_alert_sound(tone)
+        if played is None:
+            return _build_response(400, "Bad Request", {"error": "unknown tone", "got": tone})
+        return _build_response(200, "OK", {"ok": played, "tone": tone})
     return _build_response(404, "Not Found", {"error": "not found"})
 
 

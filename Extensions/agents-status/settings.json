@@ -18,6 +18,18 @@
           "description": "Enable official Codex hooks by setting features.codex_hooks in ~/.codex/config.toml and installing command hooks in ~/.codex/hooks.json for Working / Idle / Error tracking."
         }
       ]
+    },
+    {
+      "title": "Sound Alerts",
+      "fields": [
+        {
+          "type": "toggle",
+          "key": "soundAlert",
+          "label": "Play sound on state change",
+          "default": false,
+          "description": "Play Frog.aiff when an agent starts Working and Glass.aiff when it leaves Working."
+        }
+      ]
     }
   ]
 }

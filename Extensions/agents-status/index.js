@@ -7,6 +7,7 @@ var BASE = "http://127.0.0.1:" + PORT;
 var POLL_INTERVAL_MS = 800;
 var SETTING_HOOKS_CC = "hooksClaudeCode";
 var SETTING_HOOKS_CODEX = "hooksCodex";
+var SETTING_SOUND_ALERT = "soundAlert";
 
 // --- safeFetch -----------------------------------------------------------
 // Host bug (ExtensionJSRuntime.fetchSync): options.method / options.body are
@@ -37,6 +38,8 @@ var activationFailed = false;
 var offlineWarningSent = false;
 var inFlight = false;
 var pollTimer = null;
+var prevSessionStates = {};  // key "agent|session_id" -> last-seen state
+var soundsSeeded = false;    // skip sounds on the first snapshot after boot
 
 // --- Colors --------------------------------------------------------------
 var COLORS = {
@@ -318,6 +321,45 @@ function recomputeTop() {
   currentState = sessions[0].state || "Idle";
 }
 
+// --- Sound alerts --------------------------------------------------------
+function playSoundTone(tone) {
+  try {
+    postBridge("/sound?tone=" + encodeURIComponent(tone), "");
+  } catch (e) {
+    dlog("sound post threw: " + e);
+  }
+}
+
+function detectSoundTransitions(list) {
+  var nextMap = {};
+  var sawStart = false, sawStop = false;
+  for (var i = 0; i < list.length; i++) {
+    var s = list[i];
+    var key = (s.agent || "") + "|" + (s.session_id || "");
+    var newState = s.state || "Idle";
+    nextMap[key] = newState;
+    if (!soundsSeeded) continue;
+    var oldState = prevSessionStates[key];
+    if (oldState === newState) continue;
+    if (newState === "Working" && oldState !== "Working") sawStart = true;
+    else if (oldState === "Working" && newState !== "Working") sawStop = true;
+  }
+  // Sessions that disappeared while Working → treat as leaving Working.
+  if (soundsSeeded) {
+    for (var oldKey in prevSessionStates) {
+      if (!Object.prototype.hasOwnProperty.call(prevSessionStates, oldKey)) continue;
+      if (nextMap[oldKey] === undefined && prevSessionStates[oldKey] === "Working") {
+        sawStop = true;
+      }
+    }
+  }
+  prevSessionStates = nextMap;
+  if (!soundsSeeded) { soundsSeeded = true; return; }
+  if (!settingBool(SETTING_SOUND_ALERT, false)) return;
+  if (sawStart) playSoundTone("start");
+  if (sawStop) playSoundTone("stop");
+}
+
 // --- Networking ----------------------------------------------------------
 function fetchState() {
   if (inFlight) return;
@@ -330,6 +372,7 @@ function fetchState() {
       if (status === 200 && res.data) {
         var list = res.data.sessions;
         sessions = (list && list.length) ? list : [];
+        detectSoundTransitions(sessions);
         recomputeTop();
         var wasOffline = !bridgeOnline;
         if (wasOffline) dlog("online sessions=" + sessions.length);
@@ -432,6 +475,8 @@ SuperIsland.registerModule({
     dlog("boot v" + EXT_VERSION + " at " + new Date().toISOString());
     activationFailed = false;
     offlineWarningSent = false;
+    prevSessionStates = {};
+    soundsSeeded = false;
 
     activateBridge().then(function (ok) {
       if (ok) {
@@ -456,6 +501,8 @@ SuperIsland.registerModule({
     dlog("deactivate requested → pausing bridge");
     stopPolling();
     deactivateBridge();
+    prevSessionStates = {};
+    soundsSeeded = false;
   },
 
   onSettingsChanged: function (key, value) {
