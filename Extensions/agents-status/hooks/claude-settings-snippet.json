@@ -1,0 +1,29 @@
+{
+  "_comment": "Reference only. The extension installs/removes these automatically when you toggle Claude Code in the CLI Hooks section of extension settings. The 'Auto' arg on PostToolUse tells cc-event-hook.sh to infer Working vs Error from tool_response.",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "'$HOME/Library/Application Support/SuperIsland/Extensions/agents-status/hooks/cc-event-hook.sh' Idle # cc-status-hook" } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "'$HOME/Library/Application Support/SuperIsland/Extensions/agents-status/hooks/cc-event-hook.sh' Working # cc-status-hook" } ] }
+    ],
+    "PreToolUse": [
+      { "hooks": [ { "type": "command", "command": "'$HOME/Library/Application Support/SuperIsland/Extensions/agents-status/hooks/cc-event-hook.sh' Working # cc-status-hook" } ] }
+    ],
+    "PostToolUse": [
+      { "hooks": [ { "type": "command", "command": "'$HOME/Library/Application Support/SuperIsland/Extensions/agents-status/hooks/cc-event-hook.sh' Auto # cc-status-hook" } ] }
+    ],
+    "PostToolUseFailure": [
+      { "hooks": [ { "type": "command", "command": "'$HOME/Library/Application Support/SuperIsland/Extensions/agents-status/hooks/cc-event-hook.sh' ToolFail # cc-status-hook" } ] }
+    ],
+    "Notification": [
+      { "hooks": [ { "type": "command", "command": "'$HOME/Library/Application Support/SuperIsland/Extensions/agents-status/hooks/cc-event-hook.sh' Waiting # cc-status-hook" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "'$HOME/Library/Application Support/SuperIsland/Extensions/agents-status/hooks/cc-event-hook.sh' Idle # cc-status-hook" } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "'$HOME/Library/Application Support/SuperIsland/Extensions/agents-status/hooks/cc-event-hook.sh' Ended # cc-status-hook" } ] }
+    ]
+  }
+}

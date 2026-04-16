@@ -65,12 +65,13 @@ targets:
               --outfile="${WA_PROVIDER}/bundle.cjs" 2>&1 && echo "esbuild: done" || echo "esbuild: failed (will use index.mjs)"
           fi
 
-          for ext in ai-usage pomodoro whatsapp-web; do
+          for ext in ai-usage pomodoro whatsapp-web agents-status; do
             SRC="${SRCROOT}/Extensions/${ext}"
             if [ -d "$SRC" ]; then
               rsync -a --delete \
                 --exclude="node_modules/" \
                 --exclude=".DS_Store" \
+                --exclude="__pycache__/" \
                 "${SRC}/" "${DEST}/${ext}/"
             fi
           done

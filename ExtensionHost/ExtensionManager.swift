@@ -97,14 +97,23 @@ final class ExtensionManager: ObservableObject {
 
             let manifests = loadManifests(in: directory)
             for manifest in manifests {
-                if discovered[manifest.id] == nil {
-                    discovered[manifest.id] = manifest
+                if let existing = discovered[manifest.id] {
+                    // In dev builds the same extension legitimately appears in
+                    // both BundledExtensions (inside the built .app) and the
+                    // repo's Extensions/ directory. Same id + same version is
+                    // a harmless mirror — don't cry wolf. Different versions
+                    // means something is genuinely stale and worth surfacing.
+                    if existing.version != manifest.version {
+                        ExtensionLogger.shared.log(
+                            manifest.id,
+                            .warning,
+                            "Duplicate extension ID in discovery paths with differing versions " +
+                            "(keeping \(existing.version) at \(existing.bundleURL.path), " +
+                            "ignoring \(manifest.version) at \(manifest.bundleURL.path))"
+                        )
+                    }
                 } else {
-                    ExtensionLogger.shared.log(
-                        manifest.id,
-                        .warning,
-                        "Duplicate extension ID found in discovery paths; keeping first instance"
-                    )
+                    discovered[manifest.id] = manifest
                 }
 
                 if let settingsURL = manifest.settingsURL,
@@ -174,6 +183,15 @@ final class ExtensionManager: ObservableObject {
         do {
             let runtime = try ExtensionJSRuntime(manifest: manifest, manager: self)
             runtimes[extensionID] = runtime
+
+            // Spin up the Python bridge BEFORE firing the JS onActivate hook —
+            // the extension's onActivate issues synchronous fetches against
+            // 127.0.0.1:7823 to install hooks, so the socket must be live.
+            if extensionID == AgentsStatusBridge.managedExtensionID {
+                AgentsStatusBridge.shared.start()
+                AgentsStatusBridge.shared.waitForListening()
+            }
+
             runtime.activate()
 
             startRefreshTimer(for: manifest)
@@ -198,6 +216,10 @@ final class ExtensionManager: ObservableObject {
         runtimes[extensionID]?.deactivate()
         runtimes.removeValue(forKey: extensionID)
         extensionStates.removeValue(forKey: extensionID)
+
+        if extensionID == AgentsStatusBridge.managedExtensionID {
+            AgentsStatusBridge.shared.stop()
+        }
 
         ExtensionLogger.shared.log(extensionID, .info, "Deactivated extension")
     }

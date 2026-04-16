@@ -1,0 +1,35 @@
+{
+  "sections": [
+    {
+      "title": "CLI Hooks",
+      "fields": [
+        {
+          "type": "toggle",
+          "key": "hooksClaudeCode",
+          "label": "Claude Code",
+          "default": true,
+          "description": "Install hooks into ~/.claude/settings.json to track Claude Code session state (Working / Waiting / Idle / Error)."
+        },
+        {
+          "type": "toggle",
+          "key": "hooksCodex",
+          "label": "Codex CLI",
+          "default": true,
+          "description": "Enable official Codex hooks by setting features.codex_hooks in ~/.codex/config.toml and installing command hooks in ~/.codex/hooks.json for Working / Idle / Error tracking."
+        }
+      ]
+    },
+    {
+      "title": "Sound Alerts",
+      "fields": [
+        {
+          "type": "toggle",
+          "key": "soundAlert",
+          "label": "Play sound on state change",
+          "default": false,
+          "description": "Play Frog.aiff when an agent starts Working and Glass.aiff when it leaves Working."
+        }
+      ]
+    }
+  ]
+}
