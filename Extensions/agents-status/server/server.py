@@ -2197,14 +2197,56 @@ def _focus_session_request(data):
     return _focus_session_terminal(session)
 
 
-_ALERT_SOUNDS = {
-    "start": "/System/Library/Sounds/Frog.aiff",
-    "stop":  "/System/Library/Sounds/Hero.aiff",
+# Bundled sound packs live under <extension>/sounds/<pack>/<event>.wav.
+# Events: start, need-input, task-complete. Pack names: 8bit, crystal, soft.
+_SOUND_PACKS = ("8bit", "crystal", "soft")
+_SOUND_EVENTS = {
+    "start":         "start.wav",
+    "need-input":    "need-input.wav",
+    "needs-input":   "need-input.wav",  # alias, settings.json prefers this spelling
+    "task-complete": "task-complete.wav",
+    "stop":          "task-complete.wav",  # legacy name — old JS callers
 }
+_DEFAULT_SOUND_PACK = "8bit"
 
 
-def _play_alert_sound(tone):
-    path = _ALERT_SOUNDS.get(tone)
+def _sound_roots():
+    """Candidate directories that might hold the bundled sound packs.
+
+    Installed extensions resolve via INSTALLED_EXT_ROOT; dev builds run the
+    bridge directly from the repo, so we also check the server script's
+    sibling `sounds/` directory."""
+    roots = [INSTALLED_EXT_ROOT / "sounds"]
+    script_parent = pathlib.Path(__file__).resolve().parent.parent
+    roots.append(script_parent / "sounds")
+    return roots
+
+
+def _resolve_sound_path(tone, pack):
+    filename = _SOUND_EVENTS.get((tone or "").strip().lower())
+    if not filename:
+        return None
+    normalized_pack = (pack or "").strip().lower()
+    if normalized_pack not in _SOUND_PACKS:
+        normalized_pack = _DEFAULT_SOUND_PACK
+    # Try preferred pack, then fall back to 8bit, then to any available pack —
+    # so even a broken bundle still plays *something* instead of silence.
+    try_order = [normalized_pack]
+    if _DEFAULT_SOUND_PACK not in try_order:
+        try_order.append(_DEFAULT_SOUND_PACK)
+    for extra in _SOUND_PACKS:
+        if extra not in try_order:
+            try_order.append(extra)
+    for root in _sound_roots():
+        for p in try_order:
+            candidate = root / p / filename
+            if candidate.exists():
+                return str(candidate)
+    return None
+
+
+def _play_alert_sound(tone, pack=None):
+    path = _resolve_sound_path(tone, pack)
     if not path:
         return None
     afplay = shutil.which("afplay") or "/usr/bin/afplay"
@@ -2451,10 +2493,11 @@ def _route_post(path, body_bytes):
             return _build_response(500, "Internal Error", {"error": str(e)})
     if path_only == "/sound":
         tone = (params.get("tone") or "").strip().lower()
-        played = _play_alert_sound(tone)
+        pack = (params.get("pack") or "").strip().lower()
+        played = _play_alert_sound(tone, pack)
         if played is None:
-            return _build_response(400, "Bad Request", {"error": "unknown tone", "got": tone})
-        return _build_response(200, "OK", {"ok": played, "tone": tone})
+            return _build_response(400, "Bad Request", {"error": "unknown tone or missing file", "got": tone, "pack": pack})
+        return _build_response(200, "OK", {"ok": played, "tone": tone, "pack": pack or _DEFAULT_SOUND_PACK})
     if path_only == "/hooks/permission":
         try:
             data = json.loads(body_bytes.decode("utf-8") or "{}")

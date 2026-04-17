@@ -8,6 +8,8 @@ var POLL_INTERVAL_MS = 800;
 var SETTING_HOOKS_CC = "hooksClaudeCode";
 var SETTING_HOOKS_CODEX = "hooksCodex";
 var SETTING_SOUND_ALERT = "soundAlert";
+var SETTING_SOUND_PACK = "soundPack";
+var DEFAULT_SOUND_PACK = "8bit";
 
 // --- safeFetch -----------------------------------------------------------
 // Host bug (ExtensionJSRuntime.fetchSync): options.method / options.body are
@@ -426,9 +428,23 @@ function recomputeTop() {
 }
 
 // --- Sound alerts --------------------------------------------------------
-function playSoundTone(tone) {
+function currentSoundPack() {
   try {
-    postBridge("/sound?tone=" + encodeURIComponent(tone), "");
+    var v = SuperIsland.settings.get(SETTING_SOUND_PACK);
+    if (typeof v === "string" && v) return v;
+  } catch (e) {}
+  return DEFAULT_SOUND_PACK;
+}
+
+// Event vocabulary: "start", "need-input", "task-complete".
+// Legacy names "stop" and "needs-input" are aliased server-side so older
+// callers keep working while we transition the code.
+function playSoundTone(event) {
+  var pack = currentSoundPack();
+  var url = "/sound?tone=" + encodeURIComponent(event) +
+            "&pack=" + encodeURIComponent(pack);
+  try {
+    postBridge(url, "");
   } catch (e) {
     dlog("sound post threw: " + e);
   }
@@ -511,8 +527,12 @@ function detectSoundTransitions(list) {
   else if (sawWaiting) popIslandForDone(false);
   if (!settingBool(SETTING_SOUND_ALERT, false)) return;
   if (sawStart) playSoundTone("start");
-  if (sawStop) {
-    playSoundTone("stop");
+  // Waiting takes precedence over task-complete: Working→Waiting is the
+  // agent asking for input, not finishing, so play need-input only.
+  if (sawWaiting || sawNewPermission) {
+    playSoundTone("need-input");
+  } else if (sawStop) {
+    playSoundTone("task-complete");
     popIslandForDone(false);
   }
 }
@@ -726,10 +746,17 @@ SuperIsland.registerModule({
     if (key === SETTING_HOOKS_CC)    reconcileHooks("claude", !!value);
     else if (key === SETTING_HOOKS_CODEX) reconcileHooks("codex",  !!value);
     else if (key === SETTING_SOUND_ALERT && !!value) {
-      // Preview both channels so the user can verify alerts work.
+      // Audition all three events so the user hears the full pack.
       playSoundTone("start");
-      setTimeout(function () { playSoundTone("stop"); }, 650);
+      setTimeout(function () { playSoundTone("need-input"); }, 700);
+      setTimeout(function () { playSoundTone("task-complete"); }, 1500);
       popIslandForDone();
+    }
+    else if (key === SETTING_SOUND_PACK && settingBool(SETTING_SOUND_ALERT, false)) {
+      // If alerts are already on, audition the newly-selected pack.
+      playSoundTone("start");
+      setTimeout(function () { playSoundTone("need-input"); }, 700);
+      setTimeout(function () { playSoundTone("task-complete"); }, 1500);
     }
   },
 

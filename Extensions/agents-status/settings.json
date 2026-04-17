@@ -27,7 +27,19 @@
           "key": "soundAlert",
           "label": "Alert on state change",
           "default": false,
-          "description": "Play a game-themed cue when an agent starts Working (Frog) and when it finishes (Hero). Also expand the Agents Status island briefly on completion so you can see what finished."
+          "description": "Play a cue when an agent starts working, needs your input, or finishes a task. Also expands the Agents Status island briefly on completion."
+        },
+        {
+          "type": "picker",
+          "key": "soundPack",
+          "label": "Sound pack",
+          "default": "8bit",
+          "options": [
+            { "value": "8bit",    "label": "8-bit" },
+            { "value": "crystal", "label": "Crystal" },
+            { "value": "soft",    "label": "Soft" }
+          ],
+          "description": "Which bundled sound pack to use for start / needs-input / task-complete cues."
         }
       ]
     }
