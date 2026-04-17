@@ -158,6 +158,22 @@ struct GeneralSettingsView: View {
                     ) { "\(String(format: "%.1f", $0))s" }
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
+
+                SettingRowDivider()
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Hover expand delay").font(.system(size: 13))
+                        Text("How long to hover the notch before it peeks open")
+                            .font(.system(size: 11)).foregroundColor(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    StepperField(
+                        value: $appState.hoverExpandDelay,
+                        step: 0.05,
+                        range: 0.0...1.5
+                    ) { "\(String(format: "%.2f", $0))s" }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
             }
 
             // Interaction

@@ -261,9 +261,10 @@ final class AppState: ObservableObject {
     @AppStorage("module.shelf.defaultToShelf") var shelfDefaultToShelf = false
 
     // Appearance settings
-    @AppStorage("appearance.cornerRadius") var cornerRadius: Double = 18.0
-    @AppStorage("appearance.idleOpacity") var idleOpacity: Double = 1.0
     @AppStorage("appearance.animationSpeed") var animationSpeed: Double = 1.0
+    @AppStorage("appearance.bounceAmount") var bounceAmount: Double = 0.25
+    @AppStorage("appearance.compactIslandWidth") var compactIslandWidth: Double = 200
+    @AppStorage("appearance.compactIslandHeight") var compactIslandHeight: Double = 36
 
     // General settings
     @AppStorage("general.showMenuBarIcon") var showMenuBarIcon = true
@@ -271,6 +272,7 @@ final class AppState: ObservableObject {
     @AppStorage("general.launchAtLogin") var launchAtLogin = false
     @AppStorage("general.showInScreenRecordings") var showInScreenRecordings = false
     @AppStorage("general.expandedAutoDismissDelay") var expandedAutoDismissDelay: Double = 1.0
+    @AppStorage("general.hoverExpandDelay") var hoverExpandDelay: Double = 0.3
     @AppStorage("general.notchHapticIntensity") var notchHapticIntensity = NotchHapticIntensity.medium.rawValue
     @AppStorage(QuitHotkeyGuard.defaultsKey) var allowQuitHotkey = true
     @AppStorage("general.lockFullExpandedInPlace") var lockFullExpandedInPlace = false
@@ -292,6 +294,19 @@ final class AppState: ObservableObject {
     private var lastNotchEntryHapticDate: Date = .distantPast
     private init() {}
 
+    // MARK: - Animations
+
+    /// Spring used for every compact ↔ expanded ↔ fullExpanded transition.
+    /// Recomputed per-call so the live bounce-amount setting takes effect
+    /// without needing an app relaunch.
+    var notchAnimation: Animation {
+        .interactiveSpring(
+            duration: 0.5,
+            extraBounce: bounceAmount,
+            blendDuration: 0.125
+        )
+    }
+
     // MARK: - State Transitions
 
     func toggleExpansion() {
@@ -299,7 +314,7 @@ final class AppState: ObservableObject {
         case .compact:
             open()
         case .expanded:
-            withAnimation(Constants.notchAnimation) {
+            withAnimation(notchAnimation) {
                 currentState = .fullExpanded
             }
         case .fullExpanded:
@@ -309,7 +324,7 @@ final class AppState: ObservableObject {
 
     func expand() {
         guard currentState == .compact else { return }
-        withAnimation(Constants.notchAnimation) {
+        withAnimation(notchAnimation) {
             currentState = .expanded
         }
     }
@@ -321,14 +336,14 @@ final class AppState: ObservableObject {
         cancelAutoDismiss()
         cancelFullExpandedDismiss()
 
-        withAnimation(Constants.notchAnimation) {
+        withAnimation(notchAnimation) {
             currentState = .fullExpanded
         }
     }
 
     func fullyExpand() {
         prepareFullExpandedPresentation(prefersHome: false)
-        withAnimation(Constants.notchAnimation) {
+        withAnimation(notchAnimation) {
             currentState = .fullExpanded
         }
     }
@@ -348,7 +363,7 @@ final class AppState: ObservableObject {
         cancelFullExpandedDismiss()
         cancelHoverActivation()
         endSystemEmojiInteraction()
-        withAnimation(Constants.notchAnimation) {
+        withAnimation(notchAnimation) {
             currentState = .compact
         }
     }
@@ -419,7 +434,7 @@ final class AppState: ObservableObject {
 
         cancelAutoDismiss()
 
-        withAnimation(Constants.hudAppear) {
+        withAnimation(notchAnimation) {
             activeModule = module
             if currentState == .compact {
                 currentState = .expanded
@@ -583,7 +598,7 @@ final class AppState: ObservableObject {
 
         hoverActivationWorkItem = workItem
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + Constants.hoverPeekDelay,
+            deadline: .now() + hoverExpandDelay,
             execute: workItem
         )
     }
@@ -877,10 +892,7 @@ final class AppState: ObservableObject {
             }
             let baseSize = compactBaseSize
             guard shouldUseMinimalCompactLayout else {
-                return CGSize(
-                    width: baseSize.width,
-                    height: min(baseSize.height, Constants.compactNotchMinimumHeight)
-                )
+                return baseSize
             }
 
             return CGSize(
@@ -1051,7 +1063,10 @@ final class AppState: ObservableObject {
     }
 
     private var compactBaseSize: CGSize {
-        compactIslandMetrics?.size ?? Constants.compactSize
+        compactIslandMetrics?.size ?? CGSize(
+            width: compactIslandWidth,
+            height: compactIslandHeight
+        )
     }
 
     private var compactMinimalSideExpansion: CGFloat {
@@ -1072,18 +1087,14 @@ final class AppState: ObservableObject {
     }
 
     private var compactIslandMetrics: ScreenDetector.CompactIslandMetrics? {
-        guard let notch = presentationNotchRect else {
+        guard presentationNotchRect != nil else {
             return nil
         }
 
-        let width = max(
-            Constants.compactNotchMinimumWidth,
-            notch.width - (Constants.compactNotchHorizontalInset * 2)
-        )
-        let height = max(
-            Constants.compactNotchMinimumHeight,
-            notch.height - Constants.compactNotchHeightInset
-        )
+        // User-controlled compact size, clamped to sensible lower bounds so
+        // the notch cutout still physically fits over the camera housing.
+        let width = max(Constants.compactNotchMinimumWidth, compactIslandWidth)
+        let height = max(Constants.compactNotchMinimumHeight, compactIslandHeight)
         let bottomCornerRadius = min(Constants.compactNotchBottomCornerRadius, height / 2)
 
         return ScreenDetector.CompactIslandMetrics(
@@ -1241,7 +1252,7 @@ final class AppState: ObservableObject {
         activeModule = .builtIn(.shelf)
         fullExpandedSelectedTab = .module(.builtIn(.shelf))
 
-        withAnimation(currentState == .compact ? Constants.notchAnimation : Constants.contentSwap) {
+        withAnimation(currentState == .compact ? notchAnimation : Constants.contentSwap) {
             currentState = .fullExpanded
         }
     }
@@ -1258,7 +1269,7 @@ final class AppState: ObservableObject {
         activeModule = .builtIn(.shelf)
         fullExpandedSelectedTab = .module(.builtIn(.shelf))
 
-        withAnimation(currentState == .compact ? Constants.notchAnimation : Constants.contentSwap) {
+        withAnimation(currentState == .compact ? notchAnimation : Constants.contentSwap) {
             currentState = .fullExpanded
         }
     }
@@ -1285,7 +1296,7 @@ final class AppState: ObservableObject {
         activeModule = .builtIn(.notifications)
         fullExpandedSelectedTab = .module(.builtIn(.notifications))
 
-        withAnimation(Constants.notchAnimation) {
+        withAnimation(notchAnimation) {
             currentState = .fullExpanded
         }
     }
