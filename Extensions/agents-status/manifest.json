@@ -18,6 +18,6 @@
     "backgroundRefresh": true,
     "settings": true
   },
-  "refreshInterval": 0.25,
+  "refreshInterval": 0.5,
   "activationTriggers": ["manual", "timer"]
 }

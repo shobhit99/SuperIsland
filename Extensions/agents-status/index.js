@@ -47,11 +47,10 @@ var seenPermissions = {};    // permission_id -> true; used to pop the island on
 // --- Colors --------------------------------------------------------------
 // Kept at full saturation — the compact slot sits on the pill's near-black
 // background, so bright colors read much better than muted ones.
-// Original vivid palette — saturated on-cells pop against the pill.
 var COLORS = {
   Working: { r: 0.655, g: 0.545, b: 0.980, a: 1 },
   Waiting: { r: 0.984, g: 0.749, b: 0.141, a: 1 },
-  Idle:    { r: 1.000, g: 1.000, b: 1.000, a: 1 },
+  Idle:    { r: 0.420, g: 0.447, b: 0.502, a: 1 },
   Error:   { r: 0.973, g: 0.443, b: 0.443, a: 1 },
   Done:    { r: 0.310, g: 0.835, b: 0.514, a: 1 }
 };
@@ -71,15 +70,7 @@ var CHECK  = { 4:1, 8:1, 10:1, 12:1, 16:1 };
 var OFFLINE_GLYPH = { 2:1, 7:1, 12:1, 22:1 };
 
 function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
-
-// The pill uses a translucent material, so rendering cells at partial alpha
-// blends them with the desktop wallpaper and washes them out. Instead we keep
-// cells fully opaque and modulate BRIGHTNESS by scaling RGB — on any
-// background the cell reads at its actual color.
-function withAlpha(c, a) {
-  var v = clamp01(a);
-  return { r: c.r * v, g: c.g * v, b: c.b * v, a: 1.0 };
-}
+function withAlpha(c, a) { return { r: c.r, g: c.g, b: c.b, a: clamp01(a) }; }
 
 function computeAlphas(state, t, online) {
   var out = new Array(25);
@@ -90,29 +81,25 @@ function computeAlphas(state, t, online) {
     return out;
   }
   if (state === "Working") {
-    // Traveling ripple: the wave lights a moving subset of cells at full
-    // brightness. Off-cells stay fully transparent so there's strong contrast.
     for (i = 0; i < 25; i++) {
       var x = i % W, y = (i / W) | 0;
       var dx = x - 2, dy = y - 2;
       var d = Math.sqrt(dx * dx + dy * dy);
       var v = Math.sin(t / 400 - d * 1.2) * 0.5 + 0.5;
-      out[i] = v > 0.35 ? 1.0 : 0;
+      out[i] = v > 0.3 ? (v * 0.9 + 0.1) : 0;
     }
   } else if (state === "Waiting") {
     var b = Math.sin(t / 500) > 0;
-    for (i = 0; i < 25; i++) out[i] = QMARK[i] ? (b ? 1.0 : 0) : 0;
+    for (i = 0; i < 25; i++) out[i] = QMARK[i] ? (b ? 1.0 : 0.3) : 0;
   } else if (state === "Idle") {
-    // Classic blinking terminal cursor: 6 middle cells on for 600ms, off
-    // for 460ms. Clearly distinguishes "nothing running" from a working grid.
-    var cursorOn = (t % 1060) < 600;
-    for (i = 0; i < 25; i++) out[i] = (CURSOR[i] && cursorOn) ? 1.0 : 0;
+    var on = (t % 1060) < 600;
+    for (i = 0; i < 25; i++) out[i] = CURSOR[i] ? (on ? 0.9 : 0) : 0;
   } else if (state === "Error") {
-    var errOn = Math.sin(t / 300) > 0;
-    for (i = 0; i < 25; i++) out[i] = XPAT[i] ? (errOn ? 1.0 : 0) : 0;
+    var pulse = Math.sin(t / 300) * 0.25 + 0.75;
+    for (i = 0; i < 25; i++) out[i] = XPAT[i] ? pulse : 0;
   } else if (state === "Done") {
-    var doneOn = Math.sin(t / 500) > -0.4;
-    for (i = 0; i < 25; i++) out[i] = (CHECK[i] && doneOn) ? 1.0 : 0;
+    var glow = Math.sin(t / 360) * 0.15 + 0.85;
+    for (i = 0; i < 25; i++) out[i] = CHECK[i] ? glow : 0;
   } else {
     for (i = 0; i < 25; i++) out[i] = 0;
   }
@@ -144,19 +131,17 @@ function pixelGrid(state, online, pixelSize, gap) {
   return View.vstack(rows, { spacing: gap, align: "center" });
 }
 
-function pixelBox(state, online, outerSize, opts) {
-  var o = opts || {};
-  var pad = o.transparent ? 0 : Math.max(2, Math.floor(outerSize * 0.08));
+function pixelBox(state, online, outerSize) {
+  var pad = Math.max(3, Math.floor(outerSize * 0.14));
   var inner = outerSize - pad * 2;
-  var gap = outerSize >= 26 ? 1 : 0;
-  // Maximize cell size — transparent mode removes the black rounded wrapper,
-  // so every pixel of outerSize goes into the grid itself.
-  var pixelSize = Math.max(4, Math.floor((inner - gap * 4) / 5));
+  var gap = 1;
+  var pixelSize = Math.max(2, Math.floor((inner - gap * 4) / 5));
   var grid = pixelGrid(state, online, pixelSize, gap);
-  var framed = View.frame(grid, { width: outerSize, height: outerSize, alignment: "center" });
-  if (o.transparent) return framed;
   return View.cornerRadius(
-    View.background(framed, { r: 0, g: 0, b: 0, a: 1 }),
+    View.background(
+      View.frame(grid, { width: outerSize, height: outerSize, alignment: "center" }),
+      { r: 0, g: 0, b: 0, a: 1 }
+    ),
     Math.max(4, outerSize * 0.18)
   );
 }
@@ -449,12 +434,12 @@ function playSoundTone(tone) {
   }
 }
 
-function popIslandForDone() {
+function popIslandForDone(persist) {
   try {
-    // Pop the agents-status module itself so the user sees the updated
-    // session row (now Idle / Waiting / Error) without them having to
-    // reach for the island.
-    SuperIsland.island.activate(true);
+    // Normal "done" events auto-dismiss (persist=false), but when we have a
+    // pending question the island must stay open so the user can click an
+    // option button — otherwise it collapses before they can answer.
+    SuperIsland.island.activate(persist ? false : true);
   } catch (e) {
     dlog("island activate threw: " + e);
   }
@@ -520,14 +505,15 @@ function detectSoundTransitions(list) {
     if (!stillPending[seenKey]) delete seenPermissions[seenKey];
   }
   if (!soundsSeeded) { soundsSeeded = true; return; }
-  // Waiting always pops the island — the user needs to act, so we surface it
-  // regardless of whether the sound-alert setting is on.
-  if (sawWaiting || sawNewPermission) popIslandForDone();
+  // Waiting or a new permission always pops the island — the user needs to
+  // act. Permission pops persist so the option buttons are clickable.
+  if (sawNewPermission) popIslandForDone(true);
+  else if (sawWaiting) popIslandForDone(false);
   if (!settingBool(SETTING_SOUND_ALERT, false)) return;
   if (sawStart) playSoundTone("start");
   if (sawStop) {
     playSoundTone("stop");
-    popIslandForDone();
+    popIslandForDone(false);
   }
 }
 
@@ -754,13 +740,7 @@ SuperIsland.registerModule({
   // -- minimalCompact (notched Macs) --
   minimalCompact: {
     leading: function () {
-      // Size chosen so 5x5 cells land at 6 px each with 1 px gaps inside a
-      // 34 px square — readable at macOS notch scale.
-      var size = 34;
-      return View.frame(
-        pixelBox(currentState, bridgeOnline, size, { transparent: true }),
-        { width: size, height: size, alignment: "center" }
-      );
+      return View.frame(pixelBox(currentState, bridgeOnline, 24), { width: 24, height: 24, alignment: "center" });
     },
     trailing: function () {
       if (!bridgeOnline) {
@@ -803,7 +783,7 @@ SuperIsland.registerModule({
       labelColor = WHITE_50;
     }
     return View.hstack([
-      pixelBox(currentState, true, 30, { transparent: true }),
+      pixelBox(currentState, true, 26),
       View.text(label, { style: "caption", color: labelColor })
     ], { spacing: 6, align: "center" });
   },

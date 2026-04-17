@@ -48,6 +48,20 @@ final class ExtensionJSRuntime {
         self.manager = manager
 
         ExtensionSandbox.configureContext(context, extensionID: manifest.id, permissions: manifest.permissions)
+
+        // Catch-all JS exception handler — without this, uncaught exceptions
+        // in extension code would leave `context.exception` dangling and
+        // potentially spam stderr. The handler logs structured details and
+        // lets the runtime recover instead of taking down the island.
+        let extID = manifest.id
+        context.exceptionHandler = { ctx, exception in
+            let message = exception?.toString() ?? "<no message>"
+            let stack = exception?.forProperty("stack")?.toString() ?? ""
+            let detail = stack.isEmpty ? message : "\(message)\n\(stack)"
+            ExtensionLogger.shared.log(extID, .error, "JS exception: \(detail)")
+            ctx?.exception = nil
+        }
+
         injectAPI()
 
         guard let script = try? String(contentsOf: manifest.entryURL, encoding: .utf8) else {
@@ -57,8 +71,25 @@ final class ExtensionJSRuntime {
         context.evaluateScript(script, withSourceURL: manifest.entryURL)
 
         if let exception = context.exception?.toString() {
+            context.exception = nil
             throw RuntimeError.scriptEvaluationFailed(exception)
         }
+    }
+
+    /// Invoke a JS callback with full crash isolation.
+    /// Any exception is logged, the context's exception state is cleared,
+    /// and the function returns `nil` instead of propagating the failure —
+    /// so one bad extension can never take down the island UI.
+    @discardableResult
+    private func invokeJS(_ label: String, _ body: () -> JSValue?) -> JSValue? {
+        let result = body()
+        if let exception = context.exception {
+            let message = exception.toString() ?? "<unknown>"
+            ExtensionLogger.shared.log(extensionID, .error, "\(label) threw: \(message)")
+            context.exception = nil
+            return nil
+        }
+        return result
     }
 
     deinit {
@@ -120,10 +151,11 @@ final class ExtensionJSRuntime {
             return
         }
 
-        if let value {
-            callback.call(withArguments: [actionID, value])
-        } else {
-            callback.call(withArguments: [actionID])
+        invokeJS("onAction(\(actionID))") {
+            if let value {
+                return callback.call(withArguments: [actionID, value])
+            }
+            return callback.call(withArguments: [actionID])
         }
     }
 
@@ -165,7 +197,7 @@ final class ExtensionJSRuntime {
         }
 
         if rawValue.isObject,
-           let result = rawValue.call(withArguments: []),
+           let result = invokeJS("precedence()", { rawValue.call(withArguments: []) }),
            !result.isUndefined,
            !result.isNull {
             return max(0, Int(result.toInt32()))
@@ -711,7 +743,7 @@ final class ExtensionJSRuntime {
         guard let callback = moduleConfig?.forProperty(name), !callback.isUndefined else {
             return
         }
-        callback.call(withArguments: [])
+        invokeJS(name) { callback.call(withArguments: []) }
     }
 
     private func renderNode(from object: JSValue, key: String) -> ViewNode? {
@@ -719,7 +751,7 @@ final class ExtensionJSRuntime {
             return nil
         }
 
-        guard let result = callback.call(withArguments: []) else {
+        guard let result = invokeJS("view.\(key)()", { callback.call(withArguments: []) }) else {
             return .empty
         }
 
@@ -750,9 +782,10 @@ final class ExtensionJSRuntime {
 
         let interval = max(0.01, milliseconds / 1000)
         let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: repeats) { [weak self] timer in
-            callback.call(withArguments: [])
+            guard let self else { return }
+            self.invokeJS("timer(\(timerID))") { callback.call(withArguments: []) }
             if !repeats {
-                self?.timers.removeValue(forKey: timerID)
+                self.timers.removeValue(forKey: timerID)
                 timer.invalidate()
             }
         }
