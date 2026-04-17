@@ -42,6 +42,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import uuid
 
 PORT = int(os.environ.get("AGENTS_STATUS_PORT") or os.environ.get("CC_STATUS_PORT", "7823"))
 WORKING_TIMEOUT = float(
@@ -167,6 +168,17 @@ _last_claude_scan_results = []
 # explicitly (state=Ended) or pruned for a dead PID; checked by the
 # startup-scan sync so stale `ps` results don't resurrect the session.
 _recently_ended_pids = {}
+
+# Pending AskUserQuestion permissions. Each entry blocks a PermissionRequest
+# hook thread on its `event` until the extension POSTs /permission/resolve
+# with the chosen option (or the hook times out).
+# permission_id -> {
+#   session_id, agent, tool_name, tool_input, questions, created_at,
+#   event (threading.Event), decision (dict or None)
+# }
+_pending_permissions = {}
+_pending_permissions_lock = threading.Lock()
+PERMISSION_HOOK_TIMEOUT = float(os.environ.get("AGENTS_STATUS_PERMISSION_TIMEOUT", "590"))
 
 
 # ---------------------------------------------------------------------------
@@ -1189,6 +1201,12 @@ def _snapshot(ttl):
                 s["tab_ordinal"] = 0
                 s["tab_window_id"] = None
                 s["focusable"] = False
+        pending = _pending_permission_for_session(s.get("agent") or "", s.get("session_id") or "")
+        if pending:
+            s["pending_permission"] = pending
+            # Permission outranks any stale Working/Idle so the UI shows the
+            # question prominently.
+            s["state"] = "Waiting"
     sessions.sort(key=lambda s: (-_STATE_PRIORITY.get(s["state"], 0), -s["updated_at"]))
     if sessions:
         top = sessions[0]
@@ -1367,6 +1385,10 @@ def _cc_event_cmd(state):
     return f"'{CC_HOOK_SCRIPT}' {state} {CC_HOOK_MARKER}"
 
 
+CC_PERMISSION_HOOK_URL = f"http://127.0.0.1:{PORT}/hooks/permission"
+CC_PERMISSION_HOOK_TIMEOUT = int(os.environ.get("AGENTS_STATUS_CC_PERMISSION_HTTP_TIMEOUT", "600"))
+
+
 def _cc_canonical_events():
     # Every event goes through cc-event-hook.sh so the payload is enriched
     # with session_id / cwd / title / terminal before it reaches the bridge.
@@ -1388,6 +1410,19 @@ def _cc_canonical_events():
     }
 
 
+def _cc_canonical_http_events():
+    # PermissionRequest is a blocking hook — Claude waits for our response
+    # before proceeding. We intercept AskUserQuestion to let the user pick an
+    # option from the island; other tool permissions pass through allow.
+    return {
+        "PermissionRequest": {
+            "type": "http",
+            "url": CC_PERMISSION_HOOK_URL,
+            "timeout": CC_PERMISSION_HOOK_TIMEOUT,
+        },
+    }
+
+
 def _cc_is_our_group(group):
     try:
         for h in (group.get("hooks") or []):
@@ -1400,6 +1435,10 @@ def _cc_is_our_group(group):
             if "cc-posttool-hook.sh" in cmd or "cc-event-hook.sh" in cmd:
                 return True
             if f"127.0.0.1:{PORT}/event" in cmd:
+                return True
+            # HTTP hooks (PermissionRequest) — match on our bridge URL.
+            url = h.get("url") or ""
+            if f"127.0.0.1:{PORT}/hooks/" in url:
                 return True
     except Exception:
         pass
@@ -1447,6 +1486,13 @@ def cc_install():
             hooks[event_name] = bucket
         bucket.append({"hooks": [{"type": "command", "command": command}]})
         installed.append(event_name)
+    for event_name, http_spec in _cc_canonical_http_events().items():
+        bucket = hooks.setdefault(event_name, [])
+        if not isinstance(bucket, list):
+            bucket = []
+            hooks[event_name] = bucket
+        bucket.append({"hooks": [dict(http_spec)]})
+        installed.append(event_name)
     _save_cc_settings(d)
     return installed
 
@@ -1484,7 +1530,7 @@ def cc_status():
     for event_name, bucket in hooks.items():
         if isinstance(bucket, list) and any(_cc_is_our_group(g) for g in bucket):
             present.append(event_name)
-    primary = {"UserPromptSubmit", "PreToolUse", "PostToolUseFailure", "Stop", "SessionEnd"}
+    primary = {"UserPromptSubmit", "PreToolUse", "PostToolUseFailure", "Stop", "SessionEnd", "PermissionRequest"}
     return {"installed": primary.issubset(set(present)), "events": sorted(present)}
 
 
@@ -1926,6 +1972,96 @@ def _focus_warp_tab(session):
     }
 
 
+def _ghostty_focus_targets(session):
+    targets = []
+
+    def add(val):
+        if not val:
+            return
+        text = str(val).strip()
+        if not text or text in targets:
+            return
+        targets.append(text)
+
+    cwd = (session.get("cwd") or "").rstrip("/")
+    if cwd:
+        parts = [p for p in cwd.split("/") if p]
+        if parts:
+            add(parts[-1])
+        add(cwd)
+    add(session.get("title"))
+    agent = (session.get("agent") or "").strip()
+    if agent:
+        add(agent.lower())
+    return targets
+
+
+_GHOSTTY_FOCUS_SCRIPT = """on run argv
+  tell application "Ghostty" to activate
+  delay 0.08
+  set matchedIndex to 0
+  set matchedTitle to ""
+  tell application "System Events"
+    tell process "Ghostty"
+      try
+        set wins to windows
+        set winCount to count of wins
+        repeat with i from 1 to winCount
+          set w to item i of wins
+          set winTitle to ""
+          try
+            set winTitle to (title of w) as text
+          end try
+          if winTitle is "" then
+            try
+              set winTitle to (name of w) as text
+            end try
+          end if
+          if winTitle is not "" then
+            repeat with tgt in argv
+              set needle to tgt as text
+              if needle is not "" and winTitle contains needle then
+                try
+                  perform action "AXRaise" of w
+                end try
+                set matchedIndex to i
+                set matchedTitle to winTitle
+                exit repeat
+              end if
+            end repeat
+            if matchedIndex is not 0 then exit repeat
+          end if
+        end repeat
+      end try
+    end tell
+  end tell
+  return (matchedIndex as text) & "|" & matchedTitle
+end run
+"""
+
+
+def _focus_ghostty_tab(session):
+    ok, detail = _activate_app("Ghostty")
+    if not ok:
+        return False, {"error": "unable to activate ghostty", "terminal": "Ghostty", "detail": detail}
+
+    targets = _ghostty_focus_targets(session)
+    if not targets:
+        return True, {"ok": True, "terminal": "Ghostty", "method": "app-activate"}
+
+    ok_script, output = _run_osascript(_GHOSTTY_FOCUS_SCRIPT, targets, timeout=3.0)
+    if ok_script and output and not output.startswith("0|"):
+        parts = output.split("|", 1)
+        tab_title = parts[1] if len(parts) > 1 else ""
+        return True, {
+            "ok": True,
+            "terminal": "Ghostty",
+            "method": "ghostty-window-raise",
+            "tab_title": tab_title,
+        }
+    return True, {"ok": True, "terminal": "Ghostty", "method": "app-activate"}
+
+
 def _focus_terminal_app_session(session):
     tty = _tty_for_pid(session.get("pid"))
     if not tty:
@@ -1959,6 +2095,8 @@ def _focus_session_terminal(session):
             session["terminal"] = terminal
     if terminal == "Warp":
         return _focus_warp_tab(session)
+    elif terminal == "Ghostty":
+        return _focus_ghostty_tab(session)
     elif terminal == "Terminal":
         ok, detail = _focus_terminal_app_session(session)
         if ok:
@@ -1986,7 +2124,7 @@ def _focus_session_request(data):
 
 _ALERT_SOUNDS = {
     "start": "/System/Library/Sounds/Frog.aiff",
-    "stop":  "/System/Library/Sounds/Glass.aiff",
+    "stop":  "/System/Library/Sounds/Hero.aiff",
 }
 
 
@@ -2008,6 +2146,172 @@ def _play_alert_sound(tone):
         sys.stderr.write(f"sound play failed: {e}\n")
         sys.stderr.flush()
         return False
+
+
+def _set_session_waiting_for_permission(agent, session_id, permission_id, ts):
+    """Flip the matching session to Waiting and tag it with the permission id
+    so /state callers can correlate the pending prompt to its session row."""
+    if not session_id:
+        return
+    with _lock:
+        for key, s in _sessions.items():
+            if key[0] != agent:
+                continue
+            if key[1] != session_id and s.get("session_id") != session_id:
+                continue
+            s["state"] = "Waiting"
+            s["pending_permission_id"] = permission_id
+            s["updated_at"] = ts
+            break
+
+
+def _clear_session_permission_tag(permission_id):
+    if not permission_id:
+        return
+    with _lock:
+        for s in _sessions.values():
+            if s.get("pending_permission_id") == permission_id:
+                s.pop("pending_permission_id", None)
+
+
+def _handle_permission_hook(body):
+    """Blocking PermissionRequest hook handler. For AskUserQuestion, we suspend
+    the hook thread until the extension calls /permission/resolve with the
+    chosen option. Any other tool is waved through with `allow` so regular
+    Claude tool permissions keep their existing behaviour."""
+    tool_name = (body.get("tool_name") or "").strip()
+    session_id = body.get("session_id") or body.get("sessionId") or ""
+    tool_input = body.get("tool_input") or {}
+
+    if tool_name != "AskUserQuestion":
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": {"behavior": "allow"},
+            }
+        }
+
+    questions = tool_input.get("questions") or []
+    if not isinstance(questions, list) or not questions:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": {"behavior": "allow"},
+            }
+        }
+
+    permission_id = str(uuid.uuid4())
+    event = threading.Event()
+    created_at = time.time()
+    entry = {
+        "session_id": session_id,
+        "agent": "Claude",
+        "tool_name": tool_name,
+        "tool_input": tool_input,
+        "questions": questions,
+        "event": event,
+        "decision": None,
+        "created_at": created_at,
+    }
+    with _pending_permissions_lock:
+        _pending_permissions[permission_id] = entry
+
+    _set_session_waiting_for_permission("Claude", session_id, permission_id, created_at)
+
+    try:
+        signalled = event.wait(PERMISSION_HOOK_TIMEOUT)
+    finally:
+        with _pending_permissions_lock:
+            entry = _pending_permissions.pop(permission_id, None)
+        _clear_session_permission_tag(permission_id)
+
+    if not signalled or entry is None or entry.get("decision") is None:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": {
+                    "behavior": "deny",
+                    "message": "No response from SuperIsland within timeout",
+                },
+            }
+        }
+
+    decision = entry["decision"]
+    selected = decision.get("selected_option")
+    question_text = ""
+    first_q = questions[0] if questions else None
+    if isinstance(first_q, dict):
+        question_text = first_q.get("question") or ""
+
+    if not question_text or selected is None:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": {"behavior": "allow"},
+            }
+        }
+
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PermissionRequest",
+            "decision": {
+                "behavior": "allow",
+                "updatedInput": {
+                    "questions": questions,
+                    "answers": {question_text: selected},
+                },
+            },
+        }
+    }
+
+
+def _resolve_permission_request(body):
+    permission_id = (body.get("permission_id") or "").strip()
+    selected = body.get("selected_option")
+    if not permission_id:
+        return False, {"error": "missing permission_id"}
+    with _pending_permissions_lock:
+        entry = _pending_permissions.get(permission_id)
+        if not entry:
+            return False, {"error": "not found", "permission_id": permission_id}
+        entry["decision"] = {"selected_option": selected}
+        entry["event"].set()
+    return True, {"ok": True, "permission_id": permission_id}
+
+
+def _pending_permission_for_session(agent, session_id):
+    """Shallow view of a session's pending AskUserQuestion prompt, suitable
+    for embedding in the /state snapshot. Returns None if nothing is pending."""
+    if not session_id:
+        return None
+    with _pending_permissions_lock:
+        for pid, entry in _pending_permissions.items():
+            if entry.get("agent") != agent:
+                continue
+            if entry.get("session_id") != session_id:
+                continue
+            questions = entry.get("questions") or []
+            first = questions[0] if questions else {}
+            if not isinstance(first, dict):
+                first = {}
+            raw_options = first.get("options") or []
+            options = []
+            for opt in raw_options:
+                if isinstance(opt, str):
+                    options.append({"label": opt, "value": opt})
+                elif isinstance(opt, dict):
+                    label = opt.get("label") or opt.get("text") or opt.get("title") or opt.get("value") or ""
+                    value = opt.get("value") if opt.get("value") is not None else label
+                    options.append({"label": label, "value": value, "description": opt.get("description") or ""})
+            return {
+                "permission_id": pid,
+                "tool_name": entry.get("tool_name"),
+                "header": first.get("header") or "",
+                "question": first.get("question") or "",
+                "options": options,
+                "created_at": entry.get("created_at"),
+            }
+    return None
 
 
 def _route_get(path):
@@ -2076,6 +2380,24 @@ def _route_post(path, body_bytes):
         if played is None:
             return _build_response(400, "Bad Request", {"error": "unknown tone", "got": tone})
         return _build_response(200, "OK", {"ok": played, "tone": tone})
+    if path_only == "/hooks/permission":
+        try:
+            data = json.loads(body_bytes.decode("utf-8") or "{}")
+        except Exception:
+            data = {}
+        response = _handle_permission_hook(data)
+        return _build_response(200, "OK", response)
+    if path_only == "/permission/resolve":
+        try:
+            data = json.loads(body_bytes.decode("utf-8") or "{}")
+        except Exception:
+            return _build_response(400, "Bad Request", {"error": "invalid JSON"})
+        ok, payload = _resolve_permission_request(data)
+        if ok:
+            return _build_response(200, "OK", payload)
+        code = 404 if payload.get("error") == "not found" else 400
+        reason = "Not Found" if code == 404 else "Bad Request"
+        return _build_response(code, reason, payload)
     return _build_response(404, "Not Found", {"error": "not found"})
 
 
