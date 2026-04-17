@@ -145,7 +145,7 @@ struct IslandContainerView: View {
     // MARK: - Appearance
 
     private var compactContentOpacity: Double {
-        appState.currentState == .compact ? appState.idleOpacity : 1.0
+        1.0
     }
 
     // Shadows are intentionally disabled in the compact state. The island
