@@ -1759,7 +1759,82 @@ def _codex_remove_managed_hooks(d):
     return d, removed
 
 
+def _find_binary(name):
+    """Locate a user-installed CLI that probably isn't on the launchd PATH.
+
+    macOS apps start with a minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`),
+    so `shutil.which` misses anything in Homebrew, `~/.local/bin`, npm global
+    bins, asdf/nvm, etc. This walks a widened candidate list, then falls
+    back to asking the user's login shell for its PATH — that's where the
+    CLI lives when the user runs it in Terminal.
+    """
+    # Fast path — already on the process PATH.
+    hit = shutil.which(name)
+    if hit:
+        return hit
+
+    home = pathlib.Path.home()
+    candidate_dirs = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        str(home / ".local" / "bin"),
+        str(home / ".bun" / "bin"),
+        str(home / ".cargo" / "bin"),
+        str(home / ".deno" / "bin"),
+        str(home / "bin"),
+        str(home / ".volta" / "bin"),
+    ]
+    # Include any node version managers' current shim dirs (best-effort).
+    for nm in (home / ".nvm" / "versions" / "node").glob("*/bin") if (home / ".nvm").exists() else []:
+        candidate_dirs.append(str(nm))
+
+    for d in candidate_dirs:
+        candidate = pathlib.Path(d) / name
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate)
+
+    # Last resort — ask the user's shell. Login-mode (-l) sources rc files so
+    # we see the same PATH that Terminal does.
+    shell = os.environ.get("SHELL") or "/bin/zsh"
+    try:
+        res = subprocess.run(
+            [shell, "-lc", f"command -v {shlex.quote(name)}"],
+            capture_output=True,
+            text=True,
+            timeout=3.0,
+            check=False,
+        )
+    except Exception:
+        return None
+    path = (res.stdout or "").strip().splitlines()[-1:] if res.stdout else []
+    if path and os.access(path[0], os.X_OK):
+        return path[0]
+    return None
+
+
 def codex_install():
+    # Preflight: if the codex CLI isn't on PATH the hooks will never fire —
+    # installing them silently is worse than failing loudly. Either produces a
+    # clear user-facing error via the HTTP route's 500 + error message path.
+    if _find_binary("codex") is None:
+        raise RuntimeError(
+            "Codex CLI not found — install codex first (https://openai.com/codex) "
+            "and re-toggle this setting"
+        )
+    # Hook script must be present AND executable, otherwise codex will try to
+    # invoke a missing binary and every hook call will fail silently.
+    if not CODEX_HOOK_SCRIPT or not pathlib.Path(CODEX_HOOK_SCRIPT).exists():
+        raise RuntimeError(
+            f"Codex hook script missing at {CODEX_HOOK_SCRIPT or '<unset>'} — "
+            "reinstall the extension bundle"
+        )
+    if not os.access(CODEX_HOOK_SCRIPT, os.X_OK):
+        raise RuntimeError(
+            f"Codex hook script is not executable ({CODEX_HOOK_SCRIPT}) — "
+            "run `chmod +x` on it and retry"
+        )
+
     _backup_once(CODEX_CONFIG_PATH, BACKUP_SUFFIX)
     _backup_once(CODEX_HOOKS_PATH, BACKUP_SUFFIX)
 
