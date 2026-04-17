@@ -25,9 +25,9 @@
         {
           "type": "toggle",
           "key": "soundAlert",
-          "label": "Play sound on state change",
+          "label": "Alert on state change",
           "default": false,
-          "description": "Play Frog.aiff when an agent starts Working and Glass.aiff when it leaves Working."
+          "description": "Play a game-themed cue when an agent starts Working (Frog) and when it finishes (Hero). Also expand the Agents Status island briefly on completion so you can see what finished."
         }
       ]
     }
