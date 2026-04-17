@@ -231,6 +231,19 @@ final class ExtensionManager: ObservableObject {
         }
     }
 
+    /// Routes a settings change into the extension's JS `onSettingsChanged`
+    /// hook. Called by `ExtensionSettingsStore.set` whenever a toggle/slider
+    /// writes a new value. We intentionally don't kick an immediate
+    /// refreshState here — that re-publishes `extensionStates` mid-tap,
+    /// which caused the settings view to re-render while the Toggle was
+    /// still animating, snapping it back to the previous value. The
+    /// extension's next timer-driven refresh will pick up any visible
+    /// changes a few hundred ms later.
+    func notifySettingsChanged(extensionID: String, key: String, value: Any?) {
+        guard let runtime = runtimes[extensionID] else { return }
+        runtime.notifySettingsChanged(key: key, value: value)
+    }
+
     func scheduleImmediateRefresh(extensionID: String, delay: TimeInterval = 0.05) {
         guard runtimes[extensionID] != nil else { return }
         guard immediateRefreshWorkItems[extensionID] == nil else { return }

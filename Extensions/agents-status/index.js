@@ -637,15 +637,38 @@ function reconcileHooks(agent, want) {
   var path = (want ? "/hooks/install" : "/hooks/uninstall") + "?agent=" + agent;
   return postBridge(path, "")
     .then(function (r) {
-      if (r && r.status === 200 && r.data) {
+      var ok = !!(r && r.status === 200 && r.data);
+      if (ok) {
         if (agent === "claude") hooksCC = !!want;
         else if (agent === "codex") hooksCodex = !!want;
         dlog(agent + " hooks " + (want ? "installed" : "uninstalled"));
-      } else {
-        dlog(agent + " hooks reconcile failed status=" + (r && r.status));
+        return;
       }
+      var err = (r && r.data && r.data.error) || ("HTTP " + (r && r.status));
+      dlog(agent + " hooks reconcile failed: " + err);
+      // Surface a visible notification so the user doesn't have to guess why
+      // the toggle "doesn't work". This is the only channel that actually
+      // reaches the user from JS without them opening the expanded view.
+      try {
+        SuperIsland.notifications.send({
+          title: (agent === "codex" ? "Codex" : "Claude") + " hooks failed",
+          body: err,
+          id: "agents-status-hooks-error-" + agent,
+          systemNotification: true
+        });
+      } catch (e) { dlog("notify throw: " + e); }
     })
-    .catch(function (e) { dlog(agent + " hooks reconcile threw: " + e); });
+    .catch(function (e) {
+      dlog(agent + " hooks reconcile threw: " + e);
+      try {
+        SuperIsland.notifications.send({
+          title: (agent === "codex" ? "Codex" : "Claude") + " hooks bridge error",
+          body: String(e),
+          id: "agents-status-hooks-error-" + agent,
+          systemNotification: true
+        });
+      } catch (_) {}
+    });
 }
 
 function applyAllHooks() {

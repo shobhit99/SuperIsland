@@ -143,6 +143,25 @@ final class ExtensionJSRuntime {
         )
     }
 
+    /// Fire the extension's `onSettingsChanged(key, value)` JS hook. The host
+    /// calls this whenever a settings toggle/slider/text flips in
+    /// UserDefaults so the extension can react (e.g. install/uninstall CLI
+    /// hooks, re-fetch state, etc.). Swallows any JS exception.
+    @MainActor
+    func notifySettingsChanged(key: String, value: Any?) {
+        guard let callback = moduleConfig?.forProperty("onSettingsChanged"),
+              !callback.isUndefined,
+              !callback.isNull else {
+            return
+        }
+        invokeJS("onSettingsChanged(\(key))") {
+            if let value {
+                return callback.call(withArguments: [key, value])
+            }
+            return callback.call(withArguments: [key, NSNull()])
+        }
+    }
+
     @MainActor
     func handleAction(actionID: String, value: Any?) {
         syncIslandState()
@@ -323,11 +342,56 @@ final class ExtensionJSRuntime {
             return self.fetchSync(urlString: urlString, options: options)
         }
 
+        // Truly-async fetch: takes a JS callback and resolves on a background
+        // queue, so the main thread never blocks. The sync variant is kept
+        // for extensions that still rely on it, but agents-status and any new
+        // caller should go through SuperIsland.http.fetch (promise-based).
+        let fetchAsync: @convention(block) (String, JSValue?, JSValue) -> Void = { [weak self] urlString, options, callback in
+            guard let self else { return }
+            // Capture the payload on the JS thread, then hop off main for the
+            // URLSession wait. When it completes, dispatch back to main and
+            // invoke the JS callback with the result.
+            let method = options?.forProperty("method")?.toString()
+            let body = options?.forProperty("body")?.toString()
+            let headers = options?.forProperty("headers")?.toDictionary() as? [String: String]
+            let hasPermission = self.manifest.permissions.contains("network")
+            let ctx = self.context
+
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = AsyncFetchResult.perform(
+                    urlString: urlString,
+                    method: method,
+                    body: body,
+                    headers: headers,
+                    hasPermission: hasPermission
+                )
+                DispatchQueue.main.async {
+                    let js = JSValue(object: result.asDictionary(), in: ctx) ?? JSValue(nullIn: ctx)
+                    callback.call(withArguments: [js as Any])
+                }
+            }
+        }
+
         superIsland.setObject(fetchSync, forKeyedSubscript: "__fetchSync" as NSString)
+        superIsland.setObject(fetchAsync, forKeyedSubscript: "__fetchAsync" as NSString)
 
         if manifest.permissions.contains("network") {
             context.evaluateScript(
-                "SuperIsland.http = { fetch: function(url, options) { return Promise.resolve(SuperIsland.__fetchSync(url, options)); } };"
+                """
+                SuperIsland.http = {
+                  fetch: function(url, options) {
+                    return new Promise(function(resolve) {
+                      try {
+                        SuperIsland.__fetchAsync(url, options || {}, function(res) {
+                          resolve(res);
+                        });
+                      } catch (e) {
+                        resolve({ status: 0, data: null, text: "", error: String(e) });
+                      }
+                    });
+                  }
+                };
+                """
             )
         } else {
             context.evaluateScript(
@@ -1057,5 +1121,78 @@ final class ExtensionJSRuntime {
             return URL(fileURLWithPath: raw).absoluteString
         }
         return nil
+    }
+}
+
+/// Thread-safe HTTP response payload used by the async fetch path. Lives
+/// outside the runtime so it can be constructed off the main thread without
+/// touching JSContext (which is single-threaded per context).
+private struct AsyncFetchResult {
+    let status: Int
+    let data: Any
+    let text: String
+    let error: String?
+
+    func asDictionary() -> [String: Any] {
+        var dict: [String: Any] = [
+            "status": status,
+            "data": data,
+            "text": text
+        ]
+        if let error {
+            dict["error"] = error
+        }
+        return dict
+    }
+
+    static func perform(
+        urlString: String,
+        method: String?,
+        body: String?,
+        headers: [String: String]?,
+        hasPermission: Bool
+    ) -> AsyncFetchResult {
+        guard hasPermission else {
+            return AsyncFetchResult(status: 0, data: NSNull(), text: "", error: "Permission denied: network")
+        }
+        guard let url = URL(string: urlString) else {
+            return AsyncFetchResult(status: 0, data: NSNull(), text: "", error: "Invalid URL")
+        }
+        var request = URLRequest(url: url)
+        if let method, !method.isEmpty {
+            request.httpMethod = method
+        }
+        if let body {
+            request.httpBody = body.data(using: .utf8)
+        }
+        if let headers {
+            for (k, v) in headers {
+                request.setValue(v, forHTTPHeaderField: k)
+            }
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var responseStatus = 0
+        var responseData = Data()
+        var responseError: Error?
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            responseData = data ?? Data()
+            responseStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+            responseError = error
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 15)
+
+        if let responseError {
+            return AsyncFetchResult(
+                status: responseStatus,
+                data: NSNull(),
+                text: "",
+                error: responseError.localizedDescription
+            )
+        }
+        let text = String(data: responseData, encoding: .utf8) ?? ""
+        let parsed = (try? JSONSerialization.jsonObject(with: responseData)) ?? NSNull()
+        return AsyncFetchResult(status: responseStatus, data: parsed, text: text, error: nil)
     }
 }
