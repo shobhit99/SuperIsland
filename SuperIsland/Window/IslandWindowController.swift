@@ -21,7 +21,10 @@ private final class CenteringContainerView: NSView {
 
 @MainActor
 final class IslandWindowController {
-    private var panel: IslandPanel?
+    /// Panels keyed by the display id string they live on.
+    private var panels: [String: IslandPanel] = [:]
+    /// Screens currently hidden because a fullscreen app is covering them.
+    private var hiddenForFullscreen: Set<String> = []
     private let appState = AppState.shared
     private var screenObserver: Any?
     private var defaultsObserver: Any?
@@ -29,19 +32,71 @@ final class IslandWindowController {
     private var fullscreenPollTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
     private var shrinkWorkItem: DispatchWorkItem?
-    private var isHiddenForFullscreen = false
+    private var isShowing = false
 
     func showIsland() {
-        let panel = IslandPanel()
-        self.panel = panel
+        isShowing = true
+        syncPanels(display: true)
 
-        // Initialize presentation context first so size calculations work.
-        if let screen = panel.screen
-            ?? ScreenDetector.activeScreen
-            ?? ScreenDetector.primaryScreen
-            ?? NSScreen.screens.first {
-            appState.updatePresentationContext(screen: screen)
+        setupDidChangeStateHook()
+        observeScreenChanges()
+        observeSettingsChanges()
+        observeStateChanges()
+        observeCompactLayoutChanges()
+        observeFullscreenChanges()
+        updateFullscreenVisibility()
+    }
+
+    func hideIsland() {
+        isShowing = false
+        for panel in panels.values {
+            panel.orderOut(nil)
         }
+    }
+
+    // MARK: - Panel lifecycle
+
+    /// Reconciles the set of panels with the set of target screens.
+    /// Creates new panels for screens that don't have one yet and tears
+    /// down panels for screens that are no longer in the target set.
+    private func syncPanels(display: Bool) {
+        guard isShowing else { return }
+
+        let targets = targetScreens()
+        let targetIDs = Set(targets.compactMap { ScreenDetector.displayIDString(for: $0) })
+
+        // Remove panels for screens that are no longer targeted (or disconnected).
+        for (id, panel) in panels where !targetIDs.contains(id) {
+            panel.orderOut(nil)
+            panels.removeValue(forKey: id)
+            hiddenForFullscreen.remove(id)
+        }
+
+        // Pick the screen that drives the shared SwiftUI presentation context.
+        // Preference order: user-picked single display → primary screen if targeted
+        // → first notched target → first target.
+        let primary = preferredPresentationScreen(from: targets)
+        if let primary {
+            appState.updatePresentationContext(screen: primary)
+        }
+
+        // Create or update a panel for each target screen.
+        for screen in targets {
+            guard let id = ScreenDetector.displayIDString(for: screen) else { continue }
+            let panel = panels[id] ?? makePanel()
+            if panels[id] == nil {
+                panels[id] = panel
+            }
+            applyFrame(size: appState.windowSize, to: panel, screen: screen, display: display)
+            panel.setVisibleInScreenRecordings(appState.showInScreenRecordings)
+            if !hiddenForFullscreen.contains(id) {
+                panel.orderFrontRegardless()
+            }
+        }
+    }
+
+    private func makePanel() -> IslandPanel {
+        let panel = IslandPanel()
 
         // The hosting view is set to the MAXIMUM possible size and
         // NEVER resizes. The window acts as a clipping viewport:
@@ -61,22 +116,44 @@ final class IslandWindowController {
         containerView.addSubview(hostingView)
         panel.contentView = containerView
 
-        applyFrame(size: appState.windowSize, to: panel)
-
-        panel.setVisibleInScreenRecordings(appState.showInScreenRecordings)
-        panel.makeKeyAndOrderFront(nil)
-
-        setupDidChangeStateHook()
-        observeScreenChanges()
-        observeSettingsChanges()
-        observeStateChanges()
-        observeCompactLayoutChanges()
-        observeFullscreenChanges()
-        updateFullscreenVisibility()
+        return panel
     }
 
-    func hideIsland() {
-        panel?.orderOut(nil)
+    /// The set of screens the island should currently be visible on,
+    /// derived from the user's display setting.
+    private func targetScreens() -> [NSScreen] {
+        let id = appState.displayIdentifier
+
+        if id == ScreenDetector.allDisplaysIdentifier {
+            return NSScreen.screens
+        }
+
+        if !id.isEmpty, let chosen = ScreenDetector.screen(withIDString: id) {
+            return [chosen]
+        }
+
+        // Automatic: cursor screen → primary → first connected.
+        let fallback = ScreenDetector.activeScreen
+            ?? ScreenDetector.primaryScreen
+            ?? NSScreen.screens.first
+        return fallback.map { [$0] } ?? []
+    }
+
+    private func preferredPresentationScreen(from targets: [NSScreen]) -> NSScreen? {
+        if targets.count == 1 { return targets.first }
+        // Prefer a notched screen when one is in the target set. The notched
+        // shape is the more constrained of the two — rendering as "notched"
+        // on a non-notched display shows a pill at the top, which is tolerable;
+        // rendering as "non-notched" on a notched display leaves the pill
+        // floating away from the camera housing, which is visually broken.
+        if let notched = targets.first(where: { ScreenDetector.hasNotch(screen: $0) }) {
+            return notched
+        }
+        if let main = ScreenDetector.primaryScreen,
+           targets.contains(where: { $0 == main }) {
+            return main
+        }
+        return targets.first
     }
 
     // MARK: - Positioning
@@ -90,21 +167,7 @@ final class IslandWindowController {
         )
     }
 
-    /// Display explicitly chosen by the user in Advanced Settings, if set and
-    /// the display is still connected. Returning nil means "Automatic".
-    private var userSelectedScreen: NSScreen? {
-        let id = appState.displayIdentifier
-        guard !id.isEmpty else { return nil }
-        return ScreenDetector.screen(withIDString: id)
-    }
-
-    private func applyFrame(size: CGSize, to panel: IslandPanel, display: Bool = true) {
-        guard let screen = userSelectedScreen
-            ?? panel.screen
-            ?? ScreenDetector.activeScreen
-            ?? ScreenDetector.primaryScreen
-            ?? NSScreen.screens.first else { return }
-        appState.updatePresentationContext(screen: screen)
+    private func applyFrame(size: CGSize, to panel: IslandPanel, screen: NSScreen, display: Bool = true) {
         let screenFrame = screen.frame
         let hasNotch = ScreenDetector.hasNotch(screen: screen)
         let notchRect = ScreenDetector.notchRect(screen: screen)
@@ -124,6 +187,14 @@ final class IslandWindowController {
         panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: display)
     }
 
+    /// Apply the given size to every active panel, each sized against its own screen.
+    private func applyFrameToAll(size: CGSize, display: Bool = true) {
+        for (id, panel) in panels {
+            guard let screen = ScreenDetector.screen(withIDString: id) else { continue }
+            applyFrame(size: size, to: panel, screen: screen, display: display)
+        }
+    }
+
     // MARK: - Window resize via didSet hook
     //
     // Fires from AppState.didSet — AFTER currentState has changed,
@@ -133,19 +204,19 @@ final class IslandWindowController {
 
     private func setupDidChangeStateHook() {
         appState.didChangeState = { [weak self] oldState, newState in
-            guard let self, let panel = self.panel else { return }
+            guard let self else { return }
             let oldSize = self.appState.windowSize(for: oldState)
             let newSize = self.appState.windowSize(for: newState)
 
             if newSize.width > oldSize.width || newSize.height > oldSize.height {
                 // The hosting view is fixed-size, so this resize only
                 // changes the visible viewport — no SwiftUI re-layout.
-                self.applyFrame(size: self.maxWindowSize, to: panel)
+                self.applyFrameToAll(size: self.maxWindowSize)
 
                 // Refresh tracking areas after the viewport change so
                 // .onContinuousHover picks up the correct hover state.
-                panel.contentView?.subviews.forEach {
-                    $0.updateTrackingAreas()
+                for panel in self.panels.values {
+                    panel.contentView?.subviews.forEach { $0.updateTrackingAreas() }
                 }
             }
             // SHRINKING: keep window large during animation.
@@ -160,7 +231,7 @@ final class IslandWindowController {
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] newState in
-                guard let self, let panel = self.panel else { return }
+                guard let self, !self.panels.isEmpty else { return }
 
                 self.shrinkWorkItem?.cancel()
                 self.shrinkWorkItem = nil
@@ -181,8 +252,8 @@ final class IslandWindowController {
                         self.appState.suppressDismissScheduling = false
 
                         // Refresh tracking areas so hover state is accurate.
-                        panel.contentView?.subviews.forEach {
-                            $0.updateTrackingAreas()
+                        for panel in self.panels.values {
+                            panel.contentView?.subviews.forEach { $0.updateTrackingAreas() }
                         }
 
                         guard self.appState.currentState == expectedState,
@@ -199,13 +270,13 @@ final class IslandWindowController {
                     // Shrink window AFTER the animation finishes.
                     // This releases the expanded click area.
                     let work = DispatchWorkItem { [weak self] in
-                        guard let self, let panel = self.panel,
+                        guard let self,
                               self.appState.currentState == .compact else { return }
-                        self.applyFrame(size: self.appState.windowSize, to: panel)
+                        self.applyFrameToAll(size: self.appState.windowSize)
                         // Force tracking area recalculation so the next
                         // hover on the compact notch is detected.
-                        panel.contentView?.subviews.forEach {
-                            $0.updateTrackingAreas()
+                        for panel in self.panels.values {
+                            panel.contentView?.subviews.forEach { $0.updateTrackingAreas() }
                         }
                     }
                     self.shrinkWorkItem = work
@@ -236,18 +307,8 @@ final class IslandWindowController {
     }
 
     private func updateCompactFrameIfNeeded() {
-        guard let panel, appState.currentState == .compact else { return }
-        applyFrame(size: appState.windowSize, to: panel)
-    }
-
-    /// Move the panel onto the user-selected display if it isn't already there.
-    /// Called whenever settings change; cheap no-op when nothing to do.
-    private func relocateToPreferredDisplayIfNeeded() {
-        guard let panel, let preferred = userSelectedScreen else { return }
-        if panel.screen == preferred { return }
-        // Re-applying the frame recomputes origin against the new screen's
-        // notch / frame anchors; size stays whatever it currently is.
-        applyFrame(size: panel.frame.size, to: panel)
+        guard appState.currentState == .compact else { return }
+        applyFrameToAll(size: appState.windowSize)
     }
 
     // MARK: - Screen & Settings
@@ -259,9 +320,13 @@ final class IslandWindowController {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, let panel = self.panel else { return }
-                self.applyFrame(size: self.appState.currentState == .compact
-                    ? self.appState.windowSize : self.maxWindowSize, to: panel)
+                guard let self else { return }
+                // Screen topology may have changed (display added/removed) —
+                // reconcile the panel set, then re-apply sizes.
+                self.syncPanels(display: true)
+                let size = self.appState.currentState == .compact
+                    ? self.appState.windowSize : self.maxWindowSize
+                self.applyFrameToAll(size: size)
             }
         }
     }
@@ -274,13 +339,15 @@ final class IslandWindowController {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.panel?.setVisibleInScreenRecordings(self.appState.showInScreenRecordings)
-                // Keep the compact frame in sync with settings that change its
-                // content size (e.g. toggling "Hide side slots" on notch Macs).
+                for panel in self.panels.values {
+                    panel.setVisibleInScreenRecordings(self.appState.showInScreenRecordings)
+                }
+                // The display identifier may have changed — reconcile the
+                // panel set (handles switching to/from All Displays and
+                // moving between single screens). Also keeps compact frame
+                // in sync with size-affecting settings like "Hide side slots".
+                self.syncPanels(display: true)
                 self.updateCompactFrameIfNeeded()
-                // Move to the user-picked display if that setting changed.
-                self.relocateToPreferredDisplayIfNeeded()
-                // Re-evaluate fullscreen visibility when the toggle changes.
                 self.updateFullscreenVisibility()
             }
         }
@@ -288,12 +355,11 @@ final class IslandWindowController {
 
     // MARK: - Fullscreen hiding
     //
-    // When the user opts in via Settings we hide the panel while any
-    // non-SuperIsland window matches the screen frame exactly (the classic
-    // signature of a native macOS fullscreen app), and restore it as soon
-    // as that fullscreen window goes away. Works on both notch and non-notch
-    // Macs — on notch Macs the user may still prefer the island hidden when
-    // watching fullscreen video etc.
+    // When the user opts in via Settings we hide each panel individually
+    // while a non-SuperIsland window exactly covers its screen (the classic
+    // signature of a native macOS fullscreen app). Each screen is evaluated
+    // independently so an external monitor running fullscreen video doesn't
+    // pull down the island on the MacBook's built-in display.
 
     private func observeFullscreenChanges() {
         // activeSpaceDidChange fires when the user enters/exits fullscreen
@@ -321,31 +387,21 @@ final class IslandWindowController {
     }
 
     private func updateFullscreenVisibility() {
-        guard let panel else { return }
-
         let shouldConsider = appState.hideOnFullscreen
-        guard shouldConsider else {
-            if isHiddenForFullscreen {
-                isHiddenForFullscreen = false
+
+        for (id, panel) in panels {
+            guard let screen = ScreenDetector.screen(withIDString: id) else { continue }
+
+            let wasHidden = hiddenForFullscreen.contains(id)
+            let fullscreen = shouldConsider && Self.isFullscreenWindowPresent(on: screen)
+
+            if fullscreen && !wasHidden {
+                hiddenForFullscreen.insert(id)
+                panel.orderOut(nil)
+            } else if !fullscreen && wasHidden {
+                hiddenForFullscreen.remove(id)
                 panel.orderFrontRegardless()
             }
-            return
-        }
-
-        let screen = panel.screen
-            ?? ScreenDetector.activeScreen
-            ?? ScreenDetector.primaryScreen
-            ?? NSScreen.screens.first
-        guard let screen else { return }
-
-        let fullscreen = Self.isFullscreenWindowPresent(on: screen)
-
-        if fullscreen && !isHiddenForFullscreen {
-            isHiddenForFullscreen = true
-            panel.orderOut(nil)
-        } else if !fullscreen && isHiddenForFullscreen {
-            isHiddenForFullscreen = false
-            panel.orderFrontRegardless()
         }
     }
 

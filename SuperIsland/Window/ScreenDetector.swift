@@ -88,15 +88,21 @@ enum ScreenDetector {
         return NSScreen.screens.first { displayIDString(for: $0) == id }
     }
 
+    /// Sentinel id for the "show on every connected display" mode.
+    static let allDisplaysIdentifier = "all"
+
     /// Human-readable list of the connected screens for the display picker.
     /// First entry is always "Automatic" (empty id == follow default rules).
     struct ScreenOption: Identifiable, Hashable {
-        let id: String           // "" for Automatic, otherwise CGDirectDisplayID string
+        let id: String           // "" for Automatic, "all" for every display, otherwise CGDirectDisplayID string
         let name: String
     }
 
     static func availableScreenOptions() -> [ScreenOption] {
         var options: [ScreenOption] = [ScreenOption(id: "", name: "Automatic")]
+        if NSScreen.screens.count > 1 {
+            options.append(ScreenOption(id: allDisplaysIdentifier, name: "All Displays"))
+        }
         for screen in NSScreen.screens {
             guard let id = displayIDString(for: screen) else { continue }
             let name: String
