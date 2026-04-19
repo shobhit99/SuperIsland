@@ -351,8 +351,8 @@ final class ExtensionJSRuntime {
             // Capture the payload on the JS thread, then hop off main for the
             // URLSession wait. When it completes, dispatch back to main and
             // invoke the JS callback with the result.
-            let method = options?.forProperty("method")?.toString()
-            let body = options?.forProperty("body")?.toString()
+            let method = jsOptionalString(options, key: "method")
+            let body = jsOptionalString(options, key: "body")
             let headers = options?.forProperty("headers")?.toDictionary() as? [String: String]
             let hasPermission = self.manifest.permissions.contains("network")
             let ctx = self.context
@@ -927,11 +927,12 @@ final class ExtensionJSRuntime {
         }
 
         var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         if let options {
-            if let method = options.forProperty("method")?.toString(), !method.isEmpty {
+            if let method = jsOptionalString(options, key: "method"), !method.isEmpty {
                 request.httpMethod = method
             }
-            if let body = options.forProperty("body")?.toString() {
+            if let body = jsOptionalString(options, key: "body") {
                 request.httpBody = body.data(using: .utf8)
             }
             if let headers = options.forProperty("headers")?.toDictionary() as? [String: String] {
@@ -946,7 +947,7 @@ final class ExtensionJSRuntime {
         var responseData = Data()
         var responseError: Error?
 
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+        let task = extensionURLSession.dataTask(with: request) { data, response, error in
             responseData = data ?? Data()
             responseStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
             responseError = error
@@ -1124,6 +1125,35 @@ final class ExtensionJSRuntime {
     }
 }
 
+/// Safely read a String option from a JS options dict, returning nil when the
+/// property is undefined or null. Without this check, `.toString()` on an
+/// undefined JSValue returns the literal string "undefined", which then gets
+/// set as request.httpBody for GET requests — CFNetwork rejects those with
+/// NSURLErrorDataLengthExceedsMaximum (-1103) for HTTPS hosts.
+fileprivate func jsOptionalString(_ options: JSValue?, key: String) -> String? {
+    guard let options, !options.isUndefined, !options.isNull else { return nil }
+    guard let value = options.forProperty(key) else { return nil }
+    if value.isUndefined || value.isNull { return nil }
+    let str = value.toString()
+    if str == nil || str == "undefined" || str == "null" { return nil }
+    return str
+}
+
+/// Dedicated URLSession for extension HTTP requests. Uses an ephemeral
+/// configuration (no URLCache) because URLSession.shared's default cache path
+/// triggers NSURLErrorDataLengthExceedsMaximum on some macOS builds even for
+/// tiny localhost responses. Ephemeral sessions skip the cache entirely and
+/// ignore any corrupted cookie / credential state, fixing the issue.
+private let extensionURLSession: URLSession = {
+    let config = URLSessionConfiguration.ephemeral
+    config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+    config.urlCache = nil
+    config.timeoutIntervalForRequest = 15
+    config.timeoutIntervalForResource = 30
+    config.waitsForConnectivity = false
+    return URLSession(configuration: config)
+}()
+
 /// Thread-safe HTTP response payload used by the async fetch path. Lives
 /// outside the runtime so it can be constructed off the main thread without
 /// touching JSContext (which is single-threaded per context).
@@ -1159,6 +1189,7 @@ private struct AsyncFetchResult {
             return AsyncFetchResult(status: 0, data: NSNull(), text: "", error: "Invalid URL")
         }
         var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         if let method, !method.isEmpty {
             request.httpMethod = method
         }
@@ -1175,7 +1206,7 @@ private struct AsyncFetchResult {
         var responseStatus = 0
         var responseData = Data()
         var responseError: Error?
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        extensionURLSession.dataTask(with: request) { data, response, error in
             responseData = data ?? Data()
             responseStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
             responseError = error
