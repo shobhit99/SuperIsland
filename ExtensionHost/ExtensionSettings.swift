@@ -64,6 +64,7 @@ struct SettingsField: Decodable, Identifiable {
     let key: String
     let label: String
     let action: String?
+    let enabledWhen: String?
 
     let min: Double?
     let max: Double?
@@ -78,6 +79,7 @@ struct SettingsField: Decodable, Identifiable {
         case key
         case label
         case action
+        case enabledWhen
         case min
         case max
         case step
@@ -140,6 +142,25 @@ struct SettingsField: Decodable, Identifiable {
 final class ExtensionSettingsObserver: ObservableObject {
     static let shared = ExtensionSettingsObserver()
     @Published var version: Int = 0
+    private var defaultsObserver: NSObjectProtocol?
+
+    private init() {
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.bump()
+            }
+        }
+    }
+
+    deinit {
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+        }
+    }
 
     fileprivate func bump() {
         version &+= 1
@@ -275,6 +296,8 @@ struct ExtensionSettingsRenderer: View {
                 ExtensionManager.shared.handleAction(extensionID: extensionID, actionID: actionID)
             }
             .buttonStyle(.bordered)
+            .disabled(!buttonEnabled(for: field))
+            .opacity(buttonEnabled(for: field) ? 1 : 0.45)
 
         case "text", "color":
             VStack(alignment: .leading, spacing: 4) {
@@ -338,6 +361,27 @@ struct ExtensionSettingsRenderer: View {
                 ExtensionSettingsStore.setString(newValue, extensionID: extensionID, key: field.key)
             }
         )
+    }
+
+    private func buttonEnabled(for field: SettingsField) -> Bool {
+        guard let dependencyKey = field.enabledWhen, !dependencyKey.isEmpty else {
+            return true
+        }
+        guard let value = ExtensionSettingsStore.value(extensionID: extensionID, key: dependencyKey) else {
+            return false
+        }
+        switch value {
+        case let boolValue as Bool:
+            return boolValue
+        case let intValue as Int:
+            return intValue != 0
+        case let doubleValue as Double:
+            return doubleValue != 0
+        case let stringValue as String:
+            return (stringValue as NSString).boolValue
+        default:
+            return false
+        }
     }
 }
 

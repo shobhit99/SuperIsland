@@ -76,17 +76,20 @@
           "type": "button",
           "key": "connectLastFm",
           "label": "Connect Last.fm",
-          "action": "auth"
+          "action": "auth",
+          "enabledWhen": "uiCanConnect"
         },
         {
           "type": "button",
           "key": "retryQueue",
-          "label": "Retry queued scrobbles"
+          "label": "Retry queued scrobbles",
+          "enabledWhen": "uiCanRetryQueue"
         },
         {
           "type": "button",
           "key": "signOut",
-          "label": "Sign out of Last.fm"
+          "label": "Disconnect Last.fm",
+          "enabledWhen": "uiCanDisconnect"
         },
         {
           "type": "button",

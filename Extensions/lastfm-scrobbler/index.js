@@ -77,6 +77,38 @@ function storeSet(key, value) {
   SuperIsland.store.set(key, value);
 }
 
+function logInfo(message) {
+  if (typeof console !== "undefined" && console && typeof console.log === "function") {
+    console.log("[lastfm] " + trimString(message));
+  }
+}
+
+function logWarning(message) {
+  if (typeof console !== "undefined" && console && typeof console.log === "function") {
+    console.log("[lastfm] warning: " + trimString(message));
+  }
+}
+
+function setResult(message, shouldLog) {
+  state.lastResult = trimString(message);
+  if (shouldLog !== false && state.lastResult) {
+    logInfo(state.lastResult);
+  }
+  persistState();
+}
+
+function syncSettingFlag(key, nextValue) {
+  var currentValue = SuperIsland.settings.get(key);
+  if (typeof currentValue === "boolean" && currentValue === nextValue) return;
+  SuperIsland.settings.set(key, nextValue);
+}
+
+function syncButtonAvailability() {
+  syncSettingFlag("uiCanConnect", credentialsConfigured() && !authConnected() && !state.auth.pendingToken);
+  syncSettingFlag("uiCanDisconnect", authConnected());
+  syncSettingFlag("uiCanRetryQueue", authConnected() && state.queue.length > 0);
+}
+
 function sanitizedPlaybackForStorage(session) {
   var key;
   var sanitized;
@@ -480,49 +512,63 @@ function scrobblerPlayerCard(size) {
 }
 
 function setupStatusCard() {
-  var errorText = trimString(state.lastError.replace("Last.fm now playing failed:", "").replace("Failed to flush scrobble queue:", ""));
-  return card(
+  var cleanError = trimString(state.lastError.replace("Last.fm now playing failed:", "").replace("Failed to flush scrobble queue:", ""));
+  var statusText = cleanError || trimString(state.lastResult);
+  var title = "Connect Last.fm";
+  var subtitle = "Open SuperIsland Settings -> Extensions -> Last.fm Scrobbler to finish setup.";
+
+  if (state.auth.pendingToken) {
+    title = "Approve Last.fm access";
+    subtitle = "Finish the approval in your browser. SuperIsland will connect automatically.";
+  } else if (credentialsConfigured()) {
+    title = "Last.fm ready to connect";
+    subtitle = "Your API key and secret are saved. Use Settings to connect your Last.fm account.";
+  }
+
+  return View.frame(
     View.vstack([
-      View.hstack([
-        lastFmBadgeNode(16, authConnected() ? "success" : (state.lastError ? "error" : "warning")),
-        View.vstack([
-          View.text(authConnected() ? "Last.fm connected" : "Last.fm setup in Settings", {
-            style: "title",
-            color: "white",
-            lineLimit: 1
-          }),
-          View.text(authConnected()
-            ? connectionLabel()
-            : "Open SuperIsland Settings -> Extensions -> Last.fm Scrobbler to add keys and connect.", {
+      lastFmBadgeNode(18, cleanError ? "error" : (state.auth.pendingToken ? "warning" : (credentialsConfigured() ? "success" : "warning"))),
+      View.text(title, {
+        style: "title",
+        color: "white",
+        lineLimit: 1
+      }),
+      View.text(subtitle, {
+        style: "footnote",
+        color: secondaryTextColor(),
+        lineLimit: 2,
+        multilineTextAlignment: "center"
+      }),
+      View.text("API keys: " + (credentialsConfigured() ? "saved" : "missing"), {
+        style: "caption",
+        color: credentialsConfigured() ? successTextColor() : warningTextColor(),
+        lineLimit: 1
+      }),
+      View.text(
+        "Account: " + (state.auth.pendingToken
+          ? "waiting for approval"
+          : (authConnected() ? ("connected as " + (state.auth.username || "Last.fm user")) : "not connected")),
+        {
+          style: "caption",
+          color: authConnected() ? successTextColor() : secondaryTextColor(),
+          lineLimit: 1
+        }
+      ),
+      statusText
+        ? View.text(statusText, {
             style: "footnote",
-            color: secondaryTextColor(),
-            lineLimit: 2
+            color: cleanError ? dangerTextColor() : secondaryTextColor(),
+            lineLimit: 3,
+            multilineTextAlignment: "center"
           })
-        ], { spacing: 4, align: "leading" })
-      ], { spacing: 10, align: "center" }),
-      View.hstack([
-        statusPill(credentialsConfigured() ? "API keys saved" : "Missing API keys", credentialsConfigured() ? "success" : "warning", {
-          leadingNode: lastFmBadgeNode(10, credentialsConfigured() ? "success" : "warning"),
-          padding: 8
-        }),
-        statusPill(authConnected() ? "Authorized" : "Not authorized", authConnected() ? "success" : "warning", {
-          icon: authConnected() ? "checkmark.circle.fill" : "link.circle.fill",
-          padding: 8
-        })
-      ], { spacing: 8, align: "center" }),
-      errorText
-        ? View.text(errorText, {
+        : View.text("Playback will appear here once the account is connected.", {
             style: "footnote",
-            color: dangerTextColor(),
-            lineLimit: 2
+            color: mutedTextColor(),
+            lineLimit: 2,
+            multilineTextAlignment: "center"
           })
-        : View.text("Playback appears here after connection. Runtime controls stay in Settings, not in the island.", {
-            style: "footnote",
-            color: secondaryTextColor(),
-            lineLimit: 2
-          })
-    ].filter(Boolean), { spacing: 10, align: "leading" }),
-    { padding: 14, backgroundColor: elevatedPanelColor() }
+    ].filter(Boolean), { spacing: 7, align: "center" }),
+    { maxWidth: 9999, alignment: "center" }
   );
 }
 
@@ -841,12 +887,14 @@ function loadState() {
   state.ui.trailingIndicatorMode = currentTrackScrobbled() ? "success" : "progress";
   state.ui.trailingIndicatorAnimationKind = "";
   state.ui.trailingIndicatorAnimationUntilEpochMs = 0;
+  syncButtonAvailability();
   persistedStateSignature = JSON.stringify(persistedStatePayload());
 }
 
 function persistState() {
   var payload = persistedStatePayload();
   var nextSignature = JSON.stringify(payload);
+  syncButtonAvailability();
   if (nextSignature === persistedStateSignature) return;
   persistedStateSignature = nextSignature;
   storeSet("auth", payload.auth);
@@ -859,6 +907,9 @@ function persistState() {
 
 function markError(message) {
   state.lastError = trimString(message);
+  if (state.lastError) {
+    logWarning(state.lastError);
+  }
   persistState();
   maybeNotify("Last.fm Scrobbler", state.lastError);
 }
@@ -1031,8 +1082,16 @@ function queueScrobble(session) {
   }
 
   session.scrobbledAtSeconds = Math.max(0, Math.floor(toNumber(session.activePlaySeconds, session.thresholdSeconds)));
-  state.lastResult = "Queued " + session.title + " for scrobbling";
-  persistState();
+  if (!authConnected()) {
+    setResult(
+      state.queue.length === 1
+        ? "1 song queued for scrobbling until Last.fm is connected."
+        : state.queue.length + " songs queued for scrobbling until Last.fm is connected."
+    );
+    return;
+  }
+
+  setResult("Queued " + session.title + " for scrobbling");
 }
 
 async function startAuthFlow() {
@@ -1055,8 +1114,7 @@ async function startAuthFlow() {
   state.auth.pendingAtEpochMs = nowEpochMs();
   state.auth.lastAuthError = "";
   state.auth.status = "pending";
-  state.lastResult = "Approve SuperIsland in Last.fm, then wait a few seconds.";
-  persistState();
+  setResult("Approve SuperIsland in Last.fm, then wait a few seconds.");
 
   SuperIsland.openURL(LASTFM_AUTH_ROOT + "?api_key=" + encodeURIComponent(configuredApiKey()) + "&token=" + encodeURIComponent(data.token));
 }
@@ -1098,6 +1156,7 @@ async function pollPendingAuth() {
     state.auth.pendingAtEpochMs = 0;
     state.auth.status = "disconnected";
     state.auth.lastAuthError = "Authorization timed out. Start the login flow again.";
+    setResult("Last.fm approval timed out. Start the connection again from Settings.");
     persistState();
     return;
   }
@@ -1111,6 +1170,7 @@ async function pollPendingAuth() {
     state.auth.lastAuthError = "";
     state.auth.status = "connected";
     state.lastResult = "Connected to Last.fm as " + state.auth.username;
+    logInfo(state.lastResult);
     clearError();
     persistState();
     maybeNotify("Last.fm connected", "Signed in as " + state.auth.username + ".");
@@ -1151,8 +1211,7 @@ async function sendNowPlayingUpdate(session) {
     state.auth.status = "connected";
     state.auth.lastAuthError = "";
     clearError();
-    state.lastResult = "Now playing: " + session.title;
-    persistState();
+    setResult("Now playing: " + session.title);
     return;
   }
 
@@ -1187,11 +1246,20 @@ function mapScrobbleStatuses(data, count) {
 }
 
 async function flushQueue(force) {
-  if (!state.queue.length) return;
-  if (!authConnected()) return;
+  if (!state.queue.length) {
+    if (force) setResult("Scrobble queue is already clear.");
+    return;
+  }
+  if (!authConnected()) {
+    if (force) setResult("Connect Last.fm before retrying queued scrobbles.");
+    return;
+  }
   if (!settingBool("enabled", true) && !force) return;
 
   var batch = state.queue.slice(0, MAX_BATCH_SIZE);
+  if (force) {
+    setResult("Retrying " + batch.length + (batch.length === 1 ? " queued scrobble..." : " queued scrobbles..."));
+  }
   var params = { sk: state.auth.sessionKey };
   var i;
   for (i = 0; i < batch.length; i += 1) {
@@ -1240,6 +1308,7 @@ async function flushQueue(force) {
   }
   state.queue = remaining.concat(state.queue.slice(batch.length));
   state.lastResult = batch.length === 1 ? "Scrobbled " + batch[0].title : "Flushed " + batch.length + " queued scrobbles";
+  logInfo(state.lastResult);
   clearError();
   persistState();
 }
@@ -1363,13 +1432,20 @@ function currentSourceBadgeLabel() {
   return source;
 }
 
+function authRequiredCompactIcon() {
+  return View.icon("rectangle.portrait.and.arrow.right", {
+    size: 13,
+    color: warningTextColor()
+  });
+}
+
 function compactView() {
   var idleBadge = !state.lastSnapshot || currentSourceLabel() === "No active track";
   return View.hstack([
     lastFmIconNode(18, 5),
     View.text(compactStatusLabel().toUpperCase(), { style: "caption", color: "white" }),
     idleBadge
-      ? View.frame(lastFmIconNode(12, 4), {
+      ? View.frame((!credentialsConfigured() || !authConnected()) ? authRequiredCompactIcon() : lastFmIconNode(12, 4), {
           width: 16,
           height: 16,
           alignment: "trailing"
@@ -1391,6 +1467,16 @@ function minimalCompactLeadingView() {
 }
 
 function minimalCompactTrailingView() {
+  if (!credentialsConfigured() || !authConnected()) {
+    return View.frame(decorateTrailingIndicator(
+      View.animate(authRequiredCompactIcon(), "pulse")
+    ), {
+      width: 18,
+      height: 18,
+      alignment: "trailing"
+    });
+  }
+
   if (trailingIndicatorMode() === "success") {
     return View.frame(decorateTrailingIndicator(
       View.icon("checkmark.circle.fill", {
@@ -1487,8 +1573,16 @@ function stopPolling() {
 }
 
 function signOut() {
+  if (!authConnected() && !state.auth.pendingToken) {
+    setResult("Last.fm is already disconnected.");
+    clearError();
+    return;
+  }
   clearAuthState();
+  state.currentPlayback = null;
+  state.lastSnapshot = null;
   state.lastResult = "Signed out of Last.fm";
+  logInfo(state.lastResult);
   clearError();
   persistState();
 }
@@ -1496,15 +1590,13 @@ function signOut() {
 function toggleEnabled(forceValue) {
   var nextValue = typeof forceValue === "boolean" ? forceValue : !effectiveEnabled();
   SuperIsland.store.set("enabledOverride", nextValue);
-  state.lastResult = nextValue ? "Auto scrobbling enabled" : "Auto scrobbling paused";
-  persistState();
+  setResult(nextValue ? "Auto scrobbling enabled" : "Auto scrobbling paused");
 }
 
 function toggleSendNowPlaying(forceValue) {
   var nextValue = typeof forceValue === "boolean" ? forceValue : !sendNowPlayingEnabled();
   SuperIsland.store.set("sendNowPlayingOverride", nextValue);
-  state.lastResult = nextValue ? "Now playing updates enabled" : "Now playing updates paused";
-  persistState();
+  setResult(nextValue ? "Now playing updates enabled" : "Now playing updates paused");
 }
 
 loadState();
@@ -1522,6 +1614,7 @@ SuperIsland.registerModule({
   },
 
   onSettingsChanged: function() {
+    syncButtonAvailability();
     clearError();
     void tick();
   },
@@ -1529,36 +1622,36 @@ SuperIsland.registerModule({
   onAction: function(actionID, value) {
     if (actionID === "openApiCreate") {
       SuperIsland.openURL(LASTFM_API_CREATE_URL);
+      setResult("Opened Last.fm API account creation page.");
       return;
     }
     if (actionID === "openApiAccounts") {
       SuperIsland.openURL(LASTFM_API_ACCOUNTS_URL);
+      setResult("Opened Last.fm API keys page.");
       return;
     }
     if (actionID === "openDesktopAuthDocs") {
       SuperIsland.openURL(LASTFM_DESKTOP_AUTH_DOCS_URL);
+      setResult("Opened Last.fm desktop auth documentation.");
       return;
     }
     if (actionID === "setApiKey") {
       if (value !== undefined && value !== null) {
         storeSet("apiKeyDraft", trimString(value));
-        state.lastResult = "API key captured";
-        persistState();
+        setResult("API key captured.");
       }
       return;
     }
     if (actionID === "setApiSecret") {
       if (value !== undefined && value !== null) {
         storeSet("apiSecretDraft", trimString(value));
-        state.lastResult = "API secret captured";
-        persistState();
+        setResult("API secret captured.");
       }
       return;
     }
     if (actionID === "saveCredentials") {
       saveCredentialDrafts();
-      state.lastResult = onboardingReady() ? "Credentials saved locally" : "Paste both the key and secret first";
-      persistState();
+      setResult(onboardingReady() ? "Credentials saved locally." : "Paste both the API key and secret first.");
       revealIslandForSetup();
       return;
     }
@@ -1577,8 +1670,7 @@ SuperIsland.registerModule({
     }
     if (actionID === "dismissError") {
       clearError();
-      state.lastResult = "Status cleared";
-      persistState();
+      setResult("Status cleared.");
       return;
     }
     if (actionID === "toggleEnabled") {
