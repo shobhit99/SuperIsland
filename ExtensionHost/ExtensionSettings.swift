@@ -271,7 +271,7 @@ struct ExtensionSettingsRenderer: View {
 
         case "button":
             Button(field.label) {
-                let actionID = field.action?.isEmpty == false ? field.action! : field.key
+                let actionID = field.action.flatMap { $0.isEmpty ? nil : $0 } ?? field.key
                 ExtensionManager.shared.handleAction(extensionID: extensionID, actionID: actionID)
             }
             .buttonStyle(.bordered)

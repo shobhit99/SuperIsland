@@ -5,17 +5,11 @@ var LASTFM_AUTH_ROOT = "https://www.last.fm/api/auth/";
 var LASTFM_API_CREATE_URL = "https://www.last.fm/api/account/create";
 var LASTFM_API_ACCOUNTS_URL = "https://www.last.fm/api/accounts";
 var LASTFM_DESKTOP_AUTH_DOCS_URL = "https://www.last.fm/api/desktopauth";
-var LASTFM_API_KEY = "REPLACE_WITH_LASTFM_API_KEY";
-var LASTFM_API_SECRET = "REPLACE_WITH_LASTFM_API_SECRET";
 var MAX_BATCH_SIZE = 50;
 var MAX_QUEUE_SIZE = 200;
 var MAX_HISTORY_SIZE = 300;
 var AUTH_POLL_WINDOW_SECONDS = 600;
 var NOTIFICATION_COOLDOWN_SECONDS = 45;
-var PLACEHOLDER_KEYS = {
-  key: "REPLACE_WITH_LASTFM_API_KEY",
-  secret: "REPLACE_WITH_LASTFM_API_SECRET"
-};
 var LASTFM_ICON_DATA_URL = "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Cpath fill='%23D51007' d='M14.23 22.512l-1.1-2.99c-1.137 1.176-2.708 1.926-4.454 1.992l-.012 0c-2.371 0-4.055-2.061-4.055-5.36 0-4.227 2.13-5.739 4.226-5.739 3.025 0 3.986 1.959 4.811 4.468l1.1 3.436c1.1 3.332 3.161 6.012 9.106 6.012 4.261 0 7.148-1.305 7.148-4.741 0-2.784-1.581-4.226-4.538-4.914l-2.197-.481c-1.512-.344-1.959-.963-1.959-1.994 0-1.168.927-1.855 2.44-1.855 1.65 0 2.543.619 2.68 2.096l3.436-.412c-.275-3.092-2.405-4.365-5.911-4.365-3.093 0-6.116 1.169-6.116 4.915 0 2.338 1.134 3.814 3.986 4.501l2.337.55c1.753.413 2.336 1.134 2.336 2.13 0 1.271-1.238 1.788-3.575 1.788-.12.009-.26.015-.401.015-2.619 0-4.806-1.847-5.33-4.309l-.006-.036-1.134-3.438c-1.444-4.466-3.746-6.116-8.316-6.116-5.053 0-7.732 3.196-7.732 8.625 0 5.225 2.68 8.043 7.491 8.043.145.009.314.014.485.014 1.994 0 3.826-.692 5.27-1.848l-.017.013z'/%3E%3C/svg%3E";
 
 var state = {
@@ -41,6 +35,7 @@ var state = {
   }
 };
 var pollTimer = null;
+var persistedStateSignature = "";
 
 function toNumber(value, fallback) {
   if (value === null || value === undefined || value === "") return fallback;
@@ -80,6 +75,33 @@ function storeGet(key, fallback) {
 
 function storeSet(key, value) {
   SuperIsland.store.set(key, value);
+}
+
+function sanitizedPlaybackForStorage(session) {
+  var key;
+  var sanitized;
+  if (!session) return null;
+  sanitized = {};
+  for (key in session) {
+    if (Object.prototype.hasOwnProperty.call(session, key) && key !== "artworkURL") {
+      sanitized[key] = session[key];
+    }
+  }
+  if (trimString(session.artworkURL) && trimString(session.artworkURL).indexOf("data:image/") !== 0) {
+    sanitized.artworkURL = trimString(session.artworkURL);
+  }
+  return sanitized;
+}
+
+function persistedStatePayload() {
+  return {
+    auth: state.auth,
+    queue: state.queue,
+    history: state.history,
+    currentPlayback: sanitizedPlaybackForStorage(state.currentPlayback),
+    lastResult: state.lastResult,
+    lastError: state.lastError
+  };
 }
 
 function beginTrailingIndicatorTransition(mode, animationKind, durationMs) {
@@ -136,7 +158,7 @@ function configuredApiKey() {
   if (storedValue) return storedValue;
   var settingsValue = trimString(SuperIsland.settings.get("apiKey"));
   if (settingsValue) return settingsValue;
-  return LASTFM_API_KEY;
+  return "";
 }
 
 function configuredApiSecret() {
@@ -144,7 +166,7 @@ function configuredApiSecret() {
   if (storedValue) return storedValue;
   var settingsValue = trimString(SuperIsland.settings.get("apiSecret"));
   if (settingsValue) return settingsValue;
-  return LASTFM_API_SECRET;
+  return "";
 }
 
 function draftApiKey() {
@@ -156,7 +178,7 @@ function draftApiSecret() {
 }
 
 function credentialsConfigured() {
-  return configuredApiKey() !== PLACEHOLDER_KEYS.key && configuredApiSecret() !== PLACEHOLDER_KEYS.secret;
+  return !!configuredApiKey() && !!configuredApiSecret();
 }
 
 function accentColor() {
@@ -344,10 +366,6 @@ function scrobbleCheckpointLabel(session, summary) {
   return "Scrobble at " + formatClock(session.thresholdSeconds);
 }
 
-function queueCountLabel() {
-  return state.queue.length === 1 ? "1 queued scrobble" : state.queue.length + " queued scrobbles";
-}
-
 function currentArtworkURL() {
   var snapshot = asObject(state.lastSnapshot);
   if (snapshot && trimString(snapshot.artworkURL)) return trimString(snapshot.artworkURL);
@@ -414,43 +432,6 @@ function statusPill(label, tone, options) {
   );
 }
 
-function iconActionButton(label, actionID, options) {
-  var opts = asObject(options) || {};
-  return chipButton(label, actionID, {
-    icon: opts.icon,
-    fullWidth: !!opts.fullWidth,
-    fillColor: opts.fillColor || elevatedPanelColor(),
-    textColor: opts.textColor || "white",
-    padding: toNumber(opts.padding, 9),
-    cornerRadius: toNumber(opts.cornerRadius, 12)
-  });
-}
-
-function connectedActionButtons() {
-  return card(
-    View.hstack([
-      iconActionButton("Retry", "retryQueue", {
-        icon: "arrow.clockwise.circle.fill",
-        fullWidth: true,
-        fillColor: { r: 1, g: 1, b: 1, a: 0.1 }
-      }),
-      iconActionButton(effectiveEnabled() ? "Pause" : "Resume", "toggleEnabled", {
-        icon: effectiveEnabled() ? "pause.circle.fill" : "play.circle.fill",
-        fullWidth: true,
-        fillColor: effectiveEnabled() ? subtleAmberFillColor() : subtleGreenFillColor(),
-        textColor: effectiveEnabled() ? warningTextColor() : successTextColor()
-      }),
-      iconActionButton("Sign out", "signOut", {
-        icon: "rectangle.portrait.and.arrow.right",
-        fullWidth: true,
-        fillColor: subtleRedFillColor(),
-        textColor: dangerTextColor()
-      })
-    ], { spacing: 8, distribution: "fillEqually", align: "center" }),
-    { padding: 12 }
-  );
-}
-
 function lastFmStatusPill(summary) {
   var label = summary.label;
   if (label === "Scrobbled") label = "Sent";
@@ -461,112 +442,12 @@ function lastFmStatusPill(summary) {
   });
 }
 
-function sourcePill() {
-  return statusPill(currentSourceBadgeLabel(), "neutral", {
-    icon: "music.note",
-    padding: 8
-  });
-}
-
-function queueStatusLabel() {
-  if (state.queue.length) return state.queue.length === 1 ? "1 queued scrobble" : state.queue.length + " queued scrobbles";
-  return "Queue clear";
-}
-
 function summaryHeadline(summary, session) {
   if (!session) return "Waiting for playback";
   if (summary.label === "Scrobbled") return "Sent to Last.fm at " + formatClock(session.scrobbledAtSeconds || session.thresholdSeconds);
   if (summary.label === "Paused") return "Paused at " + formatClock(session.activePlaySeconds);
   if (summary.label === "Tracking") return "Scrobbles in " + formatClock(Math.max(0, session.thresholdSeconds - session.activePlaySeconds));
   return summary.detail;
-}
-
-function compactSummaryNode(summary) {
-  return View.hstack([
-    lastFmBadgeNode(12, summary.tone),
-    View.text(summaryHeadline(summary, state.currentPlayback), {
-      style: "footnote",
-      color: summary.tone === "success" ? successTextColor() : "white",
-      lineLimit: 2
-    })
-  ], { spacing: 7, align: "center" });
-}
-
-function settingsCard() {
-  return card(
-    View.vstack([
-      View.text("Settings", {
-        style: "headline",
-        color: "white",
-        lineLimit: 1
-      }),
-      View.hstack([
-        View.icon("person.crop.circle.fill", { size: 13, color: secondaryTextColor() }),
-        View.text(connectionLabel(), {
-          style: "footnote",
-          color: "white",
-          lineLimit: 1
-        }),
-        View.spacer(),
-        statusPill(currentSourceBadgeLabel(), "neutral", {
-          icon: "music.note",
-          padding: 8
-        })
-      ], { spacing: 8, align: "center" }),
-      View.toggle(effectiveEnabled(), "Auto scrobble", "toggleEnabled"),
-      View.toggle(sendNowPlayingEnabled(), "Send now playing", "toggleSendNowPlaying"),
-      state.queue.length
-        ? View.hstack([
-            statusPill(queueCountLabel(), "warning", {
-              icon: "tray.and.arrow.up.fill",
-              padding: 8
-            }),
-            View.spacer()
-          ], { spacing: 8, align: "center" })
-        : null,
-      View.hstack([
-        iconActionButton("Retry", "retryQueue", {
-          icon: "arrow.clockwise.circle.fill",
-          fullWidth: true,
-          fillColor: { r: 1, g: 1, b: 1, a: 0.1 }
-        }),
-        iconActionButton(effectiveEnabled() ? "Pause" : "Resume", "toggleEnabled", {
-          icon: effectiveEnabled() ? "pause.circle.fill" : "play.circle.fill",
-          fullWidth: true,
-          fillColor: effectiveEnabled() ? subtleAmberFillColor() : subtleGreenFillColor(),
-          textColor: effectiveEnabled() ? warningTextColor() : successTextColor()
-        }),
-        iconActionButton("Sign out", "signOut", {
-          icon: "rectangle.portrait.and.arrow.right",
-          fullWidth: true,
-          fillColor: subtleRedFillColor(),
-          textColor: dangerTextColor()
-        })
-      ], { spacing: 8, distribution: "fillEqually", align: "center" })
-      ,
-      state.lastError
-        ? View.vstack([
-            View.text("Last.fm issue", {
-              style: "caption",
-              color: dangerTextColor(),
-              lineLimit: 1
-            }),
-            View.text(trimString(state.lastError.replace("Last.fm now playing failed:", "").replace("Failed to flush scrobble queue:", "")), {
-              style: "footnote",
-              color: "white",
-              lineLimit: 2
-            })
-          ], { spacing: 4, align: "leading" })
-        : (state.lastResult && state.lastResult.indexOf("Now playing:") !== 0)
-          ? View.text(state.lastResult, {
-              style: "footnote",
-              color: secondaryTextColor(),
-              lineLimit: 2
-            })
-          : null
-    ].filter(Boolean), { spacing: 10, align: "leading" }),
-    { padding: 14 }
-  );
 }
 
 function scrobblerPlayerCard(size) {
@@ -726,185 +607,6 @@ function trackStatusSummary(session) {
   };
 }
 
-function feedbackCard() {
-  if (state.lastError) {
-    var rawError = trimString(state.lastError);
-    var title = "Last.fm issue";
-    var body = rawError;
-    var primaryAction = authConnected() ? "retryQueue" : "auth";
-    var primaryLabel = authConnected() ? "Retry" : "Reconnect";
-
-    if (rawError.indexOf("Last.fm now playing failed:") === 0) {
-      title = "Could not send now playing";
-      body = trimString(rawError.replace("Last.fm now playing failed:", ""));
-      primaryAction = "auth";
-      primaryLabel = "Reconnect";
-    } else if (rawError.indexOf("Last.fm session expired") === 0) {
-      title = "Session expired";
-      body = rawError;
-      primaryAction = "auth";
-      primaryLabel = "Reconnect";
-    }
-
-    return card(
-      View.vstack([
-        View.text(title, {
-          style: "headline",
-          color: dangerTextColor(),
-          lineLimit: 1
-        }),
-        View.text(body, {
-          style: "footnote",
-          color: secondaryTextColor(),
-          lineLimit: 3
-        }),
-        View.hstack([
-          chipButton(primaryLabel, primaryAction, {
-            icon: primaryAction === "auth" ? "link.circle.fill" : "arrow.clockwise.circle.fill",
-            fullWidth: true,
-            fillColor: subtleRedFillColor()
-          }),
-          chipButton("Dismiss", "dismissError", {
-            icon: "xmark.circle.fill",
-            fullWidth: true
-          })
-        ], { spacing: 8, distribution: "fillEqually", align: "center" })
-      ], { spacing: 8, align: "leading" }),
-      { padding: 12, backgroundColor: { r: 0.8, g: 0.15, b: 0.12, a: 0.16 } }
-    );
-  }
-
-  if (state.lastResult) {
-    if (state.lastResult.indexOf("Now playing:") === 0) {
-      return null;
-    }
-    var tone = state.lastResult.indexOf("Scrobbled ") === 0 || state.lastResult.indexOf("Connected to Last.fm") === 0
-      ? "success"
-      : "neutral";
-    return card(
-      View.hstack([
-        statusPill(tone === "success" ? "Updated" : "Status", tone),
-        View.text(state.lastResult, {
-          style: "footnote",
-          color: secondaryTextColor(),
-          lineLimit: 2
-        })
-      ], { spacing: 8, align: "center" }),
-      { padding: 12 }
-    );
-  }
-
-  return null;
-}
-
-function onboardingField(label, placeholder, textValue, actionID, inputID, options) {
-  var opts = asObject(options) || {};
-  return card(
-    View.vstack([
-      View.text(label, {
-        style: "caption",
-        color: mutedTextColor(),
-        lineLimit: 1
-      }),
-      SuperIsland.components.inputComposer({
-        id: inputID,
-        placeholder: placeholder,
-        text: textValue,
-        action: actionID,
-        autoFocus: !!opts.autoFocus,
-        minHeight: toNumber(opts.minHeight, 46),
-        chrome: true,
-        padding: 0,
-        spacing: 6,
-        backgroundColor: { r: 1, g: 1, b: 1, a: 0.035 },
-        cornerRadius: 12,
-        showsShortcutHint: false,
-        showsEmojiButton: false
-      }),
-      opts.help
-        ? View.text(opts.help, {
-            style: "footnote",
-            color: secondaryTextColor(),
-            lineLimit: 2
-          })
-        : null
-    ].filter(Boolean), { spacing: 8, align: "leading" }),
-    { padding: 12 }
-  );
-}
-
-function lastFmFormHintsCard() {
-  return card(
-    View.vstack([
-      View.text("Use These Values On Last.fm", {
-        style: "headline",
-        color: "white",
-        lineLimit: 1
-      }),
-      View.text("The API form is confusing. Use these exact values. The desktop auth flow does not need a real callback URL in this extension.", {
-        style: "footnote",
-        color: secondaryTextColor(),
-        lineLimit: 3
-      }),
-      detailRow("Application name", "SuperIsland Last.fm Scrobbler", { lineLimit: 1 }),
-      detailRow("Application description", "Desktop scrobbler extension for SuperIsland on macOS.", { lineLimit: 2 }),
-      detailRow("Callback URL", "Leave blank", { valueColor: warningTextColor(), lineLimit: 1 }),
-      detailRow("Application homepage", "Leave blank", { valueColor: warningTextColor(), lineLimit: 1 })
-    ], { spacing: 8, align: "leading" }),
-    { padding: 12 }
-  );
-}
-
-function bridgeWarningNode() {
-  return !hasMediaBridge()
-    ? card(
-        View.vstack([
-          View.text("Host App Update Needed", {
-            style: "headline",
-            color: warningTextColor(),
-            lineLimit: 1
-          }),
-          View.text("You can finish Last.fm setup now, but live playback capture will only work after the forked SuperIsland app is built and launched.", {
-            style: "footnote",
-            color: warningTextColor(),
-            lineLimit: 3
-          })
-        ], { spacing: 6, align: "leading" }),
-        { padding: 12, backgroundColor: { r: 0.96, g: 0.48, b: 0.15, a: 0.14 } }
-      )
-    : null;
-}
-
-function statusSummaryCard() {
-  return card(
-    View.vstack([
-      View.hstack([
-        View.vstack([
-          View.text("Connect Last.fm", {
-            style: "title",
-            color: "white",
-            lineLimit: 1
-          }),
-          View.text("Create a Last.fm API app, paste the key pair here, then approve access once in your browser.", {
-            style: "footnote",
-            color: secondaryTextColor(),
-            lineLimit: 3
-          })
-        ], { spacing: 4, align: "leading" }),
-        View.spacer(),
-        card(
-          View.text(compactStatusLabel().toUpperCase(), {
-            style: "caption",
-            color: "white",
-            lineLimit: 1
-          }),
-          { padding: 8, backgroundColor: { r: 0.84, g: 0.06, b: 0.03, a: 0.28 }, cornerRadius: 10 }
-        )
-      ], { spacing: 10, align: "top" })
-    ], { spacing: 8, align: "leading" }),
-    { padding: 12, backgroundColor: elevatedPanelColor() }
-  );
-}
 
 function utf8ByteString(input) {
   var text = String(input == null ? "" : input);
@@ -1172,15 +874,20 @@ function loadState() {
   state.ui.trailingIndicatorMode = currentTrackScrobbled() ? "success" : "progress";
   state.ui.trailingIndicatorAnimationKind = "";
   state.ui.trailingIndicatorAnimationUntilEpochMs = 0;
+  persistedStateSignature = JSON.stringify(persistedStatePayload());
 }
 
 function persistState() {
-  storeSet("auth", state.auth);
-  storeSet("queue", state.queue);
-  storeSet("history", state.history);
-  storeSet("currentPlayback", state.currentPlayback);
-  storeSet("lastResult", state.lastResult);
-  storeSet("lastError", state.lastError);
+  var payload = persistedStatePayload();
+  var nextSignature = JSON.stringify(payload);
+  if (nextSignature === persistedStateSignature) return;
+  persistedStateSignature = nextSignature;
+  storeSet("auth", payload.auth);
+  storeSet("queue", payload.queue);
+  storeSet("history", payload.history);
+  storeSet("currentPlayback", payload.currentPlayback);
+  storeSet("lastResult", payload.lastResult);
+  storeSet("lastError", payload.lastError);
 }
 
 function markError(message) {
@@ -1689,93 +1396,6 @@ function currentSourceBadgeLabel() {
   return source;
 }
 
-function onboardingView() {
-  return View.scroll(
-    View.vstack([
-      statusSummaryCard(),
-      card(
-        View.vstack([
-          View.text("Step 1", {
-            style: "caption",
-            color: mutedTextColor(),
-            lineLimit: 1
-          }),
-          View.text("Open Last.fm and create or find your API app.", {
-            style: "headline",
-            color: "white",
-            lineLimit: 2
-          }),
-          View.hstack([
-            chipButton("Create app", "openApiCreate", { icon: "plus.square.fill", fullWidth: true, style: "caption", padding: 7 }),
-            chipButton("Manage keys", "openApiAccounts", { icon: "key.fill", fullWidth: true, style: "caption", padding: 7 }),
-            chipButton("Auth docs", "openDesktopAuthDocs", { icon: "book.closed.fill", fullWidth: true, style: "caption", padding: 7 })
-          ], { spacing: 8, distribution: "fillEqually", align: "center" })
-        ], { spacing: 8, align: "leading" }),
-        { padding: 12 }
-      ),
-      lastFmFormHintsCard(),
-      onboardingField(
-        "Step 2 · API key",
-        "Paste Last.fm API key and press Enter",
-        draftApiKey(),
-        "setApiKey",
-        "lastfm-api-key",
-        {
-          autoFocus: true,
-          help: "Copy the API key from your Last.fm API account page."
-        }
-      ),
-      onboardingField(
-        "Step 3 · API secret",
-        "Paste Last.fm API secret and press Enter",
-        draftApiSecret(),
-        "setApiSecret",
-        "lastfm-api-secret",
-        {
-          autoFocus: false,
-          help: "Copy the shared secret that appears next to the API key."
-        }
-      ),
-      card(
-        View.vstack([
-          View.text("Step 4", {
-            style: "caption",
-            color: mutedTextColor(),
-            lineLimit: 1
-          }),
-          View.text("Save locally, then approve the scrobbler in Last.fm.", {
-            style: "headline",
-            color: "white",
-            lineLimit: 2
-          }),
-          View.hstack([
-            chipButton("Save credentials", "saveCredentials", {
-              icon: "square.and.arrow.down.fill",
-              fullWidth: true
-            }),
-            chipButton(onboardingReady() ? "Connect to Last.fm" : "Connect after saving", "auth", {
-              icon: "link.circle.fill",
-              fullWidth: true,
-              fillColor: onboardingReady() ? { r: 0.84, g: 0.06, b: 0.03, a: 0.92 } : { r: 1, g: 1, b: 1, a: 0.08 }
-            })
-          ], { spacing: 8, distribution: "fillEqually", align: "center" }),
-          state.lastResult
-            ? View.text(state.lastResult, {
-                style: "footnote",
-                color: secondaryTextColor(),
-                lineLimit: 2
-              })
-            : null
-        ].filter(Boolean), { spacing: 8, align: "leading" }),
-        { padding: 12, backgroundColor: elevatedPanelColor() }
-      ),
-      bridgeWarningNode(),
-      feedbackCard()
-    ].filter(Boolean), { spacing: 12, align: "leading" }),
-    { axes: "vertical", showsIndicators: false }
-  );
-}
-
 function compactView() {
   var idleBadge = !state.lastSnapshot || currentSourceLabel() === "No active track";
   return View.hstack([
@@ -1860,8 +1480,6 @@ function fullExpandedView() {
     );
   }
 
-  // Settings stay in SuperIsland Settings > Extensions > Last.fm Scrobbler.
-  // settingsCard()
   return scrobblerPlayerCard("full");
 }
 
@@ -1874,7 +1492,6 @@ async function tick() {
   state.lastSnapshot = snapshot;
 
   if (!effectiveEnabled()) {
-    persistState();
     return;
   }
 
@@ -1885,7 +1502,6 @@ async function tick() {
   }
 
   await flushQueue(false);
-  persistState();
 }
 
 function startPolling() {
