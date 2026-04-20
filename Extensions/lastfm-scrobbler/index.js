@@ -1577,6 +1577,32 @@ function currentSourceBadgeLabel() {
   return source;
 }
 
+function mediaBridgeStatusView() {
+  return View.frame(
+    View.vstack([
+      lastFmBadgeNode(18, "warning"),
+      View.text("Last.fm connected", {
+        style: "title",
+        color: "white",
+        lineLimit: 1
+      }),
+      View.text(connectionLabel(), {
+        style: "footnote",
+        color: secondaryTextColor(),
+        lineLimit: 1,
+        multilineTextAlignment: "center"
+      }),
+      View.text("Playback data is temporarily unavailable in this app session. Relaunch SuperIsland to restore the media bridge.", {
+        style: "footnote",
+        color: warningTextColor(),
+        lineLimit: 3,
+        multilineTextAlignment: "center"
+      })
+    ], { spacing: 7, align: "center" }),
+    { maxWidth: 9999, alignment: "center" }
+  );
+}
+
 function authRequiredCompactIcon() {
   return View.icon("rectangle.portrait.and.arrow.right", {
     size: 13,
@@ -1586,21 +1612,25 @@ function authRequiredCompactIcon() {
 
 function compactView() {
   var idleBadge = !state.lastSnapshot || currentSourceLabel() === "No active track";
+  if (idleBadge) {
+    return View.hstack([
+      lastFmIconNode(18, 5),
+      View.frame((!credentialsConfigured() || !authConnected()) ? authRequiredCompactIcon() : lastFmIconNode(12, 4), {
+        width: 16,
+        height: 16,
+        alignment: "trailing"
+      })
+    ], { spacing: 8, align: "center" });
+  }
+
   return View.hstack([
     lastFmIconNode(18, 5),
-    View.text(compactStatusLabel().toUpperCase(), { style: "caption", color: "white" }),
-    idleBadge
-      ? View.frame((!credentialsConfigured() || !authConnected()) ? authRequiredCompactIcon() : lastFmIconNode(12, 4), {
-          width: 16,
-          height: 16,
-          alignment: "trailing"
-        })
-      : View.text(authConnected() ? currentSourceBadgeLabel() : "Last.fm", {
-          style: "footnote",
-          color: { r: 1, g: 1, b: 1, a: 0.55 },
-          lineLimit: 1
-        })
-  ], { spacing: 7, align: "center" });
+    View.text(authConnected() ? currentSourceBadgeLabel() : "Last.fm", {
+      style: "footnote",
+      color: { r: 1, g: 1, b: 1, a: 0.7 },
+      lineLimit: 1
+    })
+  ], { spacing: 8, align: "center" });
 }
 
 function minimalCompactLeadingView() {
@@ -1654,6 +1684,9 @@ function expandedView() {
   if (!credentialsConfigured() || !authConnected()) {
     return setupStatusCard();
   }
+  if (!hasMediaBridge()) {
+    return mediaBridgeStatusView();
+  }
 
   return scrobblerPlayerCard("compact");
 }
@@ -1664,18 +1697,7 @@ function fullExpandedView() {
   }
 
   if (!hasMediaBridge()) {
-    return card(
-      View.vstack([
-        View.text("Last.fm connected", { style: "title", color: "white", lineLimit: 1 }),
-        View.text(connectionLabel(), { style: "subtitle", color: secondaryTextColor(), lineLimit: 2 }),
-        View.text("The installed SuperIsland app still needs the media bridge build, so playback cannot be captured yet.", {
-          style: "footnote",
-          color: warningTextColor(),
-          lineLimit: 3
-        })
-      ], { spacing: 6, align: "leading" }),
-      { padding: 12, backgroundColor: elevatedPanelColor() }
-    );
+    return mediaBridgeStatusView();
   }
 
   return scrobblerPlayerCard("full");
