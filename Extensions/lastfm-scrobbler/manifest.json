@@ -1,0 +1,25 @@
+{
+  "id": "superisland.lastfm-scrobbler",
+  "name": "Last.fm Scrobbler",
+  "version": "0.1.0",
+  "minAppVersion": "1.0.2",
+  "main": "index.js",
+  "author": {
+    "name": "Jonathan Perez"
+  },
+  "description": "Scrobble the track currently playing on your Mac to Last.fm from SuperIsland.",
+  "icon": "icon.svg",
+  "license": "MIT",
+  "categories": ["music", "social", "productivity"],
+  "permissions": ["storage", "network", "notifications", "media"],
+  "capabilities": {
+    "compact": true,
+    "expanded": true,
+    "fullExpanded": true,
+    "minimalCompact": true,
+    "backgroundRefresh": true,
+    "settings": true
+  },
+  "refreshInterval": 1.0,
+  "activationTriggers": ["manual", "timer"]
+}

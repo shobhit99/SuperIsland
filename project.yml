@@ -65,7 +65,7 @@ targets:
               --outfile="${WA_PROVIDER}/bundle.cjs" 2>&1 && echo "esbuild: done" || echo "esbuild: failed (will use index.mjs)"
           fi
 
-          for ext in ai-usage pomodoro whatsapp-web agents-status linear-mentions; do
+          for ext in ai-usage pomodoro whatsapp-web agents-status linear-mentions lastfm-scrobbler; do
             SRC="${SRCROOT}/Extensions/${ext}"
             if [ -d "$SRC" ]; then
               rsync -a --delete \

@@ -63,6 +63,7 @@ struct SettingsField: Decodable, Identifiable {
     let type: String
     let key: String
     let label: String
+    let action: String?
 
     let min: Double?
     let max: Double?
@@ -76,6 +77,7 @@ struct SettingsField: Decodable, Identifiable {
         case type
         case key
         case label
+        case action
         case min
         case max
         case step
@@ -266,6 +268,13 @@ struct ExtensionSettingsRenderer: View {
                 }
             }
             .pickerStyle(.menu)
+
+        case "button":
+            Button(field.label) {
+                let actionID = field.action?.isEmpty == false ? field.action! : field.key
+                ExtensionManager.shared.handleAction(extensionID: extensionID, actionID: actionID)
+            }
+            .buttonStyle(.bordered)
 
         case "text", "color":
             VStack(alignment: .leading, spacing: 4) {

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ExtensionRendererView: View {
     let extensionID: String
@@ -16,13 +17,26 @@ struct ExtensionRendererView: View {
                 .frame(
                     maxWidth: .infinity,
                     maxHeight: displayMode == .fullExpanded ? .infinity : nil,
-                    alignment: .topLeading
+                    alignment: containerAlignment
                 )
             } else {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)
             }
+        }
+    }
+
+    private var containerAlignment: Alignment {
+        switch displayMode {
+        case .minimalLeading:
+            return .leading
+        case .minimalTrailing:
+            return .trailing
+        case .fullExpanded:
+            return .topLeading
+        default:
+            return .leading
         }
     }
 
@@ -73,7 +87,13 @@ struct ViewNodeRenderer: View {
                 .foregroundStyle(color.swiftUI)
 
         case .image(let urlString, let width, let height, let cornerRadius):
-            if let url = URL(string: urlString) {
+            if let image = inlineImage(from: urlString) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: width, height: height)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            } else if let url = URL(string: urlString) {
                 AsyncImage(url: url) { image in
                     image
                         .resizable()
@@ -129,8 +149,17 @@ struct ViewNodeRenderer: View {
             }
 
         case .progress(let value, let total, let color):
-            ProgressView(value: value, total: total)
-                .tint(color.swiftUI)
+            ZStack {
+                Capsule()
+                    .fill(Color.white.opacity(0.14))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 6)
+
+                ProgressView(value: value, total: total)
+                    .progressViewStyle(.linear)
+                    .tint(color.swiftUI)
+            }
+            .frame(maxWidth: .infinity, minHeight: 6)
 
         case .circularProgress(let value, let total, let lineWidth, let color):
             ExtensionCircularProgressNode(
@@ -277,6 +306,28 @@ struct ViewNodeRenderer: View {
         default: return .center
         }
     }
+
+    private func inlineImage(from urlString: String) -> NSImage? {
+        guard urlString.hasPrefix("data:image/") else { return nil }
+        guard let commaIndex = urlString.firstIndex(of: ",") else { return nil }
+
+        let metadata = String(urlString[..<commaIndex])
+        let payload = String(urlString[urlString.index(after: commaIndex)...])
+
+        if metadata.contains(";base64"),
+           let data = Data(base64Encoded: payload, options: .ignoreUnknownCharacters),
+           let image = NSImage(data: data) {
+            return image
+        }
+
+        guard let decoded = payload.removingPercentEncoding,
+              let data = decoded.data(using: .utf8),
+              let image = NSImage(data: data) else {
+            return nil
+        }
+
+        return image
+    }
 }
 
 private struct ExtensionMarkdownTextNode: View {
@@ -367,14 +418,25 @@ private struct ExtensionToggleNode: View {
     }
 
     var body: some View {
-        Toggle(label, isOn: Binding(
-            get: { localValue },
-            set: { newValue in
-                localValue = newValue
-                manager.handleAction(extensionID: extensionID, actionID: actionID, value: newValue)
-            }
-        ))
-        .toggleStyle(.switch)
+        HStack(spacing: 12) {
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(1)
+
+            Spacer(minLength: 12)
+
+            Toggle("", isOn: Binding(
+                get: { localValue },
+                set: { newValue in
+                    localValue = newValue
+                    manager.handleAction(extensionID: extensionID, actionID: actionID, value: newValue)
+                }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .tint(.white.opacity(0.9))
+        }
     }
 }
 

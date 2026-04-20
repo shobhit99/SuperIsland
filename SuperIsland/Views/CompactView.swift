@@ -107,7 +107,10 @@ struct CompactView: View {
             MinimalCompactLayout(
                 centerGapWidth: appState.compactMinimalCenterGapWidth,
                 leading: AnyView(ExtensionRendererView(extensionID: extensionID, displayMode: .minimalLeading)),
-                trailing: AnyView(ExtensionRendererView(extensionID: extensionID, displayMode: .minimalTrailing))
+                trailing: AnyView(ExtensionRendererView(extensionID: extensionID, displayMode: .minimalTrailing)),
+                horizontalPadding: 12,
+                leadingSlotPadding: 8,
+                trailingSlotPadding: 8
             )
         default:
             standardCompactContent
@@ -140,22 +143,41 @@ private struct MinimalCompactLayout: View {
     let centerGapWidth: CGFloat
     let leading: AnyView
     let trailing: AnyView
+    let horizontalPadding: CGFloat
+    let leadingSlotPadding: CGFloat
+    let trailingSlotPadding: CGFloat
+
+    init(
+        centerGapWidth: CGFloat,
+        leading: AnyView,
+        trailing: AnyView,
+        horizontalPadding: CGFloat = Constants.compactMinimalHorizontalPadding,
+        leadingSlotPadding: CGFloat = 6,
+        trailingSlotPadding: CGFloat = 6
+    ) {
+        self.centerGapWidth = centerGapWidth
+        self.leading = leading
+        self.trailing = trailing
+        self.horizontalPadding = horizontalPadding
+        self.leadingSlotPadding = leadingSlotPadding
+        self.trailingSlotPadding = trailingSlotPadding
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             leading
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 6)
+                .padding(.leading, leadingSlotPadding)
 
             Color.clear
                 .frame(width: centerGapWidth)
 
             trailing
                 .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.trailing, 6)
+                .padding(.trailing, trailingSlotPadding)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .padding(.horizontal, Constants.compactMinimalHorizontalPadding)
+        .padding(.horizontal, horizontalPadding)
     }
 }
 

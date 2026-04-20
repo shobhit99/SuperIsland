@@ -39,6 +39,10 @@ final class NowPlayingManager: ObservableObject {
     @Published var elapsedTime: TimeInterval = 0
     @Published var playbackRate: Double = 0
     @Published var sourceName: String = "" // "Spotify", "Apple Music", "Chrome", etc.
+    private var currentAlbumArtist: String = ""
+    private var currentArtworkURL: String?
+    private var currentTrackIdentifier: String = ""
+    private var currentTrackIsLocalFile = false
 
     private var handle: UnsafeMutableRawPointer?
     private var registerFunc: MRMediaRemoteRegisterForNowPlayingNotificationsFunction?
@@ -218,6 +222,10 @@ final class NowPlayingManager: ObservableObject {
                 self.mediaRemoteActive = true
                 self.currentChromeTabURL = ""
                 self.currentBundleIdentifier = ""
+                self.currentAlbumArtist = ""
+                self.currentArtworkURL = nil
+                self.currentTrackIdentifier = ""
+                self.currentTrackIsLocalFile = false
                 self.title = newTitle
                 self.artist = info[kMRMediaRemoteNowPlayingInfoArtist] as? String ?? ""
                 self.album = info[kMRMediaRemoteNowPlayingInfoAlbum] as? String ?? ""
@@ -239,6 +247,7 @@ final class NowPlayingManager: ObservableObject {
                 self.updatePlaybackTimer()
             } else {
                 self.mediaRemoteActive = false
+                self.clearCurrentTrack()
             }
         }
     }
@@ -306,14 +315,22 @@ final class NowPlayingManager: ObservableObject {
         let previousElapsedTime = elapsedTime
         let previousPlaybackRate = playbackRate
         let previousPlaybackUpdateDate = lastPlaybackUpdateDate
-        let bundleIdentifier = payload.parentApplicationBundleIdentifier ?? payload.bundleIdentifier ?? ""
+        let incomingBundleIdentifier = payload.parentApplicationBundleIdentifier ?? payload.bundleIdentifier ?? ""
+        let bundleIdentifier = incomingBundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? (diff ? currentBundleIdentifier : "")
+            : incomingBundleIdentifier
         let resolvedTitle = payload.title ?? (diff ? title : "")
         let resolvedArtist = payload.artist ?? (diff ? artist : "")
         let resolvedAlbum = payload.album ?? (diff ? album : "")
+        let resolvedAlbumArtist = payload.albumArtist ?? (diff ? currentAlbumArtist : "")
         let resolvedDuration = payload.duration ?? (diff ? duration : 0)
         let resolvedPlaybackRate = payload.playbackRate ?? (diff ? playbackRate : 1.0)
         let resolvedIsPlaying = payload.playing ?? (diff ? isPlaying : false)
-        let resolvedSourceName = sourceName(forBundleIdentifier: bundleIdentifier)
+        let resolvedSourceName = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? (diff ? sourceName : "Unknown")
+            : sourceName(forBundleIdentifier: bundleIdentifier)
+        let resolvedTrackIdentifier = payload.trackIdentifier ?? (diff ? currentTrackIdentifier : "")
+        let resolvedIsLocalFile = payload.isLocalFile ?? (diff ? currentTrackIsLocalFile : false)
         let previousTrackSignature = trackSignature(
             title: title,
             artist: artist,
@@ -358,8 +375,16 @@ final class NowPlayingManager: ObservableObject {
             resolvedElapsedTime = 0
         }
 
+        if resolvedTitle.isEmpty, bundleIdentifier.isEmpty {
+            clearCurrentTrack()
+            return
+        }
+
         mediaRemoteActive = !resolvedTitle.isEmpty || !bundleIdentifier.isEmpty
         currentBundleIdentifier = bundleIdentifier
+        currentAlbumArtist = resolvedAlbumArtist
+        currentTrackIdentifier = resolvedTrackIdentifier
+        currentTrackIsLocalFile = resolvedIsLocalFile
         lastPlaybackUpdateDate = resolvedUpdateDate
         title = resolvedTitle
         artist = resolvedArtist
@@ -394,8 +419,10 @@ final class NowPlayingManager: ObservableObject {
            let artworkData = Data(base64Encoded: artworkDataString.trimmingCharacters(in: .whitespacesAndNewlines)),
            let image = NSImage(data: artworkData) {
             albumArt = image
+            currentArtworkURL = nil
         } else if resolvedTitle.isEmpty {
             albumArt = nil
+            currentArtworkURL = nil
         }
 
         if !resolvedTitle.isEmpty, resolvedTitle != lastDetectedTitle {
@@ -519,7 +546,11 @@ final class NowPlayingManager: ObservableObject {
                 set trackAlbum to album of current track
                 set trackDuration to duration of current track
                 set trackPosition to player position
-                return trackName & "||" & trackArtist & "||" & trackAlbum & "||" & (trackDuration / 1000) & "||" & trackPosition
+                set trackURL to ""
+                try
+                    set trackURL to spotify url of current track
+                end try
+                return trackName & "||" & trackArtist & "||" & trackAlbum & "||" & (trackDuration / 1000) & "||" & trackPosition & "||" & trackURL
             else
                 return "NOT_PLAYING"
             end if
@@ -531,11 +562,16 @@ final class NowPlayingManager: ObservableObject {
         }
 
         let parts = result.components(separatedBy: "||")
-        guard parts.count >= 5 else { return false }
+        guard parts.count >= 6 else { return false }
 
         let trackTitle = parts[0]
+        let trackURL = parts[5]
         DispatchQueue.main.async { [weak self] in
             self?.currentChromeTabURL = ""
+            self?.currentBundleIdentifier = "com.spotify.client"
+            self?.currentAlbumArtist = parts[1]
+            self?.currentTrackIdentifier = trackURL
+            self?.currentTrackIsLocalFile = trackURL.isEmpty
             self?.title = trackTitle
             self?.artist = parts[1]
             self?.album = parts[2]
@@ -561,6 +597,10 @@ final class NowPlayingManager: ObservableObject {
         """
         guard let urlString = runAppleScript(script), let url = URL(string: urlString) else { return }
 
+        DispatchQueue.main.async { [weak self] in
+            self?.currentArtworkURL = urlString
+        }
+
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data, let image = NSImage(data: data) else { return }
             DispatchQueue.main.async {
@@ -582,7 +622,19 @@ final class NowPlayingManager: ObservableObject {
                 set trackAlbum to album of current track
                 set trackDuration to duration of current track
                 set trackPosition to player position
-                return trackName & "||" & trackArtist & "||" & trackAlbum & "||" & trackDuration & "||" & trackPosition
+                set trackAlbumArtist to ""
+                try
+                    set trackAlbumArtist to album artist of current track
+                end try
+                set trackPersistentID to ""
+                try
+                    set trackPersistentID to persistent ID of current track
+                end try
+                set trackLocation to ""
+                try
+                    set trackLocation to POSIX path of (location of current track)
+                end try
+                return trackName & "||" & trackArtist & "||" & trackAlbum & "||" & trackDuration & "||" & trackPosition & "||" & trackAlbumArtist & "||" & trackPersistentID & "||" & trackLocation
             else
                 return "NOT_PLAYING"
             end if
@@ -594,11 +646,18 @@ final class NowPlayingManager: ObservableObject {
         }
 
         let parts = result.components(separatedBy: "||")
-        guard parts.count >= 5 else { return false }
+        guard parts.count >= 8 else { return false }
 
         let trackTitle = parts[0]
+        let persistentID = parts[6]
+        let locationPath = parts[7]
         DispatchQueue.main.async { [weak self] in
             self?.currentChromeTabURL = ""
+            self?.currentBundleIdentifier = "com.apple.Music"
+            self?.currentAlbumArtist = parts[5]
+            self?.currentTrackIdentifier = persistentID
+            self?.currentTrackIsLocalFile = !locationPath.isEmpty
+            self?.currentArtworkURL = nil
             self?.title = trackTitle
             self?.artist = parts[1]
             self?.album = parts[2]
@@ -692,6 +751,11 @@ final class NowPlayingManager: ObservableObject {
         let chromeSourceName = chromeSourceName(for: url)
 
         DispatchQueue.main.async { [weak self] in
+            self?.currentBundleIdentifier = "com.google.Chrome"
+            self?.currentAlbumArtist = ""
+            self?.currentTrackIdentifier = url
+            self?.currentTrackIsLocalFile = url.hasPrefix("file://")
+            self?.currentArtworkURL = artworkURL.isEmpty ? nil : artworkURL
             self?.title = parsed.title
             self?.artist = parsed.artist
             self?.album = ""
@@ -1059,6 +1123,33 @@ final class NowPlayingManager: ObservableObject {
         }
     }
 
+    func normalizedSnapshot() -> [String: Any]? {
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedSource = sourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedBundleIdentifier = currentBundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedArtworkURL = normalizedArtworkSnapshotURL()
+
+        guard !normalizedTitle.isEmpty else { return nil }
+        guard !normalizedArtist.isEmpty else { return nil }
+
+        return [
+            "sourceApp": normalizedSource.isEmpty ? (normalizedBundleIdentifier.isEmpty ? "Unknown" : sourceName(forBundleIdentifier: normalizedBundleIdentifier)) : normalizedSource,
+            "bundleIdentifier": normalizedBundleIdentifier.isEmpty ? NSNull() : normalizedBundleIdentifier,
+            "title": normalizedTitle,
+            "artist": normalizedArtist,
+            "album": album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? NSNull() : album,
+            "albumArtist": currentAlbumArtist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? NSNull() : currentAlbumArtist,
+            "durationSeconds": duration > 0 ? duration : NSNull(),
+            "elapsedSeconds": elapsedTime >= 0 ? elapsedTime : NSNull(),
+            "artworkURL": resolvedArtworkURL ?? NSNull(),
+            "playbackState": isPlaying ? "playing" : "paused",
+            "trackIdentifier": currentTrackIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? NSNull() : currentTrackIdentifier,
+            "isLocalFile": currentTrackIsLocalFile,
+            "capturedAtEpochMs": Int(Date().timeIntervalSince1970 * 1000)
+        ]
+    }
+
     var sourceAppIcon: NSImage? {
         guard !currentBundleIdentifier.isEmpty,
               let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: currentBundleIdentifier) else {
@@ -1084,6 +1175,21 @@ final class NowPlayingManager: ObservableObject {
         return min(normalizedElapsedTime, duration)
     }
 
+    private func normalizedArtworkSnapshotURL() -> String? {
+        if let currentArtworkURL, currentArtworkURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return currentArtworkURL
+        }
+
+        guard let albumArt,
+              let tiffData = albumArt.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            return nil
+        }
+
+        return "data:image/png;base64," + pngData.base64EncodedString()
+    }
+
     private func isChromeBundleIdentifier(_ bundleIdentifier: String) -> Bool {
         bundleIdentifier == "com.google.Chrome" || bundleIdentifier == "com.google.Chrome.canary"
     }
@@ -1102,6 +1208,29 @@ final class NowPlayingManager: ObservableObject {
 
     nonisolated private func isApplicationInstalled(bundleIdentifier: String) -> Bool {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil
+    }
+
+    private func clearCurrentTrack() {
+        title = ""
+        artist = ""
+        album = ""
+        albumArt = nil
+        albumArtColor = nil
+        isPlaying = false
+        duration = 0
+        elapsedTime = 0
+        playbackRate = 0
+        sourceName = ""
+        currentAlbumArtist = ""
+        currentArtworkURL = nil
+        currentTrackIdentifier = ""
+        currentTrackIsLocalFile = false
+        currentChromeTabURL = ""
+        lastPausedChromeTabURL = ""
+        currentBundleIdentifier = ""
+        lastDetectedTitle = ""
+        playbackTimer?.invalidate()
+        playbackTimer = nil
     }
 
     deinit {
@@ -1132,12 +1261,15 @@ private struct NowPlayingPayload: Decodable {
     let title: String?
     let artist: String?
     let album: String?
+    let albumArtist: String?
     let duration: Double?
     let elapsedTime: Double?
     let artworkData: String?
     let timestamp: String?
     let playbackRate: Double?
     let playing: Bool?
+    let trackIdentifier: String?
+    let isLocalFile: Bool?
     let parentApplicationBundleIdentifier: String?
     let bundleIdentifier: String?
 }

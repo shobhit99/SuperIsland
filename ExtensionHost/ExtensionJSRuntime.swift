@@ -411,6 +411,21 @@ final class ExtensionJSRuntime {
             return JSValue(object: AIUsageProvider.snapshot(), in: self.context)
         }
 
+        let getNowPlaying: @convention(block) () -> JSValue? = { [weak self] in
+            guard let self else { return nil }
+            guard self.manifest.permissions.contains("media") else {
+                return JSValue(nullIn: self.context)
+            }
+            guard Thread.isMainThread else {
+                return JSValue(nullIn: self.context)
+            }
+
+            let payload = MainActor.assumeIsolated {
+                NowPlayingManager.shared.normalizedSnapshot()
+            }
+            return JSValue(object: payload ?? NSNull(), in: self.context)
+        }
+
         let getLatestNotification: @convention(block) () -> JSValue? = { [weak self] in
             guard let self else { return nil }
             guard self.manifest.permissions.contains("notifications") else {
@@ -532,6 +547,7 @@ final class ExtensionJSRuntime {
         }
 
         system.setObject(getAIUsage, forKeyedSubscript: "getAIUsage" as NSString)
+        system.setObject(getNowPlaying, forKeyedSubscript: "getNowPlaying" as NSString)
         system.setObject(getLatestNotification, forKeyedSubscript: "getLatestNotification" as NSString)
         system.setObject(getRecentNotifications, forKeyedSubscript: "getRecentNotifications" as NSString)
         system.setObject(getWhatsAppWeb, forKeyedSubscript: "getWhatsAppWeb" as NSString)
