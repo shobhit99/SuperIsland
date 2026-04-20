@@ -308,22 +308,6 @@ function detailRow(label, value, options) {
   ], { spacing: 3, align: "leading" });
 }
 
-function detailInlineStat(label, value, options) {
-  var opts = asObject(options) || {};
-  return View.hstack([
-    View.text(label, {
-      style: "caption",
-      color: mutedTextColor(),
-      lineLimit: 1
-    }),
-    View.text(value, {
-      style: opts.valueStyle || "footnote",
-      color: opts.valueColor || "white",
-      lineLimit: opts.lineLimit || 1
-    })
-  ], { spacing: 4, align: "center" });
-}
-
 function formatClock(seconds) {
   var safe = Math.max(0, Math.floor(toNumber(seconds, 0)));
   var minutes = Math.floor(safe / 60);
@@ -490,24 +474,7 @@ function scrobblerPlayerCard(size) {
             lineLimit: 1
           })
         ], { spacing: 8, align: "center" }),
-        View.progress(playbackProgress, { total: 1, color: barColor }),
-        duration > 0
-          ? View.hstack([
-              detailInlineStat("Current", formatClock(session ? session.activePlaySeconds : 0), {
-                valueStyle: "footnote",
-                lineLimit: 1
-              }),
-              detailInlineStat("Duration", formatClock(duration), {
-                valueStyle: "footnote",
-                lineLimit: 1
-              }),
-              detailInlineStat("Checkpoint", isFinite(session.thresholdSeconds) ? formatClock(session.thresholdSeconds) : "N/A", {
-                valueStyle: "footnote",
-                valueColor: summary.tone === "success" ? successTextColor() : "white",
-                lineLimit: 1
-              })
-            ], { spacing: 12, distribution: "fillEqually", align: "center" })
-          : null
+        View.progress(playbackProgress, { total: 1, color: barColor })
       ].filter(Boolean), { spacing: 8, align: "leading" })
     ], { spacing: 10, align: "leading" });
 }
