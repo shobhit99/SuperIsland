@@ -507,6 +507,7 @@ final class NowPlayingManager: ObservableObject {
     }
 
     nonisolated private func fetchSpotifyViaAppleScript() -> Bool {
+        guard isApplicationInstalled(bundleIdentifier: "com.spotify.client") else { return false }
         let script = """
         tell application "System Events"
             if not (exists process "Spotify") then return "NOT_RUNNING"
@@ -552,6 +553,7 @@ final class NowPlayingManager: ObservableObject {
     }
 
     nonisolated private func fetchSpotifyArtwork() {
+        guard isApplicationInstalled(bundleIdentifier: "com.spotify.client") else { return }
         let script = """
         tell application "Spotify"
             return artwork url of current track
@@ -568,6 +570,7 @@ final class NowPlayingManager: ObservableObject {
     }
 
     nonisolated private func fetchMusicViaAppleScript() -> Bool {
+        guard isApplicationInstalled(bundleIdentifier: "com.apple.Music") else { return false }
         let script = """
         tell application "System Events"
             if not (exists process "Music") then return "NOT_RUNNING"
@@ -1095,6 +1098,10 @@ final class NowPlayingManager: ObservableObject {
         NSWorkspace.shared.runningApplications.contains { app in
             app.localizedName == name && !app.isTerminated
         }
+    }
+
+    nonisolated private func isApplicationInstalled(bundleIdentifier: String) -> Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil
     }
 
     deinit {
