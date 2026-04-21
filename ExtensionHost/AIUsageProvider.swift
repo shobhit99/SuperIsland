@@ -13,6 +13,13 @@ enum AIUsageProvider {
     private static let cacheLock = NSLock()
     private static var isRefreshing = false
 
+    // Process-lifetime cache for the Claude OAuth access token read from the
+    // login keychain. Without this, every 5-minute snapshot refresh hits
+    // SecItemCopyMatching and — for apps not on the keychain item's ACL —
+    // macOS prompts for the login password on every read.
+    private static let claudeTokenLock = NSLock()
+    private static var cachedClaudeKeychainToken: String?
+
     private enum ClaudeKeychainAccessState: String {
         case unknown
         case allowed
@@ -505,8 +512,18 @@ enum AIUsageProvider {
         }
 
         #if os(macOS)
+        claudeTokenLock.lock()
+        let cachedKeychain = cachedClaudeKeychainToken
+        claudeTokenLock.unlock()
+        if let cachedKeychain {
+            return cachedKeychain
+        }
+
         if claudeKeychainAccessState() != .denied,
            let token = loadClaudeAccessTokenFromKeychain() {
+            claudeTokenLock.lock()
+            cachedClaudeKeychainToken = token
+            claudeTokenLock.unlock()
             return token
         }
         #endif
