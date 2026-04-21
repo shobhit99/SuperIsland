@@ -1,23 +1,23 @@
 {
-  "id": "superisland.whatsapp-web",
-  "name": "WhatsApp Web",
+  "id": "superisland.linear-mentions",
+  "name": "Linear Mentions",
   "version": "1.0.0",
   "minAppVersion": "1.0.0",
   "main": "index.js",
   "author": {
     "name": "SuperIsland"
   },
-  "description": "Pairs with WhatsApp Web via QR and routes incoming messages to the SuperIsland notification feed.",
+  "description": "Watches Linear issue mentions and comment mentions, surfaces them in Super Island, and lets you reply inline.",
   "icon": "icon.svg",
   "license": "MIT",
-  "categories": ["communication", "productivity"],
-  "permissions": ["network", "notifications"],
+  "categories": ["productivity", "communication"],
+  "permissions": ["network", "notifications", "storage"],
   "capabilities": {
     "compact": true,
     "expanded": true,
     "fullExpanded": true,
     "minimalCompact": true,
-    "backgroundRefresh": false,
+    "backgroundRefresh": true,
     "settings": true,
     "notificationFeed": true
   },

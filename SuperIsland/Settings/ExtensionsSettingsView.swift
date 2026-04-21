@@ -133,7 +133,9 @@ struct ExtensionsSettingsView: View {
                         if let author = manifest.author?.name {
                             metadataRow(label: "Author", value: author)
                         }
-                        metadataRow(label: "Refresh", value: "\(String(format: "%.1f", manifest.refreshInterval))s")
+                        if manifest.id != linearMentionsExtensionID {
+                            metadataRow(label: "Refresh", value: "\(String(format: "%.1f", manifest.refreshInterval))s")
+                        }
                         metadataRow(label: "Triggers", value: manifest.activationTriggers.joined(separator: ", "))
 
                         if !manifest.permissions.isEmpty {

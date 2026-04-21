@@ -1,0 +1,40 @@
+{
+  "sections": [
+    {
+      "title": "Behavior",
+      "fields": [
+        {
+          "type": "toggle",
+          "key": "autoReveal",
+          "label": "Auto reveal Super Island when a new mention arrives",
+          "default": true
+        },
+        {
+          "type": "toggle",
+          "key": "systemNotification",
+          "label": "Also show macOS system notifications",
+          "default": false
+        }
+      ]
+    },
+    {
+      "title": "Polling",
+      "fields": [
+        {
+          "type": "picker",
+          "key": "pollIntervalSeconds",
+          "label": "Check Linear every",
+          "default": "300",
+          "options": [
+            { "value": "300", "label": "5 minutes" },
+            { "value": "600", "label": "10 minutes" },
+            { "value": "900", "label": "15 minutes" },
+            { "value": "1800", "label": "30 minutes" },
+            { "value": "2700", "label": "45 minutes" },
+            { "value": "3600", "label": "1 hour" }
+          ]
+        }
+      ]
+    }
+  ]
+}

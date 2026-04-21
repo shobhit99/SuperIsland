@@ -5,7 +5,7 @@
   "minAppVersion": "1.0.0",
   "main": "index.js",
   "author": {
-    "name": "Workview"
+    "name": "SuperIsland"
   },
   "description": "Focus timer with compact countdown and quick controls.",
   "icon": "icon.svg",
