@@ -548,9 +548,94 @@ function lastFmStatusPill(summary) {
   });
 }
 
+function overflowTrackText(value, style, color) {
+  return View.marqueeText(value, {
+    style: style,
+    color: color
+  });
+}
+
+function encodeLastFmPathSegment(value) {
+  return encodeURIComponent(trimString(value));
+}
+
+function lastFmArtistURL() {
+  var artist = trimString(state.currentPlayback && state.currentPlayback.artist) || trimString(state.lastSnapshot && state.lastSnapshot.artist);
+  if (!artist) return "";
+  return "https://www.last.fm/music/" + encodeLastFmPathSegment(artist);
+}
+
+function lastFmAlbumURL() {
+  var artist = trimString(state.currentPlayback && state.currentPlayback.artist) || trimString(state.lastSnapshot && state.lastSnapshot.artist);
+  var album = trimString(state.currentPlayback && state.currentPlayback.album) || trimString(state.lastSnapshot && state.lastSnapshot.album);
+  if (!artist || !album) return "";
+  return "https://www.last.fm/music/" + encodeLastFmPathSegment(artist) + "/" + encodeLastFmPathSegment(album);
+}
+
+function lastFmTrackURL() {
+  var artist = trimString(state.currentPlayback && state.currentPlayback.artist) || trimString(state.lastSnapshot && state.lastSnapshot.artist);
+  var track = trimString(state.currentPlayback && state.currentPlayback.title) || trimString(state.lastSnapshot && state.lastSnapshot.title);
+  if (!artist || !track) return "";
+  return "https://www.last.fm/music/" + encodeLastFmPathSegment(artist) + "/_/" + encodeLastFmPathSegment(track);
+}
+
+function lastFmProfileURL() {
+  var username = trimString(state.auth && state.auth.username);
+  if (!username) return "";
+  return "https://www.last.fm/user/" + encodeLastFmPathSegment(username);
+}
+
+function linkedTextLine(textNode, actionID) {
+  if (!actionID) return textNode;
+  return View.button(
+    View.frame(textNode, { maxWidth: 9999, alignment: "leading" }),
+    actionID
+  );
+}
+
+function linkedNode(node, actionID) {
+  if (!actionID) return node;
+  return View.button(node, actionID);
+}
+
+function profileStatusButton(summary, session) {
+  if (!authConnected()) return lastFmStatusPill(summary);
+  var label = summary.label === "Scrobbled"
+    ? "Sent • Open profile"
+    : (summary.label === "Tracking"
+      ? ("Tracking • " + summaryHeadline(summary, session))
+      : (summary.label + " • " + summaryHeadline(summary, session)));
+
+  return View.button(
+    View.cornerRadius(
+      View.background(
+        View.padding(
+          View.hstack([
+            lastFmBadgeNode(10, summary.tone),
+            View.text(label, {
+              style: "caption",
+              color: summary.tone === "success" ? successTextColor() : "white",
+              lineLimit: 1
+            }),
+            View.spacer(),
+            View.icon("arrow.up.forward.square", {
+              size: 10,
+              color: summary.tone === "success" ? successTextColor() : secondaryTextColor()
+            })
+          ], { spacing: 6, align: "center" }),
+          { edges: "all", amount: 8 }
+        ),
+        summary.tone === "success" ? subtleGreenFillColor() : elevatedPanelColor()
+      ),
+      10
+    ),
+    "openProfilePage"
+  );
+}
+
 function summaryHeadline(summary, session) {
   if (!session) return "Waiting for playback";
-  if (summary.label === "Scrobbled") return "Sent to Last.fm at " + formatClock(session.scrobbledAtSeconds || session.thresholdSeconds);
+  if (summary.label === "Scrobbled") return "Sent at " + formatClock(session.scrobbledAtSeconds || session.thresholdSeconds);
   if (summary.label === "Paused") return "Paused at " + formatClock(session.activePlaySeconds);
   if (summary.label === "Tracking") return "Scrobbles in " + formatClock(Math.max(0, session.thresholdSeconds - session.activePlaySeconds));
   return summary.detail;
@@ -559,46 +644,64 @@ function summaryHeadline(summary, session) {
 function scrobblerPlayerCard(size) {
   var session = state.currentPlayback;
   var summary = trackStatusSummary(session);
-  var artworkSize = size === "compact" ? 54 : 72;
-  var artworkRadius = size === "compact" ? 14 : 18;
-  var titleLineLimit = size === "compact" ? 1 : 2;
-  var duration = sessionDurationSeconds(session);
+  var artworkSize = size === "compact" ? 94 : 106;
+  var artworkRadius = size === "compact" ? 16 : 18;
   var playbackProgress = playbackProgressValue(session);
   var barColor = summary.tone === "success" ? successTextColor() : accentColor();
+  var albumActionID = lastFmAlbumURL() ? "openAlbumPage" : (lastFmTrackURL() ? "openTrackPage" : "");
+  var albumLine = currentTrackAlbum();
+  var artistLine = currentTrackArtist();
+  var topSection = View.hstack([
+    linkedNode(artworkNode(artworkSize, artworkRadius), albumActionID),
+    View.frame(
+      View.vstack([
+        linkedTextLine(
+          overflowTrackText(currentTrackTitle(), "title", "white"),
+          lastFmTrackURL() ? "openTrackPage" : ""
+        ),
+        albumLine
+          ? linkedTextLine(
+              overflowTrackText(albumLine, "subtitle", secondaryTextColor()),
+              lastFmAlbumURL() ? "openAlbumPage" : ""
+            )
+          : null,
+        artistLine
+          ? linkedTextLine(
+              overflowTrackText(artistLine, "subtitle", secondaryTextColor()),
+              lastFmArtistURL() ? "openArtistPage" : ""
+            )
+          : null,
+        View.hstack([
+          profileStatusButton(summary, session)
+        ], { spacing: 8, align: "center" })
+      ].filter(Boolean), { spacing: 4, align: "leading" }),
+      { maxWidth: 9999, maxHeight: 9999, alignment: "topLeading" }
+    )
+  ], { spacing: 12, align: "top" });
+  var bottomSection = View.padding(
+    View.vstack([
+      View.hstack([
+        View.text(playbackTimelineLabel(session), {
+          style: "headline",
+          color: "white",
+          lineLimit: 1
+        }),
+        View.spacer(),
+        View.text(scrobbleCheckpointLabel(session, summary), {
+          style: "footnote",
+          color: summary.tone === "success" ? successTextColor() : secondaryTextColor(),
+          lineLimit: 1
+        })
+      ], { spacing: 8, align: "center" }),
+      View.progress(playbackProgress, { total: 1, color: barColor })
+    ], { spacing: 8, align: "leading" }),
+    { edges: "bottom", amount: 10 }
+  );
 
   return View.vstack([
-      View.hstack([
-        artworkNode(artworkSize, artworkRadius),
-        View.vstack([
-          View.text(currentTrackTitle(), { style: "title", color: "white", lineLimit: titleLineLimit }),
-          View.text(currentTrackSubtitle(), { style: "subtitle", color: secondaryTextColor(), lineLimit: 2 }),
-          View.hstack([
-            lastFmStatusPill(summary),
-            View.text(summaryHeadline(summary, session), {
-              style: "footnote",
-              color: summary.tone === "success" ? successTextColor() : secondaryTextColor(),
-              lineLimit: 1
-            })
-          ], { spacing: 8, align: "center" })
-        ], { spacing: 4, align: "leading" })
-      ], { spacing: 10, align: "center" }),
-      View.vstack([
-        View.hstack([
-          View.text(playbackTimelineLabel(session), {
-            style: "headline",
-            color: "white",
-            lineLimit: 1
-          }),
-          View.spacer(),
-          View.text(scrobbleCheckpointLabel(session, summary), {
-            style: "footnote",
-            color: summary.tone === "success" ? successTextColor() : secondaryTextColor(),
-            lineLimit: 1
-          })
-        ], { spacing: 8, align: "center" }),
-        View.progress(playbackProgress, { total: 1, color: barColor })
-      ].filter(Boolean), { spacing: 8, align: "leading" })
-    ], { spacing: 10, align: "leading" });
+    View.frame(topSection, { maxWidth: 9999, alignment: "topLeading" }),
+    View.frame(bottomSection, { maxWidth: 9999, alignment: "bottomLeading" })
+  ], { spacing: 8, align: "leading" });
 }
 
 function setupStatusCard() {
@@ -1552,22 +1655,23 @@ function currentTrackTitle() {
   return trimString(snapshot.title) || "Nothing playing";
 }
 
-function currentTrackSubtitle() {
-  if (!hasMediaBridge()) {
-    return "This installed SuperIsland build cannot expose now-playing metadata to extensions yet.";
-  }
+function currentTrackAlbum() {
+  if (!hasMediaBridge()) return "";
   var snapshot = state.lastSnapshot;
-  if (!snapshot) return "Start playback to create a scrobble session.";
-  var artist = trimString(snapshot.artist);
+  if (!snapshot) return "";
   var album = trimString(snapshot.album);
   var title = trimString(snapshot.title).toLowerCase();
   if (album && title && album.toLowerCase() === title) {
-    album = "";
+    return "";
   }
-  if (artist && album) return artist + " • " + album;
-  if (artist) return artist;
-  if (album) return album;
-  return currentSourceLabel();
+  return album;
+}
+
+function currentTrackArtist() {
+  if (!hasMediaBridge()) return "";
+  var snapshot = state.lastSnapshot;
+  if (!snapshot) return "";
+  return trimString(snapshot.artist) || currentSourceLabel();
 }
 
 function currentSourceBadgeLabel() {
@@ -1815,6 +1919,34 @@ SuperIsland.registerModule({
     if (actionID === "openDesktopAuthDocs") {
       SuperIsland.openURL(LASTFM_DESKTOP_AUTH_DOCS_URL);
       setResult("Opened Last.fm desktop auth documentation.");
+      return;
+    }
+    if (actionID === "openAlbumPage") {
+      if (lastFmAlbumURL()) {
+        SuperIsland.openURL(lastFmAlbumURL());
+        setResult("Opened album on Last.fm.");
+      }
+      return;
+    }
+    if (actionID === "openTrackPage") {
+      if (lastFmTrackURL()) {
+        SuperIsland.openURL(lastFmTrackURL());
+        setResult("Opened track on Last.fm.");
+      }
+      return;
+    }
+    if (actionID === "openArtistPage") {
+      if (lastFmArtistURL()) {
+        SuperIsland.openURL(lastFmArtistURL());
+        setResult("Opened artist on Last.fm.");
+      }
+      return;
+    }
+    if (actionID === "openProfilePage") {
+      if (lastFmProfileURL()) {
+        SuperIsland.openURL(lastFmProfileURL());
+        setResult("Opened your Last.fm profile.");
+      }
       return;
     }
     if (actionID === "setApiKey") {

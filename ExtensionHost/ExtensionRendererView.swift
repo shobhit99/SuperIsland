@@ -73,6 +73,13 @@ struct ViewNodeRenderer: View {
                 .truncationMode(.tail)
                 .multilineTextAlignment(.leading)
 
+        case .marqueeText(let value, let style, let color):
+            ExtensionMarqueeTextNode(
+                value: value,
+                style: style,
+                color: color.swiftUI
+            )
+
         case .markdownText(let value, let style, let color, let lineLimit):
             ExtensionMarkdownTextNode(
                 markdown: value,
@@ -359,6 +366,149 @@ private struct ExtensionMarkdownTextNode: View {
         }
 
         return attributed
+    }
+}
+
+private struct ExtensionMarqueeTextNode: View {
+    let value: String
+    let style: TextStyle
+    let color: Color
+
+    @State private var containerWidth: CGFloat = 0
+    @State private var textWidth: CGFloat = 0
+    @State private var isHovered: Bool = false
+    @State private var animate: Bool = false
+
+    private let gap: CGFloat = 32
+    private let fadeWidth: CGFloat = 14
+    private let pointsPerSecond: CGFloat = 34
+
+    private var shouldScroll: Bool {
+        textWidth > containerWidth + 4 && containerWidth > 0
+    }
+
+    private var travelDistance: CGFloat {
+        textWidth + gap
+    }
+
+    private var scrollDuration: Double {
+        Double(max(2.8, travelDistance / pointsPerSecond))
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                if shouldScroll && isHovered {
+                    marqueeContent
+                        .offset(x: animate ? -travelDistance : 0)
+                        .animation(.linear(duration: scrollDuration).repeatForever(autoreverses: false), value: animate)
+                        .mask(fadeMask(width: geometry.size.width))
+                        .clipped()
+                        .onAppear {
+                            startScrollingIfNeeded()
+                        }
+                        .onChange(of: isHovered) { _, _ in
+                            startScrollingIfNeeded()
+                        }
+                } else {
+                    measuredText(lineLimit: 1)
+                        .truncationMode(.tail)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onAppear {
+                containerWidth = geometry.size.width
+            }
+            .onChange(of: value) { _, _ in
+                animate = false
+            }
+            .onChange(of: geometry.size.width) { _, newValue in
+                containerWidth = newValue
+                if !shouldScroll {
+                    animate = false
+                }
+            }
+            .onHover { hovering in
+                isHovered = hovering
+                if hovering {
+                    startScrollingIfNeeded()
+                } else {
+                    animate = false
+                }
+            }
+        }
+        .frame(height: textHeight)
+        .hoverPointer()
+    }
+
+    private var marqueeContent: some View {
+        HStack(spacing: gap) {
+            measuredText(lineLimit: 1)
+                .fixedSize(horizontal: true, vertical: false)
+            measuredText(lineLimit: 1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private func measuredText(lineLimit: Int?) -> some View {
+        Text(value)
+            .font(style.font)
+            .foregroundStyle(color)
+            .lineLimit(lineLimit)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear {
+                            textWidth = proxy.size.width
+                        }
+                        .onChange(of: proxy.size.width) { _, newValue in
+                            textWidth = newValue
+                        }
+                }
+            )
+    }
+
+    private func fadeMask(width: CGFloat) -> some View {
+        let resolvedFade = min(fadeWidth, max(0, width * 0.15))
+        return LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black, location: min(0.08, resolvedFade / max(width, 1))),
+                .init(color: .black, location: max(0.92, 1 - (resolvedFade / max(width, 1)))),
+                .init(color: .clear, location: 1)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    private var textHeight: CGFloat {
+        switch style {
+        case .largeTitle:
+            return 32
+        case .title:
+            return 22
+        case .subtitle:
+            return 18
+        case .headline, .monospaced:
+            return 18
+        case .body:
+            return 17
+        case .caption, .footnote, .monospacedSmall:
+            return 15
+        }
+    }
+
+    private func startScrollingIfNeeded() {
+        guard shouldScroll && isHovered else {
+            animate = false
+            return
+        }
+        animate = false
+        DispatchQueue.main.async {
+            animate = true
+        }
     }
 }
 
