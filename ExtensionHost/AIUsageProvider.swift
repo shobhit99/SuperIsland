@@ -1,12 +1,14 @@
 import Foundation
 #if os(macOS)
 import Security
+import LocalAuthentication
 #endif
 
 enum AIUsageProvider {
     private static let cacheTTL: TimeInterval = 300
     private static let claudeKeychainAccessStateDefaultsKey = "aiUsage.claude.keychainAccessState"
     private static let claudeKeychainAccessDeniedAtDefaultsKey = "aiUsage.claude.keychainAccessDeniedAt"
+    private static let claudeKeychainPromptedDefaultsKey = "aiUsage.claude.keychainPrompted"
     private static let claudeKeychainAccessRetryInterval: TimeInterval = 24 * 60 * 60
     private static var cachedSnapshot: [String: Any]?
     private static var cachedAt: Date?
@@ -519,8 +521,19 @@ enum AIUsageProvider {
             return cachedKeychain
         }
 
-        if claudeKeychainAccessState() != .denied,
-           let token = loadClaudeAccessTokenFromKeychain() {
+        if let token = loadClaudeAccessTokenFromKeychain(allowUserInteraction: false) {
+            claudeTokenLock.lock()
+            cachedClaudeKeychainToken = token
+            claudeTokenLock.unlock()
+            return token
+        }
+
+        guard shouldPromptForClaudeKeychainAccess() else {
+            return nil
+        }
+
+        setClaudeKeychainPrompted()
+        if let token = loadClaudeAccessTokenFromKeychain(allowUserInteraction: true) {
             claudeTokenLock.lock()
             cachedClaudeKeychainToken = token
             claudeTokenLock.unlock()
@@ -614,13 +627,18 @@ enum AIUsageProvider {
     }
 
     #if os(macOS)
-    private static func loadClaudeAccessTokenFromKeychain() -> String? {
-        let query: [String: Any] = [
+    private static func loadClaudeAccessTokenFromKeychain(allowUserInteraction: Bool) -> String? {
+        let context = LAContext()
+        context.interactionNotAllowed = !allowUserInteraction
+        context.localizedReason = "Access Claude Code credentials for AI usage status."
+
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "Claude Code-credentials",
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
+        query[kSecUseAuthenticationContext as String] = context
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -652,6 +670,21 @@ enum AIUsageProvider {
         return nil
     }
     #endif
+
+    private static func shouldPromptForClaudeKeychainAccess() -> Bool {
+        #if os(macOS)
+        guard claudeKeychainAccessState() != .denied else {
+            return false
+        }
+        return !UserDefaults.standard.bool(forKey: claudeKeychainPromptedDefaultsKey)
+        #else
+        return false
+        #endif
+    }
+
+    private static func setClaudeKeychainPrompted() {
+        UserDefaults.standard.set(true, forKey: claudeKeychainPromptedDefaultsKey)
+    }
 
     private static func claudeKeychainAccessState() -> ClaudeKeychainAccessState {
         guard let rawValue = UserDefaults.standard.string(forKey: claudeKeychainAccessStateDefaultsKey),
