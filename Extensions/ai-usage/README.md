@@ -23,6 +23,9 @@ Displays Codex + Claude usage/availability inside SuperIsland with circular indi
     - `~/.claude/.credentials.json` / `~/.claude/credentials.json`
     - macOS keychain service `Claude Code-credentials`
   - last fallback: `~/.claude/stats-cache.json`
+- SuperIsland first checks the Claude keychain item without showing UI. If macOS
+  requires a password prompt, SuperIsland only asks once and then falls back to
+  local Claude usage/cache data unless the keychain item can be read silently.
 
 ## Refresh Behavior
 
