@@ -34,8 +34,8 @@ targets:
         INFOPLIST_FILE: SuperIsland/Info.plist
         CODE_SIGN_ENTITLEMENTS: SuperIsland/SuperIsland.entitlements
         PRODUCT_NAME: SuperIsland
-        MARKETING_VERSION: "1.0.3"
-        CURRENT_PROJECT_VERSION: "4"
+        MARKETING_VERSION: "1.0.4"
+        CURRENT_PROJECT_VERSION: "5"
         COMBINE_HIDPI_IMAGES: true
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
