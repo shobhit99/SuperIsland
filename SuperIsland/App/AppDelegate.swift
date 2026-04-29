@@ -120,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let extensions = ExtensionManager.shared
         extensions.discoverExtensions()
         extensions.activateDiscoveredExtensions()
+        rebuildStatusMenu()
 
         UpdateChecker.shared.checkIfDue()
         observeUpdateState()
@@ -249,6 +250,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = NSImage(systemSymbolName: Constants.menuBarIconName, accessibilityDescription: "SuperIsland")
         }
 
+        item.menu = buildStatusMenu()
+        statusItem = item
+    }
+
+    private func rebuildStatusMenu() {
+        guard let item = statusItem else { return }
+        item.menu = buildStatusMenu()
+    }
+
+    private func buildStatusMenu() -> NSMenu {
         let menu = NSMenu()
         menu.addItem(makeMenuItem(title: "Now Playing", action: #selector(showNowPlaying)))
         menu.addItem(makeMenuItem(title: "Battery", action: #selector(showBattery)))
@@ -256,13 +267,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let modulesItem = NSMenuItem(title: "Modules", action: nil, keyEquivalent: "")
         let modulesMenu = NSMenu()
+
         for module in ModuleType.allCases {
             let moduleItem = NSMenuItem(title: module.displayName, action: #selector(toggleModule(_:)), keyEquivalent: "")
             moduleItem.target = self
             moduleItem.representedObject = module.rawValue
             moduleItem.state = AppState.shared.isModuleEnabled(module) ? .on : .off
+            moduleItem.image = NSImage(systemSymbolName: module.iconName, accessibilityDescription: module.displayName)
             modulesMenu.addItem(moduleItem)
         }
+
+        let extensionModules = ExtensionManager.shared.installed
+            .filter { !$0.capabilities.notificationFeed }
+
+        if !extensionModules.isEmpty {
+            modulesMenu.addItem(.separator())
+            for manifest in extensionModules {
+                let extensionItem = NSMenuItem(title: manifest.name, action: #selector(toggleExtension(_:)), keyEquivalent: "")
+                extensionItem.target = self
+                extensionItem.representedObject = manifest.id
+                extensionItem.state = ExtensionManager.shared.runtimes[manifest.id] != nil ? .on : .off
+                extensionItem.image = menuIconImage(for: manifest)
+                modulesMenu.addItem(extensionItem)
+            }
+        }
+
         modulesItem.submenu = modulesMenu
         menu.addItem(modulesItem)
 
@@ -270,9 +299,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(makeMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(makeMenuItem(title: "Quit SuperIsland", action: #selector(quitApp), keyEquivalent: "q"))
+        return menu
+    }
 
-        item.menu = menu
-        statusItem = item
+    @MainActor
+    private func menuIconImage(for manifest: ExtensionManifest) -> NSImage? {
+        guard let image = manifest.iconImage?.copy() as? NSImage else { return nil }
+        image.isTemplate = false
+        image.size = NSSize(width: 16, height: 16)
+        return image
     }
 
     private func removeStatusItem() {
@@ -327,6 +362,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .teleprompter: AppState.shared.teleprompterEnabled = newState
         }
         sender.state = newState ? .on : .off
+        rebuildStatusMenu()
+    }
+
+    @objc private func toggleExtension(_ sender: NSMenuItem) {
+        guard let extensionID = sender.representedObject as? String else { return }
+
+        if ExtensionManager.shared.runtimes[extensionID] != nil {
+            ExtensionManager.shared.disableByUser(extensionID: extensionID)
+        } else {
+            ExtensionManager.shared.activate(extensionID: extensionID)
+        }
+
+        sender.state = ExtensionManager.shared.runtimes[extensionID] != nil ? .on : .off
+        rebuildStatusMenu()
     }
 
     @objc private func openSettings() {

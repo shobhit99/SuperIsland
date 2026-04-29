@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ExtensionRendererView: View {
     let extensionID: String
@@ -16,13 +17,26 @@ struct ExtensionRendererView: View {
                 .frame(
                     maxWidth: .infinity,
                     maxHeight: displayMode == .fullExpanded ? .infinity : nil,
-                    alignment: .topLeading
+                    alignment: containerAlignment
                 )
             } else {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)
             }
+        }
+    }
+
+    private var containerAlignment: Alignment {
+        switch displayMode {
+        case .minimalLeading:
+            return .leading
+        case .minimalTrailing:
+            return .trailing
+        case .fullExpanded:
+            return .topLeading
+        default:
+            return .leading
         }
     }
 
@@ -59,6 +73,13 @@ struct ViewNodeRenderer: View {
                 .truncationMode(.tail)
                 .multilineTextAlignment(.leading)
 
+        case .marqueeText(let value, let style, let color):
+            ExtensionMarqueeTextNode(
+                value: value,
+                style: style,
+                color: color.swiftUI
+            )
+
         case .markdownText(let value, let style, let color, let lineLimit):
             ExtensionMarkdownTextNode(
                 markdown: value,
@@ -73,7 +94,13 @@ struct ViewNodeRenderer: View {
                 .foregroundStyle(color.swiftUI)
 
         case .image(let urlString, let width, let height, let cornerRadius):
-            if let url = URL(string: urlString) {
+            if let image = inlineImage(from: urlString) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: width, height: height)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            } else if let url = URL(string: urlString) {
                 AsyncImage(url: url) { image in
                     image
                         .resizable()
@@ -129,8 +156,17 @@ struct ViewNodeRenderer: View {
             }
 
         case .progress(let value, let total, let color):
-            ProgressView(value: value, total: total)
-                .tint(color.swiftUI)
+            ZStack {
+                Capsule()
+                    .fill(Color.white.opacity(0.14))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 6)
+
+                ProgressView(value: value, total: total)
+                    .progressViewStyle(.linear)
+                    .tint(color.swiftUI)
+            }
+            .frame(maxWidth: .infinity, minHeight: 6)
 
         case .circularProgress(let value, let total, let lineWidth, let color):
             ExtensionCircularProgressNode(
@@ -277,6 +313,28 @@ struct ViewNodeRenderer: View {
         default: return .center
         }
     }
+
+    private func inlineImage(from urlString: String) -> NSImage? {
+        guard urlString.hasPrefix("data:image/") else { return nil }
+        guard let commaIndex = urlString.firstIndex(of: ",") else { return nil }
+
+        let metadata = String(urlString[..<commaIndex])
+        let payload = String(urlString[urlString.index(after: commaIndex)...])
+
+        if metadata.contains(";base64"),
+           let data = Data(base64Encoded: payload, options: .ignoreUnknownCharacters),
+           let image = NSImage(data: data) {
+            return image
+        }
+
+        guard let decoded = payload.removingPercentEncoding,
+              let data = decoded.data(using: .utf8),
+              let image = NSImage(data: data) else {
+            return nil
+        }
+
+        return image
+    }
 }
 
 private struct ExtensionMarkdownTextNode: View {
@@ -308,6 +366,149 @@ private struct ExtensionMarkdownTextNode: View {
         }
 
         return attributed
+    }
+}
+
+private struct ExtensionMarqueeTextNode: View {
+    let value: String
+    let style: TextStyle
+    let color: Color
+
+    @State private var containerWidth: CGFloat = 0
+    @State private var textWidth: CGFloat = 0
+    @State private var isHovered: Bool = false
+    @State private var animate: Bool = false
+
+    private let gap: CGFloat = 32
+    private let fadeWidth: CGFloat = 14
+    private let pointsPerSecond: CGFloat = 34
+
+    private var shouldScroll: Bool {
+        textWidth > containerWidth + 4 && containerWidth > 0
+    }
+
+    private var travelDistance: CGFloat {
+        textWidth + gap
+    }
+
+    private var scrollDuration: Double {
+        Double(max(2.8, travelDistance / pointsPerSecond))
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                if shouldScroll && isHovered {
+                    marqueeContent
+                        .offset(x: animate ? -travelDistance : 0)
+                        .animation(.linear(duration: scrollDuration).repeatForever(autoreverses: false), value: animate)
+                        .mask(fadeMask(width: geometry.size.width))
+                        .clipped()
+                        .onAppear {
+                            startScrollingIfNeeded()
+                        }
+                        .onChange(of: isHovered) { _, _ in
+                            startScrollingIfNeeded()
+                        }
+                } else {
+                    measuredText(lineLimit: 1)
+                        .truncationMode(.tail)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onAppear {
+                containerWidth = geometry.size.width
+            }
+            .onChange(of: value) { _, _ in
+                animate = false
+            }
+            .onChange(of: geometry.size.width) { _, newValue in
+                containerWidth = newValue
+                if !shouldScroll {
+                    animate = false
+                }
+            }
+            .onHover { hovering in
+                isHovered = hovering
+                if hovering {
+                    startScrollingIfNeeded()
+                } else {
+                    animate = false
+                }
+            }
+        }
+        .frame(height: textHeight)
+        .hoverPointer()
+    }
+
+    private var marqueeContent: some View {
+        HStack(spacing: gap) {
+            measuredText(lineLimit: 1)
+                .fixedSize(horizontal: true, vertical: false)
+            measuredText(lineLimit: 1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private func measuredText(lineLimit: Int?) -> some View {
+        Text(value)
+            .font(style.font)
+            .foregroundStyle(color)
+            .lineLimit(lineLimit)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear {
+                            textWidth = proxy.size.width
+                        }
+                        .onChange(of: proxy.size.width) { _, newValue in
+                            textWidth = newValue
+                        }
+                }
+            )
+    }
+
+    private func fadeMask(width: CGFloat) -> some View {
+        let resolvedFade = min(fadeWidth, max(0, width * 0.15))
+        return LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black, location: min(0.08, resolvedFade / max(width, 1))),
+                .init(color: .black, location: max(0.92, 1 - (resolvedFade / max(width, 1)))),
+                .init(color: .clear, location: 1)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    private var textHeight: CGFloat {
+        switch style {
+        case .largeTitle:
+            return 32
+        case .title:
+            return 22
+        case .subtitle:
+            return 18
+        case .headline, .monospaced:
+            return 18
+        case .body:
+            return 17
+        case .caption, .footnote, .monospacedSmall:
+            return 15
+        }
+    }
+
+    private func startScrollingIfNeeded() {
+        guard shouldScroll && isHovered else {
+            animate = false
+            return
+        }
+        animate = false
+        DispatchQueue.main.async {
+            animate = true
+        }
     }
 }
 
@@ -367,14 +568,25 @@ private struct ExtensionToggleNode: View {
     }
 
     var body: some View {
-        Toggle(label, isOn: Binding(
-            get: { localValue },
-            set: { newValue in
-                localValue = newValue
-                manager.handleAction(extensionID: extensionID, actionID: actionID, value: newValue)
-            }
-        ))
-        .toggleStyle(.switch)
+        HStack(spacing: 12) {
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(1)
+
+            Spacer(minLength: 12)
+
+            Toggle("", isOn: Binding(
+                get: { localValue },
+                set: { newValue in
+                    localValue = newValue
+                    manager.handleAction(extensionID: extensionID, actionID: actionID, value: newValue)
+                }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .tint(.white.opacity(0.9))
+        }
     }
 }
 

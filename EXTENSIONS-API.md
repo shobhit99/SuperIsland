@@ -125,6 +125,7 @@ Supported permissions currently:
 - `notifications` — send macOS notifications and read mirrored notification feed via `SuperIsland.system`
 - `storage` — persist extension-scoped key/value state
 - `network` — make requests through `SuperIsland.http.fetch()`
+- `media` — read the host app's normalized now-playing snapshot through `SuperIsland.system.getNowPlaying()`
 - `usage` — read local Codex and Claude usage summaries through `SuperIsland.system.getAIUsage()`
 
 `capabilities.notificationFeed`:
@@ -411,6 +412,23 @@ declare namespace SuperIsland {
         isBlocked?: boolean;
         source?: "local-summary" | "oauth-api" | "stats-cache" | "unavailable";
       };
+    } | null;
+
+    /** Read the host app's normalized now-playing snapshot (requires "media" permission). */
+    function getNowPlaying(): {
+      sourceApp: string;
+      bundleIdentifier: string | null;
+      title: string;
+      artist: string;
+      album: string | null;
+      albumArtist: string | null;
+      durationSeconds: number | null;
+      elapsedSeconds: number | null;
+      artworkURL: string | null;
+      playbackState: "playing" | "paused";
+      trackIdentifier: string | null;
+      isLocalFile: boolean;
+      capturedAtEpochMs: number;
     } | null;
 
     /** Read latest mirrored notification entry (requires "notifications" permission). */
@@ -1176,7 +1194,7 @@ Extensions define their settings in `settings.json`. The host renders them as na
 }
 ```
 
-Supported field types: `toggle`, `text`, `slider`, `stepper`, `picker`, `color`
+Supported field types: `toggle`, `text`, `slider`, `stepper`, `picker`, `color`, `button`
 
 ```swift
 /// Renders a settings.json schema into a SwiftUI Form.
@@ -1213,6 +1231,10 @@ struct ExtensionSettingsRenderer: View {
                     Text(opt.label).tag(opt.value)
                 }
             }
+        case "button":
+            Button(field.label) {
+                ExtensionManager.shared.handleAction(extensionID: extensionID, actionID: field.action ?? field.key)
+            }
         // ... text, stepper, color
         }
     }
@@ -1231,6 +1253,7 @@ type Permission =
   | "notifications"      // Can send macOS notifications
   | "storage"            // Can persist data across sessions
   | "network"            // Can make HTTP requests
+  | "media"              // Can read normalized now-playing metadata
   | "clipboard"          // Can read/write clipboard
   | "systemInfo"         // Can read CPU, memory, disk info
   | "location"           // Can access location

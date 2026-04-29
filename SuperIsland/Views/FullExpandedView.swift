@@ -513,7 +513,7 @@ private struct FullExpandedTabButton: View {
     private var tabIcon: some View {
         if let iconImage = tab.iconImage {
             Image(nsImage: iconImage)
-                .renderingMode(.template)
+                .renderingMode(.original)
                 .resizable()
                 .scaledToFit()
                 .frame(width: 11, height: 11)

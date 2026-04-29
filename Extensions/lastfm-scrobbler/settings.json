@@ -1,0 +1,107 @@
+{
+  "sections": [
+    {
+      "title": "Last.fm API",
+      "fields": [
+        {
+          "type": "text",
+          "key": "apiKey",
+          "label": "API key (from Last.fm API account)",
+          "default": ""
+        },
+        {
+          "type": "text",
+          "key": "apiSecret",
+          "label": "API secret (from Last.fm API account)",
+          "default": ""
+        }
+      ]
+    },
+    {
+      "title": "Behavior",
+      "fields": [
+        {
+          "type": "toggle",
+          "key": "enabled",
+          "label": "Enable auto scrobbling",
+          "default": true
+        },
+        {
+          "type": "toggle",
+          "key": "sendNowPlaying",
+          "label": "Send now playing updates",
+          "default": true
+        },
+        {
+          "type": "toggle",
+          "key": "notifyErrors",
+          "label": "Show auth and queue errors",
+          "default": true
+        }
+      ]
+    },
+    {
+      "title": "Sources",
+      "fields": [
+        {
+          "type": "toggle",
+          "key": "allowSpotify",
+          "label": "Spotify desktop",
+          "default": true
+        },
+        {
+          "type": "toggle",
+          "key": "allowAppleMusic",
+          "label": "Apple Music",
+          "default": true
+        },
+        {
+          "type": "toggle",
+          "key": "allowBrowsers",
+          "label": "Browser players",
+          "default": true
+        },
+        {
+          "type": "toggle",
+          "key": "allowOtherApps",
+          "label": "Other system media apps",
+          "default": true
+        }
+      ]
+    },
+    {
+      "title": "Account Actions",
+      "fields": [
+        {
+          "type": "button",
+          "key": "connectLastFm",
+          "label": "Connect Last.fm",
+          "action": "auth",
+          "enabledWhen": "uiCanConnect"
+        },
+        {
+          "type": "button",
+          "key": "retryQueue",
+          "label": "Retry queued scrobbles",
+          "enabledWhen": "uiCanRetryQueue"
+        },
+        {
+          "type": "button",
+          "key": "signOut",
+          "label": "Disconnect Last.fm",
+          "enabledWhen": "uiCanDisconnect"
+        },
+        {
+          "type": "button",
+          "key": "openApiAccounts",
+          "label": "Open Last.fm API keys page"
+        },
+        {
+          "type": "button",
+          "key": "openDesktopAuthDocs",
+          "label": "Open Last.fm desktop auth docs"
+        }
+      ]
+    }
+  ]
+}

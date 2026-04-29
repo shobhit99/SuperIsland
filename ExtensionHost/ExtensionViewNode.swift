@@ -57,6 +57,7 @@ enum ColorValue: Equatable {
 enum TextStyle: String {
     case largeTitle
     case title
+    case subtitle
     case headline
     case body
     case caption
@@ -70,6 +71,8 @@ enum TextStyle: String {
             return .system(size: 26, weight: .semibold)
         case .title:
             return .system(size: 16, weight: .semibold)
+        case .subtitle:
+            return .system(size: 13, weight: .medium)
         case .headline:
             return .system(size: 14, weight: .semibold)
         case .body:
@@ -94,6 +97,7 @@ indirect enum ViewNode: Equatable {
     case scroll(child: ViewNode, axes: String, showsIndicators: Bool)
 
     case text(String, style: TextStyle, color: ColorValue, lineLimit: Int?)
+    case marqueeText(String, style: TextStyle, color: ColorValue)
     case markdownText(String, style: TextStyle, color: ColorValue, lineLimit: Int?)
     case icon(name: String, size: Double, color: ColorValue)
     case image(url: String, width: Double, height: Double, cornerRadius: Double)
@@ -171,6 +175,14 @@ indirect enum ViewNode: Equatable {
                 style: style,
                 color: parseColor(value.forProperty("color")),
                 lineLimit: propertyInt(value, key: "lineLimit")
+            )
+
+        case "marquee-text":
+            let style = TextStyle(rawValue: value.forProperty("style")?.toString() ?? "body") ?? .body
+            return .marqueeText(
+                value.forProperty("value")?.toString() ?? "",
+                style: style,
+                color: parseColor(value.forProperty("color"))
             )
 
         case "markdown-text":
