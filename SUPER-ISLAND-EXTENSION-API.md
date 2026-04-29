@@ -252,6 +252,58 @@ Notes:
 - Users select their mascot character in **Settings -> General -> Mascot**.
 - Use `View.mascot()` to render the mascot in your extension UI.
 
+### `SuperIsland.constants`
+
+Read-only object exposing the host's layout and sizing values.  Use these
+instead of hard-coding magic numbers so your extension automatically stays
+aligned when the host updates its geometry.
+
+#### `SuperIsland.constants.layout`
+
+All values are in **SwiftUI points** (logical pixels on a 1× display).
+
+| Property | Type | Value | Description |
+|---|---|---|---|
+| `compactWidth` | number | 200 | Compact-pill width on notched MacBooks |
+| `compactHeight` | number | 36 | Compact-pill height on notched MacBooks |
+| `nonNotchCompactWidth` | number | 220 | Compact-pill width on non-notch Macs |
+| `nonNotchCompactHeight` | number | 28 | Compact-pill height on non-notch Macs |
+| `expandedWidth` | number | 408 | Expanded-drawer width |
+| `expandedHeight` | number | 88 | Expanded-drawer height |
+| `fullExpandedWidth` | number | 658 | Full-expanded panel width |
+| `fullExpandedHeight` | number | 180 | Full-expanded panel height |
+| `compactCornerRadius` | number | 18 | Corner radius for compact pill |
+| `expandedCornerRadius` | number | 22 | Corner radius for expanded drawer |
+| `fullExpandedCornerRadius` | number | 40 | Corner radius for full-expanded panel |
+
+Example:
+
+```js
+const { layout } = SuperIsland.constants;
+
+SuperIsland.registerModule({
+  compact() {
+    // Size an image to fill the compact pill exactly
+    return View.image(myURL, { width: layout.compactWidth, height: layout.compactHeight });
+  },
+  expanded() {
+    return View.frame(
+      View.text("Hello"),
+      { maxWidth: layout.expandedWidth, maxHeight: layout.expandedHeight }
+    );
+  }
+});
+```
+
+Notes:
+
+- All values are **read-only** — writing to them has no effect on the host.
+- The host selects `compactWidth/Height` vs `nonNotchCompactWidth/Height` based on
+  whether the Mac has a hardware notch.  Extension layout can reference both and
+  the host will clip or letterbox as needed.
+
+---
+
 ## 6. Global Timer and Console APIs
 
 Available in extension JS context:

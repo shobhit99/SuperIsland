@@ -191,6 +191,7 @@ final class ExtensionJSRuntime {
         injectSystem(into: superIsland)
         injectFeedback(into: superIsland)
         injectMascot(into: superIsland)
+        injectConstants(into: superIsland)
         injectConsole(into: superIsland)
         injectTimers()
         injectViewHelpers()
@@ -611,6 +612,30 @@ final class ExtensionJSRuntime {
         mascot.setObject(list, forKeyedSubscript: "list" as NSString)
         mascot.setObject(setInput, forKeyedSubscript: "setInput" as NSString)
         superIsland.setObject(mascot, forKeyedSubscript: "mascot" as NSString)
+    }
+
+    /// Exposes read-only layout and sizing constants to extensions so that
+    /// content can be sized precisely for each island state without hard-coding
+    /// magic numbers.  Available as `SuperIsland.constants` in JavaScript.
+    private func injectConstants(into superIsland: JSValue) {
+        let constants = JSValue(newObjectIn: context)!
+
+        // Layout dimensions (all values in SwiftUI points)
+        let layout = JSValue(newObjectIn: context)!
+        layout.setObject(Double(Constants.compactSize.width),          forKeyedSubscript: "compactWidth" as NSString)
+        layout.setObject(Double(Constants.compactSize.height),         forKeyedSubscript: "compactHeight" as NSString)
+        layout.setObject(Double(Constants.nonNotchCompactSize.width),  forKeyedSubscript: "nonNotchCompactWidth" as NSString)
+        layout.setObject(Double(Constants.nonNotchCompactSize.height), forKeyedSubscript: "nonNotchCompactHeight" as NSString)
+        layout.setObject(Double(Constants.expandedSize.width),         forKeyedSubscript: "expandedWidth" as NSString)
+        layout.setObject(Double(Constants.expandedSize.height),        forKeyedSubscript: "expandedHeight" as NSString)
+        layout.setObject(Double(Constants.fullExpandedSize.width),     forKeyedSubscript: "fullExpandedWidth" as NSString)
+        layout.setObject(Double(Constants.fullExpandedSize.height),    forKeyedSubscript: "fullExpandedHeight" as NSString)
+        layout.setObject(Double(Constants.compactCornerRadius),        forKeyedSubscript: "compactCornerRadius" as NSString)
+        layout.setObject(Double(Constants.expandedCornerRadius),       forKeyedSubscript: "expandedCornerRadius" as NSString)
+        layout.setObject(Double(Constants.fullExpandedCornerRadius),   forKeyedSubscript: "fullExpandedCornerRadius" as NSString)
+        constants.setObject(layout, forKeyedSubscript: "layout" as NSString)
+
+        superIsland.setObject(constants, forKeyedSubscript: "constants" as NSString)
     }
 
     private func injectConsole(into superIsland: JSValue) {
