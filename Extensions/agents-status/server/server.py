@@ -2162,6 +2162,37 @@ end run
     return _run_osascript(script, [tty], timeout=5.0)
 
 
+def _focus_iterm_session(session):
+    tty = _tty_for_pid(session.get("pid"))
+    if not tty:
+        return _activate_app("iTerm")
+    script = """on run argv
+  set targetTTY to item 1 of argv
+  tell application "iTerm"
+    activate
+    repeat with w in windows
+      repeat with t in tabs of w
+        repeat with s in sessions of t
+          set sessionTTY to ""
+          try
+            set sessionTTY to tty of s
+          end try
+          if sessionTTY is targetTTY or sessionTTY is ("/dev/" & targetTTY) then
+            tell t to select
+            tell s to select
+            set index of w to 1
+            return "focused"
+          end if
+        end repeat
+      end repeat
+    end repeat
+  end tell
+  error "TTY not found: " & targetTTY
+end run
+"""
+    return _run_osascript(script, [tty], timeout=5.0)
+
+
 def _focus_session_terminal(session):
     terminal = (session.get("terminal") or "").strip()
     if not terminal:
@@ -2176,6 +2207,10 @@ def _focus_session_terminal(session):
         ok, detail = _focus_terminal_app_session(session)
         if ok:
             return True, {"ok": True, "terminal": terminal, "method": "terminal-tty"}
+    elif terminal == "iTerm":
+        ok, detail = _focus_iterm_session(session)
+        if ok:
+            return True, {"ok": True, "terminal": terminal, "method": "iterm-tty"}
 
     app_name = TERMINAL_APP_NAMES.get(terminal) or terminal
     if app_name:

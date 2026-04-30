@@ -7,6 +7,8 @@ import Combine
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let linearExtensionID = "superisland.linear-mentions"
     private static let linearOAuthStoreKey = "extensions.\(linearExtensionID).store.oauth"
+    private static let lastFmExtensionID = "superisland.lastfm-scrobbler"
+    private static let lastFmOAuthStoreKey = "extensions.\(lastFmExtensionID).store.oauth"
     private var islandWindowController: IslandWindowController?
     private var onboardingWindowController: OnboardingWindowController?
     private var updateWindowController: UpdateWindowController?
@@ -120,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let extensions = ExtensionManager.shared
         extensions.discoverExtensions()
         extensions.activateDiscoveredExtensions()
+        rebuildStatusMenu()
 
         UpdateChecker.shared.checkIfDue()
         observeUpdateState()
@@ -188,19 +191,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             queryItems[item.name.lowercased()] = item.value ?? ""
         }
 
-        guard queryItems["provider"]?.lowercased() == "linear" else {
+        let provider = queryItems["provider"]?.lowercased() ?? ""
+        let routing: (extensionID: String, storeKey: String, label: String)?
+        switch provider {
+        case "linear":
+            routing = (Self.linearExtensionID, Self.linearOAuthStoreKey, "Linear")
+        case "lastfm":
+            routing = (Self.lastFmExtensionID, Self.lastFmOAuthStoreKey, "Last.fm")
+        default:
+            routing = nil
+        }
+        guard let routing else {
             return
         }
 
         let accessToken = queryItems["access_token"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !accessToken.isEmpty else {
-            ExtensionLogger.shared.log(Self.linearExtensionID, .warning, "Received Linear OAuth callback without access token")
+            ExtensionLogger.shared.log(routing.extensionID, .warning, "Received \(routing.label) OAuth callback without access token")
             return
         }
 
         let expiresIn = Int(queryItems["expires_in"] ?? "") ?? 0
-        let payload: [String: Any] = [
-            "provider": "linear",
+        var payload: [String: Any] = [
+            "provider": provider,
             "accessToken": accessToken,
             "access_token": accessToken,
             "tokenType": queryItems["token_type"] ?? "Bearer",
@@ -212,15 +225,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "callbackURL": url.absoluteString
         ]
 
-        UserDefaults.standard.set(payload as NSDictionary, forKey: Self.linearOAuthStoreKey)
+        if let username = queryItems["username"], !username.isEmpty {
+            payload["username"] = username
+        }
+        if let name = queryItems["name"], !name.isEmpty, payload["username"] == nil {
+            payload["username"] = name
+        }
+
+        if provider == "lastfm" {
+            if let apiKey = queryItems["api_key"], !apiKey.isEmpty {
+                payload["apiKey"] = apiKey
+                payload["api_key"] = apiKey
+            }
+            if let apiSecret = queryItems["api_secret"], !apiSecret.isEmpty {
+                payload["apiSecret"] = apiSecret
+                payload["api_secret"] = apiSecret
+            }
+        }
+
+        UserDefaults.standard.set(payload as NSDictionary, forKey: routing.storeKey)
         UserDefaults.standard.synchronize()
 
         let extensions = ExtensionManager.shared
-        if extensions.runtimes[Self.linearExtensionID] == nil {
-            extensions.activate(extensionID: Self.linearExtensionID)
+        if extensions.runtimes[routing.extensionID] == nil {
+            extensions.activate(extensionID: routing.extensionID)
         }
-        extensions.scheduleImmediateRefresh(extensionID: Self.linearExtensionID)
-        ExtensionLogger.shared.log(Self.linearExtensionID, .info, "Stored Linear OAuth token from callback")
+        extensions.scheduleImmediateRefresh(extensionID: routing.extensionID)
+        ExtensionLogger.shared.log(routing.extensionID, .info, "Stored \(routing.label) OAuth token from callback")
     }
 
     // MARK: - Island Window
@@ -249,6 +280,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = NSImage(systemSymbolName: Constants.menuBarIconName, accessibilityDescription: "SuperIsland")
         }
 
+        item.menu = buildStatusMenu()
+        statusItem = item
+    }
+
+    private func rebuildStatusMenu() {
+        guard let item = statusItem else { return }
+        item.menu = buildStatusMenu()
+    }
+
+    private func buildStatusMenu() -> NSMenu {
         let menu = NSMenu()
         menu.addItem(makeMenuItem(title: "Now Playing", action: #selector(showNowPlaying)))
         menu.addItem(makeMenuItem(title: "Battery", action: #selector(showBattery)))
@@ -256,13 +297,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let modulesItem = NSMenuItem(title: "Modules", action: nil, keyEquivalent: "")
         let modulesMenu = NSMenu()
+
         for module in ModuleType.allCases {
             let moduleItem = NSMenuItem(title: module.displayName, action: #selector(toggleModule(_:)), keyEquivalent: "")
             moduleItem.target = self
             moduleItem.representedObject = module.rawValue
             moduleItem.state = AppState.shared.isModuleEnabled(module) ? .on : .off
+            moduleItem.image = NSImage(systemSymbolName: module.iconName, accessibilityDescription: module.displayName)
             modulesMenu.addItem(moduleItem)
         }
+
+        let extensionModules = ExtensionManager.shared.installed
+            .filter { !$0.capabilities.notificationFeed }
+
+        if !extensionModules.isEmpty {
+            modulesMenu.addItem(.separator())
+            for manifest in extensionModules {
+                let extensionItem = NSMenuItem(title: manifest.name, action: #selector(toggleExtension(_:)), keyEquivalent: "")
+                extensionItem.target = self
+                extensionItem.representedObject = manifest.id
+                extensionItem.state = ExtensionManager.shared.runtimes[manifest.id] != nil ? .on : .off
+                extensionItem.image = menuIconImage(for: manifest)
+                modulesMenu.addItem(extensionItem)
+            }
+        }
+
         modulesItem.submenu = modulesMenu
         menu.addItem(modulesItem)
 
@@ -270,9 +329,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(makeMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(makeMenuItem(title: "Quit SuperIsland", action: #selector(quitApp), keyEquivalent: "q"))
+        return menu
+    }
 
-        item.menu = menu
-        statusItem = item
+    @MainActor
+    private func menuIconImage(for manifest: ExtensionManifest) -> NSImage? {
+        guard let image = manifest.iconImage?.copy() as? NSImage else { return nil }
+        image.isTemplate = false
+        image.size = NSSize(width: 16, height: 16)
+        return image
     }
 
     private func removeStatusItem() {
@@ -327,6 +392,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .teleprompter: AppState.shared.teleprompterEnabled = newState
         }
         sender.state = newState ? .on : .off
+        rebuildStatusMenu()
+    }
+
+    @objc private func toggleExtension(_ sender: NSMenuItem) {
+        guard let extensionID = sender.representedObject as? String else { return }
+
+        if ExtensionManager.shared.runtimes[extensionID] != nil {
+            ExtensionManager.shared.disableByUser(extensionID: extensionID)
+        } else {
+            ExtensionManager.shared.activate(extensionID: extensionID)
+        }
+
+        sender.state = ExtensionManager.shared.runtimes[extensionID] != nil ? .on : .off
+        rebuildStatusMenu()
     }
 
     @objc private func openSettings() {

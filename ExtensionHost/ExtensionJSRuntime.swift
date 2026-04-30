@@ -411,6 +411,21 @@ final class ExtensionJSRuntime {
             return JSValue(object: AIUsageProvider.snapshot(), in: self.context)
         }
 
+        let getNowPlaying: @convention(block) () -> JSValue? = { [weak self] in
+            guard let self else { return nil }
+            guard self.manifest.permissions.contains("media") else {
+                return JSValue(nullIn: self.context)
+            }
+            guard Thread.isMainThread else {
+                return JSValue(nullIn: self.context)
+            }
+
+            let payload = MainActor.assumeIsolated {
+                NowPlayingManager.shared.normalizedSnapshot()
+            }
+            return JSValue(object: payload ?? NSNull(), in: self.context)
+        }
+
         let getLatestNotification: @convention(block) () -> JSValue? = { [weak self] in
             guard let self else { return nil }
             guard self.manifest.permissions.contains("notifications") else {
@@ -532,6 +547,7 @@ final class ExtensionJSRuntime {
         }
 
         system.setObject(getAIUsage, forKeyedSubscript: "getAIUsage" as NSString)
+        system.setObject(getNowPlaying, forKeyedSubscript: "getNowPlaying" as NSString)
         system.setObject(getLatestNotification, forKeyedSubscript: "getLatestNotification" as NSString)
         system.setObject(getRecentNotifications, forKeyedSubscript: "getRecentNotifications" as NSString)
         system.setObject(getWhatsAppWeb, forKeyedSubscript: "getWhatsAppWeb" as NSString)
@@ -675,6 +691,7 @@ final class ExtensionJSRuntime {
               spacer: function(minLength) { return { type: 'spacer', minLength: minLength }; },
               scroll: function(child, opts) { return { type: 'scroll', child: child, axes: (opts && opts.axes) ?? 'vertical', showsIndicators: opts && opts.showsIndicators !== undefined ? !!opts.showsIndicators : true }; },
               text: function(value, opts) { return { type: 'text', value: String(value ?? ''), style: (opts && opts.style) ?? 'body', color: opts && opts.color, lineLimit: opts && opts.lineLimit }; },
+              marqueeText: function(value, opts) { return { type: 'marquee-text', value: String(value ?? ''), style: (opts && opts.style) ?? 'body', color: opts && opts.color }; },
               markdownText: function(value, opts) { return { type: 'markdown-text', value: String(value ?? ''), style: (opts && opts.style) ?? 'body', color: opts && opts.color, lineLimit: opts && opts.lineLimit }; },
               icon: function(name, opts) { return { type: 'icon', name: name, size: (opts && opts.size) ?? 14, color: opts && opts.color }; },
               image: function(url, opts) { return { type: 'image', url: url, width: opts.width, height: opts.height, cornerRadius: opts.cornerRadius }; },

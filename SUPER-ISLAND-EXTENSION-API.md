@@ -197,6 +197,7 @@ Notes:
 ### `SuperIsland.system`
 
 - `getAIUsage()` -> usage object or `null`
+- `getNowPlaying()` -> normalized now playing snapshot or `null`
 - `getLatestNotification()` -> latest mirrored notification object or `null`
 - `getRecentNotifications(limit?)` -> mirrored notifications array (newest first)
 - `getWhatsAppWeb(limit?)` -> WhatsApp Web bridge state + recent parsed messages (requires `"network"`)
@@ -207,8 +208,12 @@ Notes:
 Notes:
 
 - Requires `"usage"` for `getAIUsage`.
+- Requires `"media"` for `getNowPlaying`.
 - Requires `"notifications"` for mirrored notification APIs.
 - Requires `"network"` for WhatsApp Web bridge APIs.
+- `getNowPlaying()` returns:
+  - `{ sourceApp, bundleIdentifier, title, artist, album, albumArtist, durationSeconds, elapsedSeconds, artworkURL, playbackState, trackIdentifier, isLocalFile, capturedAtEpochMs }`
+  - `artworkURL`, `album`, `albumArtist`, and `trackIdentifier` are optional and may be `null`
 - Data source precedence (aligned with CodexBar-style sources):
   - Codex: local summary files, then ChatGPT OAuth usage API (`/backend-api/wham/usage`) via `~/.codex/auth.json` token.
   - Claude: local summary files, then Claude OAuth usage API (`/api/oauth/usage`), then local stats cache fallback.
@@ -356,6 +361,7 @@ Supported field types:
 - `slider`
 - `stepper`
 - `picker`
+- `button`
 - `text`
 - `color`
 
@@ -386,6 +392,7 @@ Field properties (type-dependent):
 - `default`
 - `min`, `max`, `step` (slider/stepper)
 - `options: [{ value, label }]` (picker)
+- `action` (button, optional; defaults to the field `key`)
 
 ## 9. Discovery and Activation (Host Behavior)
 
@@ -407,6 +414,7 @@ Sandbox behavior in current runtime:
 - `eval` and `Function` are removed from global scope.
 - JS runs in isolated JavaScriptCore context.
 - `network` permission is enforced for `SuperIsland.http.fetch`.
+- `media` permission is enforced for `SuperIsland.system.getNowPlaying`.
 - `usage` permission is enforced for `SuperIsland.system.getAIUsage`.
 - `notifications` permission is enforced for `SuperIsland.system.getLatestNotification` and `SuperIsland.system.getRecentNotifications`.
 

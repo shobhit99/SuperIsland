@@ -31,7 +31,7 @@ enum ActiveModule: Equatable, Hashable {
         case .builtIn:
             return nil
         case .extension_(let id):
-            return ExtensionManager.shared.installed.first(where: { $0.id == id })?.templateIconImage
+            return ExtensionManager.shared.installed.first(where: { $0.id == id })?.iconImage
         }
     }
 }

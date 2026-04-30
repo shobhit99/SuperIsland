@@ -40,7 +40,7 @@ Drop your extension folder into `Extensions/` and it will be discovered automati
   "icon": "assets/icon.svg",
   "license": "MIT",
   "categories": ["productivity"],
-  "permissions": ["storage", "network"],
+  "permissions": ["storage", "network", "media"],
   "capabilities": {
     "compact": true,
     "expanded": true,
@@ -58,6 +58,7 @@ Drop your extension folder into `Extensions/` and it will be discovered automati
 |---|---|
 | `storage` | `SuperIsland.store` key-value persistence |
 | `network` | `SuperIsland.http.fetch()` |
+| `media` | `SuperIsland.system.getNowPlaying()` |
 | `notifications` | Send macOS notifications |
 
 **Capabilities**
@@ -154,6 +155,13 @@ SuperIsland.notifications.send({
   body: "Take a break."
 })
 
+// --- System media (requires "media") ---
+
+var snapshot = SuperIsland.system.getNowPlaying()
+if (snapshot) {
+  console.log(snapshot.title, snapshot.artist, snapshot.playbackState)
+}
+
 // --- Island control ---
 
 SuperIsland.island.activate()    // bring the island to the foreground
@@ -245,7 +253,8 @@ SuperIsland.extension.onSettingsChanged(onSettingsChanged);
 | `text` | `key`, `label`, `placeholder`, `default` |
 | `toggle` | `key`, `label`, `default` (bool) |
 | `slider` | `key`, `label`, `min`, `max`, `step`, `default` |
-| `select` | `key`, `label`, `options` (array of `{label, value}`), `default` |
+| `picker` | `key`, `label`, `options` (array of `{label, value}`), `default` |
+| `button` | `key`, `label`, `action` (optional action id, defaults to `key`) |
 
 ---
 

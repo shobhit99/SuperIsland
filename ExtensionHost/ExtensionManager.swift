@@ -26,17 +26,20 @@ final class ExtensionManager: ObservableObject {
     private let fallbackRepoExtensionsDirectory: URL?
 
     var discoveryDirectories: [URL] {
-        var paths: [String: URL] = [:]
+        var orderedPaths: [URL] = []
+        var seen = Set<String>()
         for directory in [
-            bundledExtensionsDirectory,
-            fallbackRepoExtensionsDirectory,
-            localExtensionsDirectory,
+            installedExtensionsDirectory,
             developmentExtensionsDirectory,
-            installedExtensionsDirectory
+            localExtensionsDirectory,
+            fallbackRepoExtensionsDirectory,
+            bundledExtensionsDirectory
         ].compactMap({ $0 }) {
-            paths[directory.path] = directory
+            if seen.insert(directory.path).inserted {
+                orderedPaths.append(directory)
+            }
         }
-        return Array(paths.values)
+        return orderedPaths
     }
 
     var availableModules: [ActiveModule] {
