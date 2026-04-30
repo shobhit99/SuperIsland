@@ -7,6 +7,8 @@ import Combine
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let linearExtensionID = "superisland.linear-mentions"
     private static let linearOAuthStoreKey = "extensions.\(linearExtensionID).store.oauth"
+    private static let lastFmExtensionID = "superisland.lastfm-scrobbler"
+    private static let lastFmOAuthStoreKey = "extensions.\(lastFmExtensionID).store.oauth"
     private var islandWindowController: IslandWindowController?
     private var onboardingWindowController: OnboardingWindowController?
     private var updateWindowController: UpdateWindowController?
@@ -189,19 +191,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             queryItems[item.name.lowercased()] = item.value ?? ""
         }
 
-        guard queryItems["provider"]?.lowercased() == "linear" else {
+        let provider = queryItems["provider"]?.lowercased() ?? ""
+        let routing: (extensionID: String, storeKey: String, label: String)?
+        switch provider {
+        case "linear":
+            routing = (Self.linearExtensionID, Self.linearOAuthStoreKey, "Linear")
+        case "lastfm":
+            routing = (Self.lastFmExtensionID, Self.lastFmOAuthStoreKey, "Last.fm")
+        default:
+            routing = nil
+        }
+        guard let routing else {
             return
         }
 
         let accessToken = queryItems["access_token"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !accessToken.isEmpty else {
-            ExtensionLogger.shared.log(Self.linearExtensionID, .warning, "Received Linear OAuth callback without access token")
+            ExtensionLogger.shared.log(routing.extensionID, .warning, "Received \(routing.label) OAuth callback without access token")
             return
         }
 
         let expiresIn = Int(queryItems["expires_in"] ?? "") ?? 0
-        let payload: [String: Any] = [
-            "provider": "linear",
+        var payload: [String: Any] = [
+            "provider": provider,
             "accessToken": accessToken,
             "access_token": accessToken,
             "tokenType": queryItems["token_type"] ?? "Bearer",
@@ -213,15 +225,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "callbackURL": url.absoluteString
         ]
 
-        UserDefaults.standard.set(payload as NSDictionary, forKey: Self.linearOAuthStoreKey)
+        if let username = queryItems["username"], !username.isEmpty {
+            payload["username"] = username
+        }
+        if let name = queryItems["name"], !name.isEmpty, payload["username"] == nil {
+            payload["username"] = name
+        }
+
+        if provider == "lastfm" {
+            if let apiKey = queryItems["api_key"], !apiKey.isEmpty {
+                payload["apiKey"] = apiKey
+                payload["api_key"] = apiKey
+            }
+            if let apiSecret = queryItems["api_secret"], !apiSecret.isEmpty {
+                payload["apiSecret"] = apiSecret
+                payload["api_secret"] = apiSecret
+            }
+        }
+
+        UserDefaults.standard.set(payload as NSDictionary, forKey: routing.storeKey)
         UserDefaults.standard.synchronize()
 
         let extensions = ExtensionManager.shared
-        if extensions.runtimes[Self.linearExtensionID] == nil {
-            extensions.activate(extensionID: Self.linearExtensionID)
+        if extensions.runtimes[routing.extensionID] == nil {
+            extensions.activate(extensionID: routing.extensionID)
         }
-        extensions.scheduleImmediateRefresh(extensionID: Self.linearExtensionID)
-        ExtensionLogger.shared.log(Self.linearExtensionID, .info, "Stored Linear OAuth token from callback")
+        extensions.scheduleImmediateRefresh(extensionID: routing.extensionID)
+        ExtensionLogger.shared.log(routing.extensionID, .info, "Stored \(routing.label) OAuth token from callback")
     }
 
     // MARK: - Island Window

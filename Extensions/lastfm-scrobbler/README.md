@@ -13,12 +13,11 @@ your Mac to Last.fm.
 ## Setup
 
 1. Open **SuperIsland -> Settings -> Extensions -> Last.fm Scrobbler**.
-2. Paste your Last.fm API key and secret.
-3. Press **Connect Last.fm** in the extension settings.
-4. Approve access in the browser once.
+2. Press **Log In to Last.fm** to launch the SuperCMD-hosted OAuth flow in your browser.
+3. Approve access for SuperIsland once and you'll be redirected back to the app.
 
-The extension does not ship with a shared production API key or secret. Your
-credentials stay in SuperIsland's local extension storage on your Mac.
+No API key or secret entry is required. SuperCMD brokers the Last.fm session
+and the access token is stored locally in SuperIsland's extension storage.
 
 ## Runtime Behavior
 

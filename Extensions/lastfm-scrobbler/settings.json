@@ -1,23 +1,6 @@
 {
   "sections": [
     {
-      "title": "Last.fm API",
-      "fields": [
-        {
-          "type": "text",
-          "key": "apiKey",
-          "label": "API key (from Last.fm API account)",
-          "default": ""
-        },
-        {
-          "type": "text",
-          "key": "apiSecret",
-          "label": "API secret (from Last.fm API account)",
-          "default": ""
-        }
-      ]
-    },
-    {
       "title": "Behavior",
       "fields": [
         {
@@ -90,16 +73,6 @@
           "key": "signOut",
           "label": "Disconnect Last.fm",
           "enabledWhen": "uiCanDisconnect"
-        },
-        {
-          "type": "button",
-          "key": "openApiAccounts",
-          "label": "Open Last.fm API keys page"
-        },
-        {
-          "type": "button",
-          "key": "openDesktopAuthDocs",
-          "label": "Open Last.fm desktop auth docs"
         }
       ]
     }

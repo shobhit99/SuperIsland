@@ -1,16 +1,15 @@
 "use strict";
 
 var LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/";
-var LASTFM_AUTH_ROOT = "https://www.last.fm/api/auth/";
-var LASTFM_API_CREATE_URL = "https://www.last.fm/api/account/create";
-var LASTFM_API_ACCOUNTS_URL = "https://www.last.fm/api/accounts";
-var LASTFM_DESKTOP_AUTH_DOCS_URL = "https://www.last.fm/api/desktopauth";
+var LASTFM_AUTHORIZE_URL = "https://api.supercmd.sh/auth/lastfm/authorize?app=superisland";
+// Last.fm API key for the SuperCMD-registered app. Public per Last.fm's auth flow
+// (Last.fm exposes it in the auth redirect URL). Used as a fallback when the
+// OAuth callback doesn't carry an apiKey of its own.
+var LASTFM_DEFAULT_API_KEY = "d7f31db0cf7868f348a7fb411a91b6c4";
 var MAX_BATCH_SIZE = 50;
 var MAX_QUEUE_SIZE = 200;
 var MAX_HISTORY_SIZE = 300;
-var AUTH_POLL_WINDOW_SECONDS = 600;
 var NOTIFICATION_COOLDOWN_SECONDS = 45;
-var AUTH_POLL_INTERVAL_MS = 3000;
 var BACKOFF_BASE_MS = 5000;
 var BACKOFF_MAX_MS = 300000;
 var ERROR_LOG_DEDUPE_WINDOW_MS = 30000;
@@ -18,10 +17,7 @@ var LASTFM_ICON_DATA_URL = "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.
 
 var state = {
   auth: {
-    sessionKey: "",
     username: "",
-    pendingToken: "",
-    pendingAtEpochMs: 0,
     lastAuthError: "",
     status: "disconnected"
   },
@@ -43,7 +39,6 @@ var persistedStateSignature = "";
 var runtimeState = {
   tickInFlight: false,
   operations: {
-    auth: { inFlight: false, failureCount: 0, nextAllowedAtEpochMs: 0, lastLoggedMessage: "", lastLoggedAtEpochMs: 0 },
     nowPlaying: { inFlight: false, failureCount: 0, nextAllowedAtEpochMs: 0, lastLoggedMessage: "", lastLoggedAtEpochMs: 0 },
     queue: { inFlight: false, failureCount: 0, nextAllowedAtEpochMs: 0, lastLoggedMessage: "", lastLoggedAtEpochMs: 0 }
   }
@@ -116,7 +111,7 @@ function syncSettingFlag(key, nextValue) {
 }
 
 function syncButtonAvailability() {
-  syncSettingFlag("uiCanConnect", credentialsConfigured() && !authConnected() && !state.auth.pendingToken);
+  syncSettingFlag("uiCanConnect", !authConnected());
   syncSettingFlag("uiCanDisconnect", authConnected());
   syncSettingFlag("uiCanRetryQueue", authConnected() && state.queue.length > 0);
 }
@@ -275,32 +270,50 @@ function hasMediaBridge() {
   return !!(SuperIsland.system && typeof SuperIsland.system.getNowPlaying === "function");
 }
 
-function configuredApiKey() {
-  var storedValue = trimString(storeGet("apiKey", ""));
-  if (storedValue) return storedValue;
-  var settingsValue = trimString(SuperIsland.settings.get("apiKey"));
-  if (settingsValue) return settingsValue;
-  return "";
+function readOAuthSession() {
+  var oauth = asObject(storeGet("oauth", null));
+  if (!oauth) return null;
+
+  var accessToken = trimString(oauth.accessToken || oauth.access_token);
+  if (!accessToken) return null;
+
+  var tokenType = trimString(oauth.tokenType || oauth.token_type) || "Bearer";
+  var scope = trimString(oauth.scope);
+  var receivedAt = toNumber(oauth.receivedAt, 0);
+  var expiresIn = toNumber(oauth.expiresIn, toNumber(oauth.expires_in, 0));
+  var username = trimString(oauth.username || oauth.name);
+  // Last.fm signing requires the api_key/api_secret of the app the OAuth flow
+  // ran under. The supercmd callback forwards both alongside the session key.
+  var apiKey = trimString(oauth.apiKey || oauth.api_key) || LASTFM_DEFAULT_API_KEY;
+  var apiSecret = trimString(oauth.apiSecret || oauth.api_secret);
+
+  return {
+    accessToken: accessToken,
+    tokenType: tokenType,
+    scope: scope,
+    receivedAt: receivedAt,
+    expiresIn: expiresIn,
+    username: username,
+    apiKey: apiKey,
+    apiSecret: apiSecret
+  };
 }
 
-function configuredApiSecret() {
-  var storedValue = trimString(storeGet("apiSecret", ""));
-  if (storedValue) return storedValue;
-  var settingsValue = trimString(SuperIsland.settings.get("apiSecret"));
-  if (settingsValue) return settingsValue;
-  return "";
+function oauthSessionState() {
+  var session = readOAuthSession();
+  if (!session) {
+    return { connected: false, expired: false, session: null };
+  }
+  var expiresAt = session.receivedAt > 0 && session.expiresIn > 0
+    ? session.receivedAt + session.expiresIn
+    : 0;
+  var expired = expiresAt > 0 ? nowEpochSeconds() >= expiresAt - 60 : false;
+  return { connected: !expired, expired: expired, session: session };
 }
 
-function draftApiKey() {
-  return trimString(storeGet("apiKeyDraft", "")) || trimString(storeGet("apiKey", "")) || trimString(SuperIsland.settings.get("apiKey"));
-}
-
-function draftApiSecret() {
-  return trimString(storeGet("apiSecretDraft", "")) || trimString(storeGet("apiSecret", "")) || trimString(SuperIsland.settings.get("apiSecret"));
-}
-
-function credentialsConfigured() {
-  return !!configuredApiKey() && !!configuredApiSecret();
+function configuredAccessToken() {
+  var oauth = oauthSessionState();
+  return oauth.connected && oauth.session ? oauth.session.accessToken : "";
 }
 
 function accentColor() {
@@ -707,20 +720,22 @@ function scrobblerPlayerCard(size) {
 function setupStatusCard() {
   var cleanError = trimString(state.lastError.replace("Last.fm now playing failed:", "").replace("Failed to flush scrobble queue:", ""));
   var statusText = cleanError || trimString(state.lastResult);
+  var oauth = oauthSessionState();
+  var pending = state.auth.status === "pending" && !oauth.connected;
   var title = "Connect Last.fm";
-  var subtitle = "Open SuperIsland Settings -> Extensions -> Last.fm Scrobbler to finish setup.";
+  var subtitle = "Tap Connect to log in with Last.fm in your browser.";
 
-  if (state.auth.pendingToken) {
+  if (pending) {
     title = "Approve Last.fm access";
     subtitle = "Finish the approval in your browser. SuperIsland will connect automatically.";
-  } else if (credentialsConfigured()) {
-    title = "Last.fm ready to connect";
-    subtitle = "Your API key and secret are saved. Use Settings to connect your Last.fm account.";
+  } else if (oauth.expired) {
+    title = "Last.fm login expired";
+    subtitle = "Reconnect to keep scrobbling.";
   }
 
   return View.frame(
     View.vstack([
-      lastFmBadgeNode(18, cleanError ? "error" : (state.auth.pendingToken ? "warning" : (credentialsConfigured() ? "success" : "warning"))),
+      lastFmBadgeNode(18, cleanError ? "error" : (pending ? "warning" : (oauth.expired ? "warning" : "success"))),
       View.text(title, {
         style: "title",
         color: "white",
@@ -732,13 +747,14 @@ function setupStatusCard() {
         lineLimit: 2,
         multilineTextAlignment: "center"
       }),
-      View.text("API keys: " + (credentialsConfigured() ? "saved" : "missing"), {
+      chipButton(authConnected() ? "Reconnect Last.fm" : "Connect Last.fm", "auth", {
         style: "caption",
-        color: credentialsConfigured() ? successTextColor() : warningTextColor(),
-        lineLimit: 1
+        icon: "link.badge.plus",
+        textColor: "white",
+        fillColor: subtleRedFillColor()
       }),
       View.text(
-        "Account: " + (state.auth.pendingToken
+        "Account: " + (pending
           ? "waiting for approval"
           : (authConnected() ? ("connected as " + (state.auth.username || "Last.fm user")) : "not connected")),
         {
@@ -986,7 +1002,7 @@ function add32(a, b) {
   return (a + b) & 0xFFFFFFFF;
 }
 
-function signLastFmParams(params) {
+function signLastFmParams(params, apiSecret) {
   var keys = Object.keys(params).sort();
   var payload = "";
   var i;
@@ -994,7 +1010,7 @@ function signLastFmParams(params) {
     if (keys[i] === "format") continue;
     payload += keys[i] + params[keys[i]];
   }
-  return md5(payload + configuredApiSecret());
+  return md5(payload + apiSecret);
 }
 
 async function parseResponse(response) {
@@ -1027,22 +1043,45 @@ async function parseResponse(response) {
 
 async function lastFmRequest(methodName, params, options) {
   var requestOptions = asObject(options) || {};
+  var oauth = oauthSessionState();
+  if (!oauth.connected || !oauth.session) {
+    return {
+      error: oauth.expired ? "session_expired" : "not_authenticated",
+      message: oauth.expired ? "Last.fm login expired. Connect again." : "Connect Last.fm to scrobble."
+    };
+  }
+
+  var apiKey = trimString(oauth.session.apiKey);
+  if (!apiKey) {
+    return {
+      error: "missing_api_key",
+      message: "Last.fm API key missing from session. Reconnect Last.fm."
+    };
+  }
+
+  var signed = requestOptions.signed !== false;
+  var apiSecret = trimString(oauth.session.apiSecret);
+  if (signed && !apiSecret) {
+    return {
+      error: "missing_api_secret",
+      message: "Last.fm signing secret missing from session. Reconnect Last.fm."
+    };
+  }
+
   var bodyParams = {};
   var key;
-
   for (key in params) {
     if (Object.prototype.hasOwnProperty.call(params, key) && params[key] !== null && params[key] !== undefined && params[key] !== "") {
       bodyParams[key] = String(params[key]);
     }
   }
-
   bodyParams.method = methodName;
-  bodyParams.api_key = configuredApiKey();
-  bodyParams.format = "json";
-
-  if (requestOptions.signed !== false) {
-    bodyParams.api_sig = signLastFmParams(bodyParams);
+  bodyParams.api_key = apiKey;
+  if (signed) {
+    bodyParams.sk = oauth.session.accessToken;
+    bodyParams.api_sig = signLastFmParams(bodyParams, apiSecret);
   }
+  bodyParams.format = "json";
 
   var pairs = [];
   var keys = Object.keys(bodyParams);
@@ -1068,7 +1107,20 @@ async function lastFmRequest(methodName, params, options) {
 
   try {
     var response = await SuperIsland.http.fetch(url, fetchOptions);
-    return parseResponse(response);
+    var parsed = await parseResponse(response);
+    var status = response && typeof response.status === "number" ? response.status : 0;
+    if (status >= 200 && status < 300) {
+      return parsed;
+    }
+    if (status > 0) {
+      logWarning("Last.fm " + methodName + " HTTP " + status + " response: " + JSON.stringify(parsed));
+      return {
+        error: "http_" + status,
+        message: trimString(parsed && (parsed.message || parsed.error)) || "Last.fm API returned HTTP " + status + ".",
+        httpStatus: status
+      };
+    }
+    return parsed;
   } catch (error) {
     return {
       error: "network_unavailable",
@@ -1303,57 +1355,19 @@ function queueScrobble(session) {
   setResult("Queued " + session.title + " for scrobbling");
 }
 
-async function startAuthFlow() {
-  saveCredentialDrafts();
-  if (!credentialsConfigured()) {
-    markError("Add your Last.fm API key and secret in the extension UI or Settings before authorizing.");
-    return;
-  }
-  if (!operationReady("auth", true)) return;
-
+function startAuthFlow() {
   clearError();
-  operationState("auth").inFlight = true;
-  var data = await lastFmRequest("auth.getToken", {}, { method: "GET", signed: false });
-  operationState("auth").inFlight = false;
-  if (!data || !data.token) {
-    var authTokenError = safeLastErrorMessage(data, "Unable to request a Last.fm token.");
-    scheduleOperationRetry("auth", backoffDelayMs(operationState("auth").failureCount + 1), false);
-    markOperationError("auth", authTokenError.message);
-    state.auth.status = "error";
-    state.auth.lastAuthError = authTokenError.message;
-    persistState();
-    return;
-  }
-  clearOperationRetry("auth");
-
-  state.auth.pendingToken = data.token;
-  state.auth.pendingAtEpochMs = nowEpochMs();
   state.auth.lastAuthError = "";
   state.auth.status = "pending";
-  setResult("Approve SuperIsland in Last.fm, then wait a few seconds.");
-
-  SuperIsland.openURL(LASTFM_AUTH_ROOT + "?api_key=" + encodeURIComponent(configuredApiKey()) + "&token=" + encodeURIComponent(data.token));
+  setResult("Approve SuperIsland in your browser to finish connecting Last.fm.");
+  SuperIsland.openURL(LASTFM_AUTHORIZE_URL);
 }
 
 function clearAuthState() {
-  state.auth.sessionKey = "";
+  storeSet("oauth", null);
   state.auth.username = "";
-  state.auth.pendingToken = "";
-  state.auth.pendingAtEpochMs = 0;
   state.auth.lastAuthError = "";
   state.auth.status = "disconnected";
-}
-
-function saveCredentialDrafts() {
-  var key = draftApiKey();
-  var secret = draftApiSecret();
-
-  if (key) storeSet("apiKey", key);
-  if (secret) storeSet("apiSecret", secret);
-}
-
-function onboardingReady() {
-  return trimString(draftApiKey()) && trimString(draftApiSecret());
 }
 
 function revealIslandForSetup() {
@@ -1364,56 +1378,44 @@ function revealIslandForSetup() {
   }, 120);
 }
 
-async function pollPendingAuth() {
-  if (!state.auth.pendingToken) return;
-  if (!operationReady("auth", false)) return;
-  var ageSeconds = (nowEpochMs() - toNumber(state.auth.pendingAtEpochMs, 0)) / 1000;
-  if (ageSeconds > AUTH_POLL_WINDOW_SECONDS) {
-    state.auth.pendingToken = "";
-    state.auth.pendingAtEpochMs = 0;
-    state.auth.status = "disconnected";
-    state.auth.lastAuthError = "Authorization timed out. Start the login flow again.";
-    setResult("Last.fm approval timed out. Start the connection again from Settings.");
-    persistState();
-    return;
-  }
-
-  operationState("auth").inFlight = true;
-  var data = await lastFmRequest("auth.getSession", { token: state.auth.pendingToken }, { method: "POST", signed: true });
-  operationState("auth").inFlight = false;
-  if (data && data.session && data.session.key) {
-    state.auth.sessionKey = data.session.key;
-    state.auth.username = trimString(data.session.name);
-    state.auth.pendingToken = "";
-    state.auth.pendingAtEpochMs = 0;
+function syncAuthFromOAuthStore() {
+  var oauth = oauthSessionState();
+  if (oauth.connected && oauth.session) {
+    var nextUsername = oauth.session.username;
+    var wasConnected = state.auth.status === "connected";
+    if (nextUsername && state.auth.username !== nextUsername) {
+      state.auth.username = nextUsername;
+    }
     state.auth.lastAuthError = "";
     state.auth.status = "connected";
-    state.lastResult = "Connected to Last.fm as " + state.auth.username;
-    logInfo(state.lastResult);
-    clearError();
-    clearOperationRetry("auth");
-    persistState();
-    maybeNotify("Last.fm connected", "Signed in as " + state.auth.username + ".");
-    return;
-  }
-
-  if (data && data.message) {
-    var authSessionError = safeLastErrorMessage(data, "Waiting for Last.fm approval.");
-    state.auth.status = "pending";
-    state.auth.lastAuthError = authSessionError.message;
-    scheduleOperationRetry("auth", authSessionError.retryable ? backoffDelayMs(operationState("auth").failureCount + 1) : AUTH_POLL_INTERVAL_MS, !authSessionError.retryable);
-    if (authSessionError.retryable) {
-      logOperationWarning("auth", "Last.fm auth check delayed: " + authSessionError.message);
+    if (!wasConnected) {
+      clearError();
+      var welcome = state.auth.username
+        ? "Connected to Last.fm as " + state.auth.username
+        : "Connected to Last.fm.";
+      state.lastResult = welcome;
+      logInfo(welcome);
+      maybeNotify("Last.fm connected", welcome);
+      persistState();
     }
+    return;
+  }
+
+  if (oauth.expired && state.auth.status !== "disconnected") {
+    state.auth.lastAuthError = "Last.fm login expired. Connect again.";
+    state.auth.status = "disconnected";
     persistState();
     return;
   }
 
-  scheduleOperationRetry("auth", AUTH_POLL_INTERVAL_MS, true);
+  if (state.auth.status === "connected") {
+    state.auth.status = "disconnected";
+    persistState();
+  }
 }
 
 function authConnected() {
-  return !!trimString(state.auth.sessionKey);
+  return oauthSessionState().connected;
 }
 
 async function sendNowPlayingUpdate(session) {
@@ -1425,7 +1427,6 @@ async function sendNowPlayingUpdate(session) {
   if (!operationReady("nowPlaying", false)) return;
 
   var params = {
-    sk: state.auth.sessionKey,
     track: session.title,
     artist: session.artist
   };
@@ -1435,7 +1436,7 @@ async function sendNowPlayingUpdate(session) {
   if (session.durationSeconds > 0) params.duration = Math.floor(session.durationSeconds);
 
   operationState("nowPlaying").inFlight = true;
-  var data = await lastFmRequest("track.updateNowPlaying", params, { method: "POST", signed: true });
+  var data = await lastFmRequest("track.updateNowPlaying", params, { method: "POST" });
   operationState("nowPlaying").inFlight = false;
   if (data && !data.error) {
     session.nowPlayingSent = true;
@@ -1467,7 +1468,7 @@ function mapScrobbleStatuses(data, count) {
 
   if (!data || data.error) return statuses;
   if (!data.scrobbles || !data.scrobbles.scrobble) {
-    for (i = 0; i < count; i += 1) statuses[i] = "ok";
+    logWarning("Last.fm scrobble response missing scrobbles.scrobble; treating as failure. Body: " + JSON.stringify(data));
     return statuses;
   }
 
@@ -1495,7 +1496,7 @@ async function flushQueue(force) {
   if (force) {
     setResult("Retrying " + batch.length + (batch.length === 1 ? " queued scrobble..." : " queued scrobbles..."));
   }
-  var params = { sk: state.auth.sessionKey };
+  var params = {};
   var i;
   for (i = 0; i < batch.length; i += 1) {
     params["timestamp[" + i + "]"] = batch[i].startedAtEpochSeconds;
@@ -1506,7 +1507,7 @@ async function flushQueue(force) {
   }
 
   operationState("queue").inFlight = true;
-  var data = await lastFmRequest("track.scrobble", params, { method: "POST", signed: true });
+  var data = await lastFmRequest("track.scrobble", params, { method: "POST" });
   operationState("queue").inFlight = false;
   if (data && data.error) {
     var queueError = safeLastErrorMessage(data, "Unable to reach Last.fm.");
@@ -1625,8 +1626,7 @@ function updatePlaybackFromSnapshot(snapshot) {
 }
 
 function compactStatusLabel() {
-  if (!credentialsConfigured()) return "keys";
-  if (state.auth.pendingToken) return "auth";
+  if (state.auth.status === "pending" && !authConnected()) return "auth";
   if (!effectiveEnabled()) return "off";
   if (!authConnected()) return "login";
   if (state.currentPlayback && (state.currentPlayback.scrobbled || state.history[state.currentPlayback.id])) return "done";
@@ -1635,9 +1635,9 @@ function compactStatusLabel() {
 }
 
 function connectionLabel() {
-  if (!credentialsConfigured()) return "Missing API keys";
-  if (state.auth.pendingToken) return "Awaiting Last.fm approval";
+  if (state.auth.status === "pending" && !authConnected()) return "Awaiting Last.fm approval";
   if (authConnected()) return "Connected as " + (state.auth.username || "Last.fm user");
+  if (oauthSessionState().expired) return "Last.fm login expired";
   return "Not connected";
 }
 
@@ -1719,7 +1719,7 @@ function compactView() {
   if (idleBadge) {
     return View.hstack([
       lastFmIconNode(18, 5),
-      View.frame((!credentialsConfigured() || !authConnected()) ? authRequiredCompactIcon() : lastFmIconNode(12, 4), {
+      View.frame((!authConnected()) ? authRequiredCompactIcon() : lastFmIconNode(12, 4), {
         width: 16,
         height: 16,
         alignment: "trailing"
@@ -1746,7 +1746,7 @@ function minimalCompactLeadingView() {
 }
 
 function minimalCompactTrailingView() {
-  if (!credentialsConfigured() || !authConnected()) {
+  if (!authConnected()) {
     return View.frame(decorateTrailingIndicator(
       View.animate(authRequiredCompactIcon(), "pulse")
     ), {
@@ -1785,7 +1785,7 @@ function minimalCompactTrailingView() {
 }
 
 function expandedView() {
-  if (!credentialsConfigured() || !authConnected()) {
+  if (!authConnected()) {
     return setupStatusCard();
   }
   if (!hasMediaBridge()) {
@@ -1796,7 +1796,7 @@ function expandedView() {
 }
 
 function fullExpandedView() {
-  if (!credentialsConfigured() || !authConnected()) {
+  if (!authConnected()) {
     return setupStatusCard();
   }
 
@@ -1811,9 +1811,7 @@ async function tick() {
   if (runtimeState.tickInFlight) return;
   runtimeState.tickInFlight = true;
   try {
-  if (state.auth.pendingToken) {
-    await pollPendingAuth();
-  }
+  syncAuthFromOAuthStore();
 
   var snapshot = null;
   try {
@@ -1856,13 +1854,12 @@ function stopPolling() {
 }
 
 function signOut() {
-  if (!authConnected() && !state.auth.pendingToken) {
+  if (!authConnected() && state.auth.status !== "pending") {
     setResult("Last.fm is already disconnected.");
     clearError();
     return;
   }
   clearAuthState();
-  clearOperationRetry("auth");
   clearOperationRetry("nowPlaying");
   clearOperationRetry("queue");
   state.currentPlayback = null;
@@ -1890,7 +1887,7 @@ loadState();
 SuperIsland.registerModule({
   onActivate: function() {
     startPolling();
-    if (!credentialsConfigured() || !authConnected() || state.auth.pendingToken) {
+    if (!authConnected() || state.auth.status === "pending") {
       revealIslandForSetup();
     }
   },
@@ -1906,21 +1903,6 @@ SuperIsland.registerModule({
   },
 
   onAction: function(actionID, value) {
-    if (actionID === "openApiCreate") {
-      SuperIsland.openURL(LASTFM_API_CREATE_URL);
-      setResult("Opened Last.fm API account creation page.");
-      return;
-    }
-    if (actionID === "openApiAccounts") {
-      SuperIsland.openURL(LASTFM_API_ACCOUNTS_URL);
-      setResult("Opened Last.fm API keys page.");
-      return;
-    }
-    if (actionID === "openDesktopAuthDocs") {
-      SuperIsland.openURL(LASTFM_DESKTOP_AUTH_DOCS_URL);
-      setResult("Opened Last.fm desktop auth documentation.");
-      return;
-    }
     if (actionID === "openAlbumPage") {
       if (lastFmAlbumURL()) {
         SuperIsland.openURL(lastFmAlbumURL());
@@ -1949,29 +1931,9 @@ SuperIsland.registerModule({
       }
       return;
     }
-    if (actionID === "setApiKey") {
-      if (value !== undefined && value !== null) {
-        storeSet("apiKeyDraft", trimString(value));
-        setResult("API key captured.");
-      }
-      return;
-    }
-    if (actionID === "setApiSecret") {
-      if (value !== undefined && value !== null) {
-        storeSet("apiSecretDraft", trimString(value));
-        setResult("API secret captured.");
-      }
-      return;
-    }
-    if (actionID === "saveCredentials") {
-      saveCredentialDrafts();
-      setResult(onboardingReady() ? "Credentials saved locally." : "Paste both the API key and secret first.");
-      revealIslandForSetup();
-      return;
-    }
     if (actionID === "auth") {
       revealIslandForSetup();
-      void startAuthFlow();
+      startAuthFlow();
       return;
     }
     if (actionID === "retryQueue") {
