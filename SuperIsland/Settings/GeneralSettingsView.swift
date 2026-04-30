@@ -154,7 +154,7 @@ struct GeneralSettingsView: View {
                     StepperField(
                         value: $appState.expandedAutoDismissDelay,
                         step: 0.5,
-                        range: 0.0...10.0
+                        range: 0.1...10.0
                     ) { "\(String(format: "%.1f", $0))s" }
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)

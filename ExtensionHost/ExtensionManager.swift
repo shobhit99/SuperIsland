@@ -144,6 +144,7 @@ final class ExtensionManager: ObservableObject {
     // MARK: - User-disabled persistence
 
     private static let userDisabledExtensionsKey = "extensions.userDisabled"
+    private static let seenExtensionsKey = "extensions.seenIDs"
 
     private func userDisabledIDs() -> Set<String> {
         let array = UserDefaults.standard.stringArray(forKey: Self.userDisabledExtensionsKey) ?? []
@@ -166,7 +167,43 @@ final class ExtensionManager: ObservableObject {
         deactivate(extensionID: extensionID)
     }
 
+    /// Tracks which extension IDs the host has already seen.
+    ///
+    /// Used to default-disable extensions that ship in a new version. The very
+    /// first run with this code path has no key yet; that case seeds the set
+    /// with whatever is currently installed *without* touching userDisabled, so
+    /// upgrading users keep their existing extensions running. Any extension
+    /// that appears in a later update is genuinely new and lands in
+    /// userDisabled until the user opts in via Settings.
+    private func registerNewlyDiscoveredExtensions() {
+        let installedIDs = Set(installed.map(\.id))
+        let defaults = UserDefaults.standard
+        let storedSeen = defaults.array(forKey: Self.seenExtensionsKey) as? [String]
+
+        guard let storedSeen else {
+            defaults.set(Array(installedIDs), forKey: Self.seenExtensionsKey)
+            return
+        }
+
+        let seen = Set(storedSeen)
+        let newIDs = installedIDs.subtracting(seen)
+        if !newIDs.isEmpty {
+            var disabled = userDisabledIDs()
+            for id in newIDs {
+                disabled.insert(id)
+                ExtensionLogger.shared.log(id, .info, "New extension discovered; defaulting to disabled until user opts in.")
+            }
+            persistUserDisabledIDs(disabled)
+        }
+
+        let updatedSeen = seen.union(installedIDs)
+        if updatedSeen != seen {
+            defaults.set(Array(updatedSeen), forKey: Self.seenExtensionsKey)
+        }
+    }
+
     func activateDiscoveredExtensions() {
+        registerNewlyDiscoveredExtensions()
         let disabled = userDisabledIDs()
         for manifest in installed where !disabled.contains(manifest.id) {
             activate(extensionID: manifest.id)
