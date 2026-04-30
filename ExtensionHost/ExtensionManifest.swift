@@ -66,6 +66,7 @@ struct ExtensionManifest: Codable, Identifiable, Hashable {
     let capabilities: Capabilities
     let refreshInterval: TimeInterval
     let activationTriggers: [String]
+    let defaultEnabled: Bool
 
     var bundleURL: URL
     var settingsURL: URL?
@@ -99,6 +100,7 @@ struct ExtensionManifest: Codable, Identifiable, Hashable {
         case capabilities
         case refreshInterval
         case activationTriggers
+        case defaultEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -118,6 +120,7 @@ struct ExtensionManifest: Codable, Identifiable, Hashable {
         capabilities = try container.decodeIfPresent(Capabilities.self, forKey: .capabilities) ?? Capabilities()
         refreshInterval = max(0.1, try container.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 1.0)
         activationTriggers = try container.decodeIfPresent([String].self, forKey: .activationTriggers) ?? ["manual"]
+        defaultEnabled = try container.decodeIfPresent(Bool.self, forKey: .defaultEnabled) ?? true
 
         bundleURL = URL(fileURLWithPath: "/")
         settingsURL = nil
@@ -140,6 +143,7 @@ struct ExtensionManifest: Codable, Identifiable, Hashable {
         try container.encode(capabilities, forKey: .capabilities)
         try container.encode(refreshInterval, forKey: .refreshInterval)
         try container.encode(activationTriggers, forKey: .activationTriggers)
+        try container.encode(defaultEnabled, forKey: .defaultEnabled)
     }
 
     enum ManifestError: LocalizedError {

@@ -177,11 +177,20 @@ final class ExtensionManager: ObservableObject {
     /// userDisabled until the user opts in via Settings.
     private func registerNewlyDiscoveredExtensions() {
         let installedIDs = Set(installed.map(\.id))
+        let optOutIDs = Set(installed.filter { !$0.defaultEnabled }.map(\.id))
         let defaults = UserDefaults.standard
         let storedSeen = defaults.array(forKey: Self.seenExtensionsKey) as? [String]
 
         guard let storedSeen else {
             defaults.set(Array(installedIDs), forKey: Self.seenExtensionsKey)
+            if !optOutIDs.isEmpty {
+                var disabled = userDisabledIDs()
+                for id in optOutIDs {
+                    disabled.insert(id)
+                    ExtensionLogger.shared.log(id, .info, "First-run seed: defaultEnabled=false, leaving disabled until user opts in.")
+                }
+                persistUserDisabledIDs(disabled)
+            }
             return
         }
 

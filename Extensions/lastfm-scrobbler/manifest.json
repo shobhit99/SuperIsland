@@ -21,5 +21,6 @@
     "settings": true
   },
   "refreshInterval": 1.0,
-  "activationTriggers": ["manual", "timer"]
+  "activationTriggers": ["manual", "timer"],
+  "defaultEnabled": false
 }

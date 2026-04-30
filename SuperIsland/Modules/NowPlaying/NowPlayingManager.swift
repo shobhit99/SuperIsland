@@ -1207,7 +1207,10 @@ final class NowPlayingManager: ObservableObject {
     }
 
     nonisolated private func isApplicationInstalled(bundleIdentifier: String) -> Bool {
-        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: url.path)
     }
 
     private func clearCurrentTrack() {
