@@ -5,23 +5,55 @@ struct HomeScreenView: View {
     @ObservedObject private var appState = AppState.shared
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            if appState.nowPlayingEnabled {
-                HomeNowPlayingPanel()
-                    .frame(width: 228, alignment: .topLeading)
+        let panels = visiblePanels
 
-                homeDivider
+        Group {
+            if panels.isEmpty {
+                HomeEmptyState(
+                    icon: "square.grid.2x2",
+                    title: "No home modules enabled",
+                    subtitle: "Enable modules in Settings to show them here."
+                )
+            } else {
+                HStack(alignment: .top, spacing: 14) {
+                    ForEach(Array(panels.enumerated()), id: \.element.id) { index, panel in
+                        panelView(for: panel)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                        if index < panels.count - 1 {
+                            homeDivider
+                        }
+                    }
+                }
             }
-
-            HomeCalendarPanel()
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-
-            homeDivider
-
-            HomeWeatherPanel()
-                .frame(width: 150, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var visiblePanels: [HomePanel] {
+        var panels: [HomePanel] = []
+        if appState.nowPlayingEnabled {
+            panels.append(.nowPlaying)
+        }
+        if appState.calendarEnabled {
+            panels.append(.calendar)
+        }
+        if appState.weatherEnabled {
+            panels.append(.weather)
+        }
+        return panels
+    }
+
+    @ViewBuilder
+    private func panelView(for panel: HomePanel) -> some View {
+        switch panel {
+        case .nowPlaying:
+            HomeNowPlayingPanel()
+        case .calendar:
+            HomeCalendarPanel()
+        case .weather:
+            HomeWeatherPanel()
+        }
     }
 
     private var homeDivider: some View {
@@ -30,6 +62,14 @@ struct HomeScreenView: View {
             .frame(width: 1)
             .padding(.vertical, 4)
     }
+}
+
+private enum HomePanel: String, Identifiable {
+    case nowPlaying
+    case calendar
+    case weather
+
+    var id: String { rawValue }
 }
 
 private struct HomeNowPlayingPanel: View {
@@ -68,6 +108,7 @@ private struct HomeNowPlayingPanel: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var albumArt: some View {
@@ -208,6 +249,7 @@ private struct HomeCalendarPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var upcomingEvents: [EKEvent] {
@@ -312,6 +354,7 @@ private struct HomeWeatherPanel: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var isWeatherUnavailable: Bool {
