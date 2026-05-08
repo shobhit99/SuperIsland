@@ -7,18 +7,18 @@ struct HomeScreenView: View {
     var body: some View {
         let panels = visiblePanels
 
-        Group {
+        VStack(spacing: 0) {
             if panels.isEmpty {
                 HomeEmptyState(
                     icon: "square.grid.2x2",
                     title: "No home modules enabled",
-                    subtitle: "Enable modules in Settings to show them here."
+                    subtitle: "Enable modules in Settings to show them here.",
+                    fillsAvailableSpace: true
                 )
             } else {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(Array(panels.enumerated()), id: \.element.id) { index, panel in
-                        panelView(for: panel)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        panelSlot(for: panel, visibleCount: panels.count)
 
                         if index < panels.count - 1 {
                             homeDivider
@@ -42,6 +42,47 @@ struct HomeScreenView: View {
             panels.append(.weather)
         }
         return panels
+    }
+
+    private func preferredPanelWidth(for panel: HomePanel, visibleCount: Int) -> CGFloat? {
+        guard visibleCount > 1 else { return nil }
+
+        switch panel {
+        case .nowPlaying:
+            return 360
+        case .calendar:
+            return 520
+        case .weather:
+            return 340
+        }
+    }
+
+    private func resolvedPanelWidth(for panel: HomePanel, visibleCount: Int, availableWidth: CGFloat) -> CGFloat {
+        guard let preferredWidth = preferredPanelWidth(for: panel, visibleCount: visibleCount) else {
+            return availableWidth
+        }
+        return min(preferredWidth, availableWidth)
+    }
+
+    private func panelSlot(for panel: HomePanel, visibleCount: Int) -> some View {
+        GeometryReader { geometry in
+            panelView(for: panel)
+                .frame(
+                    width: resolvedPanelWidth(
+                        for: panel,
+                        visibleCount: visibleCount,
+                        availableWidth: geometry.size.width
+                    ),
+                    height: geometry.size.height,
+                    alignment: .top
+                )
+                .frame(
+                    width: geometry.size.width,
+                    height: geometry.size.height,
+                    alignment: .top
+                )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
@@ -462,6 +503,7 @@ private struct HomeEmptyState: View {
     let icon: String
     let title: String
     let subtitle: String
+    var fillsAvailableSpace = false
 
     var body: some View {
         VStack(spacing: 6) {
@@ -480,7 +522,11 @@ private struct HomeEmptyState: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: fillsAvailableSpace ? .infinity : nil,
+            alignment: .center
+        )
     }
 }
 
