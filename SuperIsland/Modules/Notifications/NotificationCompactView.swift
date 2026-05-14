@@ -6,7 +6,8 @@ struct NotificationCompactView: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if let notif = manager.latestNotification {
+            if let latestNotification = manager.latestNotification {
+                let notif = manager.displayNotification(latestNotification)
                 notificationLeadingView(notif, size: 14)
 
                 Text(headline(for: notif))

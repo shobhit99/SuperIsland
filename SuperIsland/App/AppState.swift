@@ -256,6 +256,9 @@ final class AppState: ObservableObject {
     @AppStorage("module.weather.enabled") var weatherEnabled = true
     @AppStorage("module.weather.temperatureUnit") var temperatureUnit: TemperatureUnit = .celsius
     @AppStorage("module.notifications.enabled") var notificationsEnabled = true
+    @AppStorage("module.notifications.showPreviews") var notificationPreviewsEnabled = true
+    @AppStorage("module.notifications.maxRetainedItems") var notificationMaxRetainedItems: Double = 10
+    @AppStorage("module.notifications.enabledSources") private var notificationEnabledSourcesRaw = NotificationFeedSource.defaultEnabledRawValue
     @AppStorage("module.teleprompter.enabled") var teleprompterEnabled = false
     @AppStorage("module.shelf.autoOpenOnDrop") var shelfAutoOpenOnDrop = true
     @AppStorage("module.shelf.defaultToShelf") var shelfDefaultToShelf = false
@@ -305,6 +308,35 @@ final class AppState: ObservableObject {
             extraBounce: bounceAmount,
             blendDuration: 0.125
         )
+    }
+
+    var enabledNotificationSourceIDs: Set<String> {
+        get {
+            Set(notificationEnabledSourcesRaw
+                .split(separator: ",")
+                .map { String($0) }
+                .filter { !$0.isEmpty })
+        }
+        set {
+            notificationEnabledSourcesRaw = NotificationFeedSource.allCases
+                .map(\.rawValue)
+                .filter { newValue.contains($0) }
+                .joined(separator: ",")
+        }
+    }
+
+    func isNotificationSourceEnabled(_ source: NotificationFeedSource) -> Bool {
+        enabledNotificationSourceIDs.contains(source.rawValue)
+    }
+
+    func setNotificationSource(_ source: NotificationFeedSource, enabled: Bool) {
+        var enabledSources = enabledNotificationSourceIDs
+        if enabled {
+            enabledSources.insert(source.rawValue)
+        } else {
+            enabledSources.remove(source.rawValue)
+        }
+        enabledNotificationSourceIDs = enabledSources
     }
 
     // MARK: - State Transitions

@@ -88,6 +88,10 @@ scripts/            Build & release scripts
 
 Extensions are JavaScript packages that run inside a sandboxed JavaScriptCore context. Read the full guide at [dynamicisland.app/docs](https://dynamicisland.app/docs) or in [EXTENSIONS.md](EXTENSIONS.md).
 
+## Notifications
+
+The Notifications module supports source-level controls for SuperIsland extensions, the bundled WhatsApp integration, and compatible public app broadcasts. See [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
+
 ---
 
 ## Contributing

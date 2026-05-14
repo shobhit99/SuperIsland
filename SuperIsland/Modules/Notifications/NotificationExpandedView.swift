@@ -40,7 +40,7 @@ struct NotificationExpandedView: View {
                 .foregroundColor(.white.opacity(0.5))
 
             if appState.currentState == .fullExpanded {
-                Text("Notifications from apps will appear here")
+                Text("Supported sources will appear here")
                     .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.3))
             }
@@ -93,11 +93,11 @@ struct NotificationExpandedView: View {
 
     private var allNotifications: [IslandNotification] {
         if !manager.recentNotifications.isEmpty {
-            return manager.recentNotifications
+            return manager.recentNotifications.map { manager.displayNotification($0) }
         }
 
         if let latestNotification = manager.latestNotification {
-            return [latestNotification]
+            return [manager.displayNotification(latestNotification)]
         }
 
         return []

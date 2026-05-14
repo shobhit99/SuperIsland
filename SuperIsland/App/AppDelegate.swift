@@ -112,11 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = WeatherManager.shared
         }
         if state.notificationsEnabled {
-            Task { @MainActor in
-                if await PermissionsManager.shared.notificationsGranted() {
-                    _ = NotificationManager.shared
-                }
-            }
+            _ = NotificationManager.shared
         }
 
         let extensions = ExtensionManager.shared

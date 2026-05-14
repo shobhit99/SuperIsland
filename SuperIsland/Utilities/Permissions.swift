@@ -32,7 +32,7 @@ enum PermissionType: CaseIterable {
         case .accessibility: return "Needed for gesture detection and system event monitoring"
         case .screenRecording: return "Lets SuperIsland appear properly in screen recordings"
         case .calendar: return "Show upcoming events in the Super Island"
-        case .notifications: return "Mirror notifications in the Super Island"
+        case .notifications: return "Show supported notification sources in the Super Island"
         case .microphone: return "Audio visualization for the spectrogram"
         case .location: return "Provide weather information for your location"
         case .bluetooth: return "Show connected device notifications"
@@ -183,14 +183,21 @@ final class PermissionsManager {
     func notificationsGranted() async -> Bool {
         await withCheckedContinuation { continuation in
             UNUserNotificationCenter.current().getNotificationSettings { settings in
-                continuation.resume(returning: settings.authorizationStatus == .authorized)
+                switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral:
+                    continuation.resume(returning: true)
+                case .notDetermined, .denied:
+                    continuation.resume(returning: false)
+                @unknown default:
+                    continuation.resume(returning: false)
+                }
             }
         }
     }
 
     func requestNotificationAccess() async -> Bool {
         do {
-            return try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+            return try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
         } catch {
             return false
         }

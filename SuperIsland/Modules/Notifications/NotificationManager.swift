@@ -32,6 +32,37 @@ struct IslandNotification: Identifiable {
     let tapAction: NotificationTapAction?
 }
 
+enum NotificationFeedSource: String, CaseIterable, Identifiable {
+    case extensions
+    case whatsApp
+    case compatibleApps
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .extensions: return "Extension notifications"
+        case .whatsApp: return "WhatsApp"
+        case .compatibleApps: return "Compatible app broadcasts"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .extensions:
+            return "Notifications sent by installed SuperIsland extensions."
+        case .whatsApp:
+            return "Notifications from the bundled WhatsApp integration."
+        case .compatibleApps:
+            return "Notification-like events from apps that publish public distributed notifications."
+        }
+    }
+
+    static var defaultEnabledRawValue: String {
+        allCases.map(\.rawValue).joined(separator: ",")
+    }
+}
+
 @MainActor
 final class NotificationManager: ObservableObject {
     private static let accessibilityPromptedDefaultsKey = "notifications.accessibilityPrompted"
@@ -58,8 +89,8 @@ final class NotificationManager: ObservableObject {
     @Published var latestNotification: IslandNotification?
     @Published var recentNotifications: [IslandNotification] = []
     @Published var hasPermission: Bool = false
+    @Published var authorizationStatus: UNAuthorizationStatus = .notDetermined
 
-    private let maxNotifications = 10
     private let logMonitorQueue = DispatchQueue(label: "superisland.whatsapp-log-monitor", qos: .utility)
     private let deliveredMonitorQueue = DispatchQueue(label: "superisland.notifications-delivered-monitor", qos: .utility)
     private var whatsappLogMonitorTimer: DispatchSourceTimer?
@@ -86,7 +117,8 @@ final class NotificationManager: ObservableObject {
     func checkPermission() {
         UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
-                self?.hasPermission = settings.authorizationStatus == .authorized
+                self?.authorizationStatus = settings.authorizationStatus
+                self?.hasPermission = Self.isAuthorized(settings.authorizationStatus)
             }
         }
     }
@@ -98,10 +130,28 @@ final class NotificationManager: ObservableObject {
                     .requestAuthorization(options: [.alert, .sound, .badge])
                 await MainActor.run {
                     hasPermission = granted
+                    checkPermission()
                 }
             } catch {
-                print("Notification permission error: \(error)")
+                await MainActor.run {
+                    checkPermission()
+                }
             }
+        }
+    }
+
+    func openNotificationSettings() {
+        PermissionsManager.shared.openNotificationsSettings()
+    }
+
+    private static func isAuthorized(_ status: UNAuthorizationStatus) -> Bool {
+        switch status {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .notDetermined, .denied:
+            return false
+        @unknown default:
+            return false
         }
     }
 
@@ -1042,11 +1092,18 @@ final class NotificationManager: ObservableObject {
 
     func addNotification(_ notification: IslandNotification) {
         let normalized = normalizedNotification(notification)
+        guard AppState.shared.notificationsEnabled, isNotificationAllowed(normalized) else { return }
+
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.recentNotifications = self.recentNotifications.map { self.normalizedNotification($0) }
+            self.recentNotifications = self.recentNotifications
+                .map { self.normalizedNotification($0) }
+                .filter { self.isNotificationAllowed($0) }
             if let latest = self.latestNotification {
-                self.latestNotification = self.normalizedNotification(latest)
+                let normalizedLatest = self.normalizedNotification(latest)
+                self.latestNotification = self.isNotificationAllowed(normalizedLatest)
+                    ? normalizedLatest
+                    : nil
             }
 
             guard !self.shouldSuppressIncomingNotification(normalized) else {
@@ -1067,13 +1124,30 @@ final class NotificationManager: ObservableObject {
             self.latestNotification = mergedNotification
             self.recentNotifications.removeAll { $0.sourceID == mergedNotification.sourceID }
             self.recentNotifications.insert(mergedNotification, at: 0)
-            if self.recentNotifications.count > self.maxNotifications {
-                self.recentNotifications.removeLast()
+            if self.recentNotifications.count > self.maxRetainedNotifications {
+                self.recentNotifications.removeLast(self.recentNotifications.count - self.maxRetainedNotifications)
             }
             AppState.shared.showHUD(
                 module: .notifications,
                 autoDismissDelay: Constants.notificationDisplayDuration
             )
+        }
+    }
+
+    func applyFeedPreferences() {
+        recentNotifications = recentNotifications
+            .map { normalizedNotification($0) }
+            .filter { isNotificationAllowed($0) }
+        if let latestNotification {
+            let normalizedLatest = normalizedNotification(latestNotification)
+            self.latestNotification = isNotificationAllowed(normalizedLatest)
+                ? normalizedLatest
+                : recentNotifications.first
+        } else {
+            latestNotification = recentNotifications.first
+        }
+        if recentNotifications.count > maxRetainedNotifications {
+            recentNotifications.removeLast(recentNotifications.count - maxRetainedNotifications)
         }
     }
 
@@ -1137,6 +1211,45 @@ final class NotificationManager: ObservableObject {
             value: tapAction.payload,
             presentation: tapAction.presentation,
             returnModule: .builtIn(.notifications)
+        )
+    }
+
+    private var maxRetainedNotifications: Int {
+        min(50, max(1, Int(AppState.shared.notificationMaxRetainedItems.rounded())))
+    }
+
+    private func isNotificationAllowed(_ notification: IslandNotification) -> Bool {
+        AppState.shared.isNotificationSourceEnabled(feedSource(for: notification))
+    }
+
+    private func feedSource(for notification: IslandNotification) -> NotificationFeedSource {
+        if isWhatsAppNotification(notification) {
+            return .whatsApp
+        }
+
+        if notification.sourceID.hasPrefix("extension:") || notification.tapAction != nil {
+            return .extensions
+        }
+
+        return .compatibleApps
+    }
+
+    func displayNotification(_ notification: IslandNotification) -> IslandNotification {
+        guard !AppState.shared.notificationPreviewsEnabled else { return notification }
+
+        return IslandNotification(
+            sourceID: notification.sourceID,
+            appName: notification.appName,
+            bundleIdentifier: notification.bundleIdentifier,
+            appIcon: notification.appIcon,
+            appIconURL: notification.appIconURL,
+            title: notification.appName,
+            body: "Preview hidden",
+            senderName: nil,
+            previewText: nil,
+            avatarURL: nil,
+            timestamp: notification.timestamp,
+            tapAction: notification.tapAction
         )
     }
 
