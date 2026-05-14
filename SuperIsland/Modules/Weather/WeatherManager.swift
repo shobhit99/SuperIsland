@@ -32,14 +32,14 @@ final class WeatherManager: NSObject, ObservableObject {
 
     private let locationManager = CLLocationManager()
     private var lastFetchTime: Date?
-    private var refreshTimer: Timer?
+    private var refreshToken: ModuleRefreshToken?
 
     override private init() {
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyKilometer
         requestLocationAndFetch()
-        startRefreshTimer()
+        registerRefresh()
     }
 
     // MARK: - Location
@@ -228,17 +228,25 @@ final class WeatherManager: NSObject, ObservableObject {
 
     // MARK: - Refresh
 
-    private func startRefreshTimer() {
-        refreshTimer = Timer.scheduledTimer(
-            withTimeInterval: Constants.weatherRefreshInterval,
-            repeats: true
-        ) { [weak self] _ in
-            self?.requestLocationAndFetch()
+    private func registerRefresh() {
+        Task { @MainActor [weak self] in
+            self?.refreshToken = ModuleRefreshScheduler.shared.register(
+                id: "weather.refresh",
+                name: "Weather refresh",
+                module: .builtIn(.weather),
+                policy: .visibleOnly(Constants.weatherRefreshInterval, tolerance: 300),
+                enabled: { AppState.shared.weatherEnabled }
+            ) { [weak self] in
+                self?.requestLocationAndFetch()
+            }
         }
     }
 
     deinit {
-        refreshTimer?.invalidate()
+        let token = refreshToken
+        Task { @MainActor in
+            ModuleRefreshScheduler.shared.unregister(token)
+        }
     }
 }
 

@@ -37,8 +37,8 @@ final class BatteryManager: ObservableObject {
 
     private var runLoopSource: CFRunLoopSource?
     private var hasLoadedInitialSnapshot = false
-    private var historyTimer: Timer?
-    private var consumerPollTimer: Timer?
+    private var historyRefreshToken: ModuleRefreshToken?
+    private var consumerRefreshToken: ModuleRefreshToken?
     private let historySampleInterval: TimeInterval = 300
     private let maxHistorySamples = 72
 
@@ -68,22 +68,30 @@ final class BatteryManager: ObservableObject {
         appendHistorySample(force: true)
         refreshTopBatteryConsumers()
 
-        historyTimer?.invalidate()
-        historyTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.appendHistorySample(force: false)
-            }
+        historyRefreshToken = ModuleRefreshScheduler.shared.register(
+            id: "battery.history",
+            name: "Battery history sample",
+            module: .builtIn(.battery),
+            policy: .interval(historySampleInterval, tolerance: 60),
+            enabled: { AppState.shared.batteryEnabled }
+        ) { [weak self] in
+            self?.appendHistorySample(force: false)
         }
 
-        consumerPollTimer?.invalidate()
-        consumerPollTimer = Timer.scheduledTimer(withTimeInterval: 90, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.refreshTopBatteryConsumers()
-            }
+        consumerRefreshToken = ModuleRefreshScheduler.shared.register(
+            id: "battery.consumers",
+            name: "Battery consumer scan",
+            module: .builtIn(.battery),
+            policy: .visibleOnly(180, tolerance: 45),
+            enabled: { AppState.shared.batteryEnabled }
+        ) { [weak self] in
+            self?.refreshTopBatteryConsumers()
         }
     }
 
     func updateBatteryInfo() {
+        let wasPluggedIn = isPluggedIn
+
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [Any],
               let first = sources.first,
@@ -111,6 +119,10 @@ final class BatteryManager: ObservableObject {
         if let source = info[kIOPSPowerSourceStateKey] as? String {
             isPluggedIn = source == kIOPSACPowerValue
             powerSource = isPluggedIn ? "Power Adapter" : "Battery"
+
+            if hasLoadedInitialSnapshot, wasPluggedIn, !isPluggedIn {
+                EnergySuggestionPresenter.shared.suggestLowPower(reason: .battery)
+            }
         }
 
         if let timeToEmpty = info[kIOPSTimeToEmptyKey] as? Int, timeToEmpty > 0 {
@@ -156,7 +168,9 @@ final class BatteryManager: ObservableObject {
             guard let self else { return }
             let apps = Self.fetchTopBatteryConsumers()
             DispatchQueue.main.async {
-                self.topBatteryConsumers = apps
+                if self.topBatteryConsumers != apps {
+                    self.topBatteryConsumers = apps
+                }
                 self.batteryInsightsUpdatedAt = Date()
             }
         }
@@ -358,8 +372,12 @@ final class BatteryManager: ObservableObject {
         if let source = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .defaultMode)
         }
-        historyTimer?.invalidate()
-        consumerPollTimer?.invalidate()
+        let historyToken = historyRefreshToken
+        let consumerToken = consumerRefreshToken
+        Task { @MainActor in
+            ModuleRefreshScheduler.shared.unregister(historyToken)
+            ModuleRefreshScheduler.shared.unregister(consumerToken)
+        }
     }
 }
 

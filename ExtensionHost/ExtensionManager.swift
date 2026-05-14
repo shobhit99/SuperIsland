@@ -54,7 +54,7 @@ final class ExtensionManager: ObservableObject {
         installed.first(where: { $0.id == extensionID })?.capabilities.notificationFeed == true
     }
 
-    private var refreshTimers: [String: Timer] = [:]
+    private var refreshTokens: [String: ModuleRefreshToken] = [:]
     private var immediateRefreshWorkItems: [String: DispatchWorkItem] = [:]
     private var presentedInteractionContexts: [String: PresentedInteractionContext] = [:]
     private let fileManager = FileManager.default
@@ -244,6 +244,7 @@ final class ExtensionManager: ObservableObject {
             runtime.activate()
 
             startRefreshTimer(for: manifest)
+            syncRuntimeEnergyState()
             refreshState(extensionID: extensionID)
 
             ExtensionLogger.shared.log(extensionID, .info, "Activated extension")
@@ -277,6 +278,13 @@ final class ExtensionManager: ObservableObject {
         guard let runtime = runtimes[extensionID] else { return }
         if let state = runtime.fetchState() {
             extensionStates[extensionID] = state
+        }
+    }
+
+    func syncRuntimeEnergyState() {
+        for manifest in installed {
+            guard let runtime = runtimes[manifest.id] else { continue }
+            runtime.setTimersSuspended(shouldSuspendRuntimeTimers(for: manifest))
         }
     }
 
@@ -433,19 +441,49 @@ final class ExtensionManager: ObservableObject {
             return
         }
 
-        let timer = Timer.scheduledTimer(withTimeInterval: max(0.1, manifest.refreshInterval), repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.refreshState(extensionID: manifest.id)
-            }
-        }
+        let interval = max(2, manifest.refreshInterval)
+        let module = refreshModule(for: manifest)
+        let policy: ModuleRefreshPolicy = manifest.capabilities.notificationFeed
+            ? .interval(interval, tolerance: max(0.5, interval * 0.25))
+            : .visibleOnly(interval, tolerance: max(0.5, interval * 0.25))
 
-        RunLoop.main.add(timer, forMode: .common)
-        refreshTimers[manifest.id] = timer
+        refreshTokens[manifest.id] = ModuleRefreshScheduler.shared.register(
+            id: "extension.\(manifest.id).refresh",
+            name: "\(manifest.name) extension refresh",
+            module: module,
+            policy: policy,
+            enabled: { [weak self] in
+                guard let self else { return false }
+                return self.runtimes[manifest.id] != nil
+                    && manifest.capabilities.backgroundRefresh
+                    && manifest.activationTriggers.contains { $0.caseInsensitiveCompare("timer") == .orderedSame }
+            }
+        ) { [weak self] in
+            self?.refreshState(extensionID: manifest.id)
+        }
     }
 
     private func stopRefreshTimer(for extensionID: String) {
-        refreshTimers[extensionID]?.invalidate()
-        refreshTimers.removeValue(forKey: extensionID)
+        ModuleRefreshScheduler.shared.unregister(refreshTokens[extensionID])
+        refreshTokens.removeValue(forKey: extensionID)
+    }
+
+    private func refreshModule(for manifest: ExtensionManifest) -> ActiveModule {
+        manifest.capabilities.notificationFeed ? .builtIn(.notifications) : .extension_(manifest.id)
+    }
+
+    private func shouldSuspendRuntimeTimers(for manifest: ExtensionManifest) -> Bool {
+        let module = refreshModule(for: manifest)
+        let appState = AppState.shared
+        guard !appState.isModuleVisibleForRefresh(module) else { return false }
+
+        if appState.effectiveEnergyMode == .lowPower || appState.disableBackgroundExtensionRefresh {
+            return true
+        }
+
+        return appState.effectiveEnergyMode == .smart
+            && appState.currentState == .compact
+            && !appState.isHovering
     }
 }
 struct WhatsAppWebMessage: Identifiable {

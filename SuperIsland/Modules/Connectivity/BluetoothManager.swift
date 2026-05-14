@@ -40,7 +40,7 @@ final class BluetoothManager: ObservableObject {
     @Published var lastConnectedDevice: BluetoothDeviceInfo?
     @Published var lastDisconnectedDeviceName: String?
 
-    private var pollTimer: Timer?
+    private var refreshToken: ModuleRefreshToken?
 
     private init() {
         updateDevices()
@@ -53,8 +53,13 @@ final class BluetoothManager: ObservableObject {
         // Register for Bluetooth connection notifications
         IOBluetoothDevice.register(forConnectNotifications: self, selector: #selector(deviceConnected(_:device:)))
 
-        // Poll periodically for device changes
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        refreshToken = ModuleRefreshScheduler.shared.register(
+            id: "connectivity.bluetooth",
+            name: "Bluetooth fallback refresh",
+            module: .builtIn(.connectivity),
+            policy: .visibleOnly(60, tolerance: 15),
+            enabled: { AppState.shared.connectivityEnabled }
+        ) { [weak self] in
             self?.updateDevices()
         }
     }
@@ -136,6 +141,9 @@ final class BluetoothManager: ObservableObject {
     }
 
     deinit {
-        pollTimer?.invalidate()
+        let token = refreshToken
+        Task { @MainActor in
+            ModuleRefreshScheduler.shared.unregister(token)
+        }
     }
 }

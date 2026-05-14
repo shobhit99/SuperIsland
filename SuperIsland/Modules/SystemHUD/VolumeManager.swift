@@ -30,7 +30,7 @@ final class VolumeManager: ObservableObject {
     private var volumeListenerBlock: AudioObjectPropertyListenerBlock?
     private var muteListenerBlock: AudioObjectPropertyListenerBlock?
     private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
-    private var mediaPollTimer: Timer?
+    private var mediaRefreshToken: ModuleRefreshToken?
     private let appleScriptQueue = DispatchQueue(label: "superisland.applescript", qos: .utility)
 
     private init() {
@@ -131,8 +131,13 @@ final class VolumeManager: ObservableObject {
     }
 
     private func startMediaMonitoring() {
-        mediaPollTimer?.invalidate()
-        mediaPollTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
+        mediaRefreshToken = ModuleRefreshScheduler.shared.register(
+            id: "volume.mediaApps",
+            name: "Media app volume refresh",
+            module: .builtIn(.volumeHUD),
+            policy: .visibleOnly(8, tolerance: 2),
+            enabled: { AppState.shared.volumeHUDEnabled }
+        ) { [weak self] in
             self?.refreshMediaAppVolumes()
         }
     }
@@ -448,6 +453,9 @@ final class VolumeManager: ObservableObject {
     }
 
     deinit {
-        mediaPollTimer?.invalidate()
+        let token = mediaRefreshToken
+        Task { @MainActor in
+            ModuleRefreshScheduler.shared.unregister(token)
+        }
     }
 }

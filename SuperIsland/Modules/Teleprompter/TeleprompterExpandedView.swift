@@ -70,6 +70,7 @@ private final class _ScrollWheelNSView: NSView {
 struct TeleprompterScrollingTextView: View {
     let containerHeight: CGFloat
 
+    @EnvironmentObject var appState: AppState
     @ObservedObject private var manager = TeleprompterManager.shared
     @State private var offset: CGFloat = 0
     @State private var textHeight: CGFloat = 0
@@ -96,6 +97,10 @@ struct TeleprompterScrollingTextView: View {
         .onPreferenceChange(TextHeightKey.self) { textHeight = $0 }
         .onChange(of: manager.isPlaying) { _, playing in
             playing ? startScrolling() : stopScrolling()
+        }
+        .onChange(of: appState.shouldReduceAnimations) { _, _ in
+            guard manager.isPlaying else { return }
+            startScrolling()
         }
         .onChange(of: manager.resetToken) { _, _ in
             stopScrolling()
@@ -154,15 +159,17 @@ struct TeleprompterScrollingTextView: View {
 
     private func startScrolling() {
         stopScrolling()
-        scrollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { _ in
+        let framesPerSecond: Double = appState.shouldReduceAnimations ? 24 : 30
+        scrollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / framesPerSecond, repeats: true) { _ in
             Task { @MainActor in
                 guard manager.isPlaying else { return }
-                let delta = CGFloat(manager.scrollSpeed / 60.0)
+                let delta = CGFloat(manager.scrollSpeed / framesPerSecond)
                 let next = min(offset + delta, maxOffset)
                 offset = next
                 if maxOffset > 0, next >= maxOffset { manager.pause() }
             }
         }
+        scrollTimer?.tolerance = 0.01
     }
 
     private func stopScrolling() {

@@ -88,6 +88,10 @@ scripts/            Build & release scripts
 
 Extensions are JavaScript packages that run inside a sandboxed JavaScriptCore context. Read the full guide at [dynamicisland.app/docs](https://dynamicisland.app/docs) or in [EXTENSIONS.md](EXTENSIONS.md).
 
+## Energy settings
+
+Settings -> General -> Power includes Normal, Smart, and Low Power modes. Smart reduces background refresh while the island is collapsed, while Low Power slows non-essential work and pauses inactive extension timers. See [docs/ENERGY.md](docs/ENERGY.md) for profiling notes and scheduler behavior.
+
 ---
 
 ## Contributing

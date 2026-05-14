@@ -31,6 +31,7 @@ final class ExtensionJSRuntime {
     private var timers: [Int: Timer] = [:]
     private var nextTimerID: Int = 1
     private var didActivate = false
+    private var timersSuspended = false
 
     private let defaults = UserDefaults.standard
     private var islandActivationModule: ActiveModule {
@@ -110,6 +111,10 @@ final class ExtensionJSRuntime {
 
     func cleanup() {
         deactivate()
+    }
+
+    func setTimersSuspended(_ suspended: Bool) {
+        timersSuspended = suspended
     }
 
     @MainActor
@@ -861,14 +866,21 @@ final class ExtensionJSRuntime {
         let timerID = nextTimerID
         nextTimerID += 1
 
-        let interval = max(0.01, milliseconds / 1000)
+        let requestedInterval = max(0.01, milliseconds / 1000)
+        let interval = repeats ? max(0.25, requestedInterval) : requestedInterval
         let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: repeats) { [weak self] timer in
             guard let self else { return }
+            if repeats, self.timersSuspended {
+                return
+            }
             self.invokeJS("timer(\(timerID))") { callback.call(withArguments: []) }
             if !repeats {
                 self.timers.removeValue(forKey: timerID)
                 timer.invalidate()
             }
+        }
+        if repeats {
+            timer.tolerance = max(0.05, interval * 0.2)
         }
 
         RunLoop.main.add(timer, forMode: .common)
