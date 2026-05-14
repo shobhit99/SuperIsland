@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ModuleSettingsView: View {
     @EnvironmentObject var appState: AppState
+    @ObservedObject private var shelf = ShelfStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -20,6 +21,8 @@ struct ModuleSettingsView: View {
                 SettingToggleRow(title: "Shelf", isOn: $appState.shelfEnabled)
                 SettingRowDivider()
                 SettingToggleRow(title: "Auto-open Shelf on Drop", isOn: $appState.shelfAutoOpenOnDrop)
+                SettingRowDivider()
+                shelfRetentionRow
                 SettingRowDivider()
                 SettingToggleRow(title: "Connectivity", isOn: $appState.connectivityEnabled)
             }
@@ -65,5 +68,28 @@ struct ModuleSettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var shelfRetentionRow: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Shelf retention")
+                    .font(.system(size: 13))
+                Text("Pinned items are kept")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            Spacer(minLength: 8)
+            Picker("", selection: $shelf.retentionDays) {
+                ForEach(ShelfRetentionOption.allCases) { option in
+                    Text(option.title).tag(option.rawValue)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(width: 120)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
     }
 }

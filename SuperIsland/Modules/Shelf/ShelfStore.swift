@@ -1,11 +1,34 @@
 import AppKit
 import Foundation
+import Quartz
 import UniformTypeIdentifiers
 
 enum ShelfItemKind: String, Codable, Hashable {
     case file
+    case folder
+    case image
     case link
     case text
+}
+
+enum ShelfRetentionOption: Int, CaseIterable, Identifiable {
+    case never = 0
+    case oneDay = 1
+    case oneWeek = 7
+    case oneMonth = 30
+    case threeMonths = 90
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .never: return "Never"
+        case .oneDay: return "1 day"
+        case .oneWeek: return "7 days"
+        case .oneMonth: return "30 days"
+        case .threeMonths: return "90 days"
+        }
+    }
 }
 
 struct ShelfItem: Identifiable, Codable, Hashable {
@@ -17,6 +40,8 @@ struct ShelfItem: Identifiable, Codable, Hashable {
     let urlString: String?
     let textValue: String?
     let addedAt: Date
+    var lastAccessedAt: Date?
+    var isPinned: Bool
 
     init(
         id: UUID = UUID(),
@@ -26,7 +51,9 @@ struct ShelfItem: Identifiable, Codable, Hashable {
         bookmarkData: Data? = nil,
         urlString: String? = nil,
         textValue: String? = nil,
-        addedAt: Date = Date()
+        addedAt: Date = Date(),
+        lastAccessedAt: Date? = nil,
+        isPinned: Bool = false
     ) {
         self.id = id
         self.kind = kind
@@ -36,6 +63,35 @@ struct ShelfItem: Identifiable, Codable, Hashable {
         self.urlString = urlString
         self.textValue = textValue
         self.addedAt = addedAt
+        self.lastAccessedAt = lastAccessedAt
+        self.isPinned = isPinned
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case kind
+        case displayName
+        case path
+        case bookmarkData
+        case urlString
+        case textValue
+        case addedAt
+        case lastAccessedAt
+        case isPinned
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        kind = try container.decode(ShelfItemKind.self, forKey: .kind)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        path = try container.decodeIfPresent(String.self, forKey: .path)
+        bookmarkData = try container.decodeIfPresent(Data.self, forKey: .bookmarkData)
+        urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
+        textValue = try container.decodeIfPresent(String.self, forKey: .textValue)
+        addedAt = try container.decodeIfPresent(Date.self, forKey: .addedAt) ?? Date()
+        lastAccessedAt = try container.decodeIfPresent(Date.self, forKey: .lastAccessedAt)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
     }
 
     static func file(from url: URL) -> ShelfItem {
@@ -44,8 +100,9 @@ struct ShelfItem: Identifiable, Codable, Hashable {
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
+        let kind = fileKind(for: url)
         return ShelfItem(
-            kind: .file,
+            kind: kind,
             displayName: displayName(for: url),
             path: url.path,
             bookmarkData: bookmarkData
@@ -69,8 +126,8 @@ struct ShelfItem: Identifiable, Codable, Hashable {
 
     var dedupeKey: String {
         switch kind {
-        case .file:
-            return "file:\(resolvedFileURL?.standardizedFileURL.path ?? path ?? displayName)"
+        case .file, .folder, .image:
+            return "\(kind.rawValue):\(resolvedFileURL?.standardizedFileURL.path ?? path ?? displayName)"
         case .link:
             return "link:\(urlString ?? displayName)"
         case .text:
@@ -80,12 +137,18 @@ struct ShelfItem: Identifiable, Codable, Hashable {
 
     var subtitle: String {
         switch kind {
-        case .file:
+        case .file, .folder, .image:
+            if isMissing {
+                return "Missing"
+            }
             guard let url = resolvedFileURL ?? path.map({ URL(fileURLWithPath: $0) }) else {
                 return "File"
             }
-            if url.hasDirectoryPath {
+            if kind == .folder || url.hasDirectoryPath {
                 return "Folder"
+            }
+            if kind == .image {
+                return "Image"
             }
             let ext = url.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
             return ext.isEmpty ? "File" : ext.uppercased()
@@ -100,7 +163,7 @@ struct ShelfItem: Identifiable, Codable, Hashable {
 
     var previewText: String? {
         switch kind {
-        case .file:
+        case .file, .folder, .image:
             guard let url = resolvedFileURL ?? path.map({ URL(fileURLWithPath: $0) }) else {
                 return nil
             }
@@ -117,7 +180,7 @@ struct ShelfItem: Identifiable, Codable, Hashable {
 
     var resolvedURL: URL? {
         switch kind {
-        case .file:
+        case .file, .folder, .image:
             return resolvedFileURL
         case .link:
             guard let urlString else { return nil }
@@ -149,9 +212,12 @@ struct ShelfItem: Identifiable, Codable, Hashable {
 
     var icon: NSImage {
         switch kind {
-        case .file:
+        case .file, .folder, .image:
             if let url = resolvedFileURL ?? path.map({ URL(fileURLWithPath: $0) }) {
                 return NSWorkspace.shared.icon(forFile: url.path)
+            }
+            if kind == .image {
+                return Self.symbolImage(systemName: "photo.fill")
             }
             return Self.symbolImage(systemName: "doc.fill")
         case .link:
@@ -159,6 +225,49 @@ struct ShelfItem: Identifiable, Codable, Hashable {
         case .text:
             return Self.symbolImage(systemName: "text.alignleft")
         }
+    }
+
+    var isFileBacked: Bool {
+        switch kind {
+        case .file, .folder, .image:
+            return true
+        case .link, .text:
+            return false
+        }
+    }
+
+    var canQuickLook: Bool {
+        isFileBacked && !isMissing
+    }
+
+    var isMissing: Bool {
+        guard isFileBacked else { return false }
+        guard let url = resolvedFileURL ?? path.map({ URL(fileURLWithPath: $0) }) else {
+            return true
+        }
+        return !FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private static func fileKind(for url: URL) -> ShelfItemKind {
+        if url.hasDirectoryPath {
+            return .folder
+        }
+
+        if let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .contentTypeKey]) {
+            if values.isDirectory == true {
+                return .folder
+            }
+            if values.contentType?.conforms(to: .image) == true {
+                return .image
+            }
+        }
+
+        if let type = UTType(filenameExtension: url.pathExtension),
+           type.conforms(to: .image) {
+            return .image
+        }
+
+        return .file
     }
 
     private static func displayName(for url: URL) -> String {
@@ -189,23 +298,34 @@ final class ShelfStore: ObservableObject {
     static let acceptedDropTypes: [UTType] = [
         .fileURL,
         .url,
+        .image,
         .utf8PlainText,
         .plainText,
         .text
     ]
 
     @Published private(set) var items: [ShelfItem]
+    @Published var retentionDays: Int {
+        didSet {
+            UserDefaults.standard.set(retentionDays, forKey: retentionKey)
+            pruneExpiredItems()
+        }
+    }
 
     private let storageKey = "module.shelf.items"
+    private let retentionKey = "module.shelf.retentionDays"
     private var activeAirDropService: NSSharingService?
+    private var activeSharingPicker: NSSharingServicePicker?
 
     private init() {
+        self.retentionDays = UserDefaults.standard.object(forKey: retentionKey) as? Int ?? ShelfRetentionOption.never.rawValue
         if let data = UserDefaults.standard.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode([ShelfItem].self, from: data) {
             self.items = decoded
         } else {
             self.items = []
         }
+        pruneExpiredItems()
     }
 
     var isEmpty: Bool {
@@ -249,30 +369,49 @@ final class ShelfStore: ObservableObject {
 
         guard addedCount > 0 else { return 0 }
         items = merged
+        pruneExpiredItems()
         persist()
         return addedCount
     }
 
     func remove(_ item: ShelfItem) {
+        removeManagedImages(for: [item])
         items.removeAll { $0.id == item.id }
         persist()
     }
 
     func clear() {
         guard !items.isEmpty else { return }
+        removeManagedImages(for: items)
         items.removeAll()
+        persist()
+    }
+
+    func clearUnpinned() {
+        let removedItems = items.filter { !$0.isPinned }
+        guard !removedItems.isEmpty else { return }
+        removeManagedImages(for: removedItems)
+        items.removeAll { !$0.isPinned }
+        persist()
+    }
+
+    func togglePinned(_ item: ShelfItem) {
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[index].isPinned.toggle()
+        items[index].lastAccessedAt = Date()
         persist()
     }
 
     func open(_ item: ShelfItem) {
         switch item.kind {
-        case .file:
+        case .file, .folder, .image:
             withResolvedFileURL(for: item) { url in
                 NSWorkspace.shared.open(url)
             }
         case .link:
             if let url = item.resolvedURL {
                 NSWorkspace.shared.open(url)
+                touch(item)
             }
         case .text:
             copy(item)
@@ -280,9 +419,19 @@ final class ShelfStore: ObservableObject {
     }
 
     func reveal(_ item: ShelfItem) {
-        guard item.kind == .file else { return }
+        guard item.isFileBacked else { return }
         withResolvedFileURL(for: item) { url in
             NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+    }
+
+    func quickLook(_ item: ShelfItem) {
+        guard item.canQuickLook else {
+            NSSound.beep()
+            return
+        }
+        withResolvedFileURL(for: item) { url in
+            ShelfQuickLookController.shared.preview(url)
         }
     }
 
@@ -291,25 +440,37 @@ final class ShelfStore: ObservableObject {
         pasteboard.clearContents()
 
         switch item.kind {
-        case .file:
+        case .file, .folder, .image:
             if let url = item.resolvedFileURL {
                 pasteboard.writeObjects([url as NSURL])
+                touch(item)
             }
         case .link:
             if let urlString = item.urlString {
                 pasteboard.setString(urlString, forType: .string)
+                touch(item)
             }
         case .text:
             if let text = item.textValue {
                 pasteboard.setString(text, forType: .string)
+                touch(item)
             }
         }
     }
 
+    func copyPath(_ item: ShelfItem) {
+        guard item.isFileBacked,
+              let path = item.resolvedFileURL?.path ?? item.path else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(path, forType: .string)
+        touch(item)
+    }
+
     func dragProvider(for item: ShelfItem) -> NSItemProvider {
         switch item.kind {
-        case .file:
-            if let url = item.resolvedFileURL {
+        case .file, .folder, .image:
+            if let url = item.resolvedFileURL, !item.isMissing {
                 if let provider = NSItemProvider(contentsOf: url) {
                     return provider
                 }
@@ -355,6 +516,27 @@ final class ShelfStore: ObservableObject {
     func shareViaAirDrop(items: [ShelfItem]) {
         let rawItems = items.compactMap(airDropPayload(for:))
         shareViaAirDrop(rawItems: rawItems)
+        items.forEach(touch)
+    }
+
+    func share(items: [ShelfItem]) {
+        let rawItems = items.compactMap(sharingPayload(for:))
+        guard !rawItems.isEmpty else {
+            NSSound.beep()
+            return
+        }
+
+        guard let view = NSApp.keyWindow?.contentView
+                ?? NSApp.mainWindow?.contentView
+                ?? NSApp.windows.first(where: { $0.isVisible })?.contentView else {
+            NSSound.beep()
+            return
+        }
+
+        let picker = NSSharingServicePicker(items: rawItems)
+        activeSharingPicker = picker
+        picker.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+        items.forEach(touch)
     }
 
     private func persist() {
@@ -365,22 +547,64 @@ final class ShelfStore: ObservableObject {
 
     private func withResolvedFileURL(for item: ShelfItem, _ action: (URL) -> Void) {
         guard let url = item.resolvedFileURL else { return }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            NSSound.beep()
+            return
+        }
         let didAccess = url.startAccessingSecurityScopedResource()
         action(url)
         if didAccess {
             url.stopAccessingSecurityScopedResource()
         }
+        touch(item)
     }
 
     private func airDropPayload(for item: ShelfItem) -> Any? {
+        sharingPayload(for: item)
+    }
+
+    private func sharingPayload(for item: ShelfItem) -> Any? {
         switch item.kind {
-        case .file:
+        case .file, .folder, .image:
+            guard !item.isMissing else { return nil }
             return item.resolvedFileURL
         case .link:
             return item.resolvedURL
         case .text:
             return item.textValue
         }
+    }
+
+    private func touch(_ item: ShelfItem) {
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[index].lastAccessedAt = Date()
+        persist()
+    }
+
+    private func pruneExpiredItems() {
+        guard retentionDays > 0 else { return }
+        let cutoff = Date().addingTimeInterval(TimeInterval(-retentionDays * 24 * 60 * 60))
+        let removedItems = items.filter { !$0.isPinned && $0.addedAt < cutoff }
+        guard !removedItems.isEmpty else { return }
+        removeManagedImages(for: removedItems)
+        items.removeAll { !$0.isPinned && $0.addedAt < cutoff }
+        persist()
+    }
+
+    private func removeManagedImages(for items: [ShelfItem]) {
+        for item in items {
+            guard item.kind == .image,
+                  let url = item.resolvedFileURL,
+                  isManagedImageURL(url) else { continue }
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func isManagedImageURL(_ url: URL) -> Bool {
+        guard let storageURL = Self.imageStorageURL else { return false }
+        let storagePath = storageURL.standardizedFileURL.path
+        let itemPath = url.standardizedFileURL.path
+        return itemPath == storagePath || itemPath.hasPrefix(storagePath + "/")
     }
 
     private func shareViaAirDrop(rawItems: [Any]) {
@@ -419,6 +643,12 @@ final class ShelfStore: ObservableObject {
             return url.isFileURL ? .file(from: url) : .link(url)
         }
 
+        if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier),
+           let data = await loadData(from: provider, type: .image),
+           let item = imageItem(from: data, type: .image) {
+            return item
+        }
+
         for type in [UTType.utf8PlainText, .plainText, .text] {
             guard provider.hasItemConformingToTypeIdentifier(type.identifier),
                   let string = await loadString(from: provider, type: type) else {
@@ -436,6 +666,35 @@ final class ShelfStore: ObservableObject {
         }
 
         return nil
+    }
+
+    private static func imageItem(from data: Data, type: UTType) -> ShelfItem? {
+        guard data.count <= 20 * 1024 * 1024,
+              let storageURL = imageStorageURL else {
+            return nil
+        }
+
+        let fileManager = FileManager.default
+        do {
+            try fileManager.createDirectory(at: storageURL, withIntermediateDirectories: true)
+            let fileExtension = type.preferredFilenameExtension ?? "png"
+            let fileURL = storageURL.appendingPathComponent("\(UUID().uuidString).\(fileExtension)")
+            try data.write(to: fileURL, options: [.atomic])
+            return ShelfItem(
+                kind: .image,
+                displayName: "Image",
+                path: fileURL.path
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    private static var imageStorageURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("SuperIsland", isDirectory: true)
+            .appendingPathComponent("ShelfImages", isDirectory: true)
     }
 
     private static func recognizedURL(from string: String) -> URL? {
@@ -494,6 +753,19 @@ final class ShelfStore: ObservableObject {
         return nil
     }
 
+    private static func loadData(from provider: NSItemProvider, type: UTType) async -> Data? {
+        await withCheckedContinuation { continuation in
+            provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, error in
+                guard error == nil else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                continuation.resume(returning: data)
+            }
+        }
+    }
+
     private static func loadItem(from provider: NSItemProvider, typeIdentifier: String) async -> NSSecureCoding? {
         await withCheckedContinuation { continuation in
             provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, error in
@@ -505,5 +777,57 @@ final class ShelfStore: ObservableObject {
                 continuation.resume(returning: item)
             }
         }
+    }
+}
+
+@MainActor
+private final class ShelfQuickLookController: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+    static let shared = ShelfQuickLookController()
+
+    private var previewURLs: [URL] = []
+    private var scopedURLs: [URL] = []
+
+    func preview(_ url: URL) {
+        closeScopedURLs()
+
+        let didAccess = url.startAccessingSecurityScopedResource()
+        if didAccess {
+            scopedURLs = [url]
+        }
+
+        previewURLs = [url]
+        guard let panel = QLPreviewPanel.shared() else {
+            closeScopedURLs()
+            NSSound.beep()
+            return
+        }
+
+        panel.dataSource = self
+        panel.delegate = self
+        panel.reloadData()
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    nonisolated func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        MainActor.assumeIsolated {
+            previewURLs.count
+        }
+    }
+
+    nonisolated func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+        MainActor.assumeIsolated {
+            previewURLs[index] as NSURL
+        }
+    }
+
+    nonisolated func previewPanelDidClose(_ panel: QLPreviewPanel!) {
+        Task { @MainActor in
+            closeScopedURLs()
+        }
+    }
+
+    private func closeScopedURLs() {
+        scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() }
+        scopedURLs.removeAll()
     }
 }
