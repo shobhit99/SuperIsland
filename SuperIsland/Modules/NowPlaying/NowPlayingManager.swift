@@ -25,6 +25,24 @@ private let kMRMediaRemoteNowPlayingInfoDuration = "kMRMediaRemoteNowPlayingInfo
 private let kMRMediaRemoteNowPlayingInfoElapsedTime = "kMRMediaRemoteNowPlayingInfoElapsedTime"
 private let kMRMediaRemoteNowPlayingInfoPlaybackRate = "kMRMediaRemoteNowPlayingInfoPlaybackRate"
 
+private let nowPlayingBrowserDetectionEnabledKey = "nowPlaying.browserDetection.enabled"
+private let nowPlayingAllowedBrowserBundleIDsKey = "nowPlaying.browserDetection.allowedBrowserBundleIDs"
+private let nowPlayingDefaultAllowedBrowserBundleIDs = ["com.google.Chrome"]
+private let nowPlayingSupportedBrowserTargets = [
+    NowPlayingBrowserTarget(
+        id: "com.google.Chrome",
+        displayName: "Google Chrome",
+        applicationName: "Google Chrome",
+        processName: "Google Chrome"
+    ),
+    NowPlayingBrowserTarget(
+        id: "com.google.Chrome.canary",
+        displayName: "Google Chrome Canary",
+        applicationName: "Google Chrome Canary",
+        processName: "Google Chrome Canary"
+    )
+]
+
 @MainActor
 final class NowPlayingManager: ObservableObject {
     static let shared = NowPlayingManager()
@@ -39,6 +57,31 @@ final class NowPlayingManager: ObservableObject {
     @Published var elapsedTime: TimeInterval = 0
     @Published var playbackRate: Double = 0
     @Published var sourceName: String = "" // "Spotify", "Apple Music", "Chrome", etc.
+    @Published var providerStatus: NowPlayingProviderStatus = .idle
+    @Published var browserDetectionTestMessage: String = ""
+    @Published var browserDetectionEnabled: Bool = UserDefaults.standard.bool(forKey: nowPlayingBrowserDetectionEnabledKey) {
+        didSet {
+            UserDefaults.standard.set(browserDetectionEnabled, forKey: nowPlayingBrowserDetectionEnabledKey)
+            browserDetectionTestMessage = ""
+            if browserDetectionEnabled {
+                refreshPreferredSource()
+            } else if isBrowserPlaybackSource {
+                clearCurrentTrack()
+                providerStatus = .browserDisabled
+            }
+        }
+    }
+    @Published var allowedBrowserBundleIDs: Set<String> = Set(
+        UserDefaults.standard.stringArray(forKey: nowPlayingAllowedBrowserBundleIDsKey) ?? nowPlayingDefaultAllowedBrowserBundleIDs
+    ) {
+        didSet {
+            let ordered = nowPlayingSupportedBrowserTargets.map(\.id).filter { allowedBrowserBundleIDs.contains($0) }
+            UserDefaults.standard.set(ordered, forKey: nowPlayingAllowedBrowserBundleIDsKey)
+            if browserDetectionEnabled {
+                refreshPreferredSource()
+            }
+        }
+    }
     private var currentAlbumArtist: String = ""
     private var currentArtworkURL: String?
     private var currentTrackIdentifier: String = ""
@@ -65,6 +108,8 @@ final class NowPlayingManager: ObservableObject {
     private var currentBundleIdentifier: String = ""
     private var lastPlaybackUpdateDate: Date = .distantPast
     private var recentTrackChangeDate: Date = .distantPast
+    private var lastKnownSnapshot: NowPlayingSnapshot?
+    private var providerRefreshTask: Task<Void, Never>?
     private var adapterProcess: Process?
     private var adapterPipeHandler: JSONLinesPipeHandler?
     private var adapterStreamTask: Task<Void, Never>?
@@ -93,8 +138,9 @@ final class NowPlayingManager: ObservableObject {
 
     private func startPolling() {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.refreshPreferredSource()
+            Task { @MainActor in
+                self?.refreshPreferredSource()
+            }
         }
     }
 
@@ -218,7 +264,8 @@ final class NowPlayingManager: ObservableObject {
             let newTitle = info[kMRMediaRemoteNowPlayingInfoTitle] as? String ?? ""
             let newPlaybackRate = info[kMRMediaRemoteNowPlayingInfoPlaybackRate] as? Double ?? 0
 
-            if !newTitle.isEmpty, newPlaybackRate > 0 {
+            if !newTitle.isEmpty {
+                let newIsPlaying = newPlaybackRate > 0
                 self.mediaRemoteActive = true
                 self.currentChromeTabURL = ""
                 self.currentBundleIdentifier = ""
@@ -232,30 +279,37 @@ final class NowPlayingManager: ObservableObject {
                 self.duration = info[kMRMediaRemoteNowPlayingInfoDuration] as? TimeInterval ?? 0
                 self.elapsedTime = info[kMRMediaRemoteNowPlayingInfoElapsedTime] as? TimeInterval ?? 0
                 self.playbackRate = newPlaybackRate
-                self.isPlaying = true
+                self.isPlaying = newIsPlaying
                 self.sourceName = "System Media"
+                self.providerStatus = newIsPlaying ? .playing("System Media") : .paused("System Media")
 
                 if let artworkData = info[kMRMediaRemoteNowPlayingInfoArtworkData] as? Data {
                     self.albumArt = NSImage(data: artworkData)
                 }
 
+                self.rememberCurrentSnapshot(providerID: "system")
+
                 // Only activate module when track changes, not on every poll
-                if newTitle != self.lastDetectedTitle {
+                if newIsPlaying, newTitle != self.lastDetectedTitle {
                     self.lastDetectedTitle = newTitle
                     AppState.shared.setActiveModule(.nowPlaying)
                 }
                 self.updatePlaybackTimer()
             } else {
                 self.mediaRemoteActive = false
-                self.clearCurrentTrack()
+                if !self.showLastKnownSnapshotIfUseful() {
+                    self.clearCurrentTrack()
+                }
             }
         }
     }
 
     private func fetchPlaybackState() {
         getIsPlayingFunc?(DispatchQueue.main) { [weak self] playing in
-            self?.isPlaying = playing
-            self?.updatePlaybackTimer()
+            guard let self else { return }
+            self.isPlaying = playing
+            self.providerStatus = playing ? .playing(self.sourceName) : .paused(self.sourceName)
+            self.updatePlaybackTimer()
         }
     }
 
@@ -393,6 +447,7 @@ final class NowPlayingManager: ObservableObject {
         playbackRate = resolvedPlaybackRate
         isPlaying = resolvedIsPlaying
         sourceName = resolvedSourceName
+        providerStatus = resolvedIsPlaying ? .playing(resolvedSourceName) : .paused(resolvedSourceName)
 
         if trackChanged {
             recentTrackChangeDate = Date()
@@ -425,7 +480,9 @@ final class NowPlayingManager: ObservableObject {
             currentArtworkURL = nil
         }
 
-        if !resolvedTitle.isEmpty, resolvedTitle != lastDetectedTitle {
+        rememberCurrentSnapshot(providerID: "mediaRemoteAdapter")
+
+        if resolvedIsPlaying, !resolvedTitle.isEmpty, resolvedTitle != lastDetectedTitle {
             lastDetectedTitle = resolvedTitle
             AppState.shared.setActiveModule(.nowPlaying)
         } else if resolvedTitle.isEmpty {
@@ -481,51 +538,127 @@ final class NowPlayingManager: ObservableObject {
     // MARK: - AppleScript Fallback
 
     private func refreshPreferredSource() {
-        // If the adapter is active but nothing is currently playing through it,
-        // Chrome may be the source — it doesn't reliably register with MediaRemote.
-        // In that case fall through to the Chrome AppleScript path.
         if adapterDidDeliverUpdate, !title.isEmpty {
+            providerStatus = isPlaying ? .playing(sourceName) : .paused(sourceName)
             return
         }
+
         let currentSource = sourceName
-
-        appleScriptQueue.async { [weak self] in
-            guard let self else { return }
-
-            if self.refreshCurrentSourceIfNeeded(sourceName: currentSource) {
-                DispatchQueue.main.async { self.mediaRemoteActive = false }
-                return
-            }
-
-            if self.fetchSpotifyViaAppleScript() {
-                DispatchQueue.main.async { self.mediaRemoteActive = false }
-                return
-            }
-
-            if self.fetchMusicViaAppleScript() {
-                DispatchQueue.main.async { self.mediaRemoteActive = false }
-                return
-            }
-
-            if self.fetchChromeViaAppleScript(allowPausedFallback: false) {
-                DispatchQueue.main.async { self.mediaRemoteActive = false }
-                return
-            }
-
-            DispatchQueue.main.async { self.fetchNowPlayingInfo() }
+        providerRefreshTask?.cancel()
+        providerRefreshTask = Task { [weak self] in
+            await self?.refreshProviderSnapshots(preferredSourceName: currentSource)
         }
     }
 
-    nonisolated private func refreshCurrentSourceIfNeeded(sourceName: String) -> Bool {
-        switch sourceName {
+    private func refreshProviderSnapshots(preferredSourceName: String) async {
+        var fallbackSnapshot: NowPlayingSnapshot?
+
+        for provider in scriptProviders(preferredSourceName: preferredSourceName) {
+            guard !Task.isCancelled else { return }
+            providerStatus = .checking(provider.displayName)
+            guard let snapshot = await provider.currentSnapshot() else { continue }
+
+            if snapshot.isPlaying {
+                applySnapshot(snapshot)
+                fetchArtworkIfNeeded(for: snapshot)
+                mediaRemoteActive = false
+                return
+            }
+
+            if fallbackSnapshot == nil {
+                fallbackSnapshot = snapshot
+            }
+        }
+
+        if let fallbackSnapshot {
+            applySnapshot(fallbackSnapshot)
+            fetchArtworkIfNeeded(for: fallbackSnapshot)
+            mediaRemoteActive = false
+            return
+        }
+
+        if showLastKnownSnapshotIfUseful() {
+            return
+        }
+
+        providerStatus = browserDetectionEnabled ? .idle : .browserDisabled
+        fetchNowPlayingInfo()
+    }
+
+    private func scriptProviders(preferredSourceName: String) -> [any NowPlayingProvider] {
+        var providers: [any NowPlayingProvider] = []
+
+        switch preferredSourceName {
         case "Spotify":
-            return fetchSpotifyViaAppleScript()
+            providers.append(spotifyProvider)
         case "Apple Music":
-            return fetchMusicViaAppleScript()
-        case "YouTube", "YouTube Music", "SoundCloud", "Spotify Web", "Google Chrome":
-            return fetchChromeViaAppleScript(allowPausedFallback: false)
+            providers.append(musicProvider)
+        case "YouTube", "YouTube Music", "SoundCloud", "Spotify Web", "Google Chrome", "Google Chrome Canary":
+            if browserDetectionEnabled {
+                providers.append(browserProvider)
+            }
         default:
-            return false
+            break
+        }
+
+        providers.append(spotifyProvider)
+        providers.append(musicProvider)
+
+        if browserDetectionEnabled {
+            providers.append(browserProvider)
+        }
+
+        var seen = Set<String>()
+        return providers.filter { seen.insert($0.id).inserted }
+    }
+
+    private var spotifyProvider: any NowPlayingProvider {
+        NowPlayingScriptProvider(
+            id: "spotify",
+            displayName: "Spotify",
+            requiresPermission: true,
+            currentSnapshot: { [weak self] in
+                guard let self else { return nil }
+                return await self.runOnAppleScriptQueue {
+                    self.spotifySnapshotViaAppleScript(allowPausedFallback: true)
+                }
+            }
+        )
+    }
+
+    private var musicProvider: any NowPlayingProvider {
+        NowPlayingScriptProvider(
+            id: "appleMusic",
+            displayName: "Apple Music",
+            requiresPermission: true,
+            currentSnapshot: { [weak self] in
+                guard let self else { return nil }
+                return await self.runOnAppleScriptQueue {
+                    self.musicSnapshotViaAppleScript(allowPausedFallback: true)
+                }
+            }
+        )
+    }
+
+    private var browserProvider: any NowPlayingProvider {
+        NowPlayingScriptProvider(
+            id: "browser",
+            displayName: "Browser",
+            requiresPermission: true,
+            currentSnapshot: { [weak self] in
+                guard let self else { return nil }
+                return await self.runOnAppleScriptQueue {
+                    self.browserSnapshotViaAppleScript(allowPausedFallback: true)
+                }
+            }
+        )
+    }
+
+    private func runOnAppleScriptQueue<T>(_ work: @escaping () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            appleScriptQueue.async {
+                continuation.resume(returning: work())
+            }
         }
     }
 
@@ -533,14 +666,25 @@ final class NowPlayingManager: ObservableObject {
         mediaRemoteActive || (adapterDidDeliverUpdate && !currentBundleIdentifier.isEmpty)
     }
 
-    nonisolated private func fetchSpotifyViaAppleScript() -> Bool {
-        guard isApplicationInstalled(bundleIdentifier: "com.spotify.client") else { return false }
+    nonisolated private func fetchSpotifyViaAppleScript(allowPausedFallback: Bool = true) -> Bool {
+        guard let snapshot = spotifySnapshotViaAppleScript(allowPausedFallback: allowPausedFallback) else { return false }
+        DispatchQueue.main.async { [weak self] in
+            self?.applySnapshot(snapshot)
+        }
+        fetchSpotifyArtwork()
+        return true
+    }
+
+    nonisolated private func spotifySnapshotViaAppleScript(allowPausedFallback: Bool) -> NowPlayingSnapshot? {
+        guard isApplicationInstalled(bundleIdentifier: "com.spotify.client") else { return nil }
+        let pausedReturn = allowPausedFallback ? "or player state is paused" : ""
         let script = """
         tell application "System Events"
             if not (exists process "Spotify") then return "NOT_RUNNING"
         end tell
         tell application "Spotify"
-            if player state is playing then
+            if player state is playing \(pausedReturn) then
+                set playbackState to player state as string
                 set trackName to name of current track
                 set trackArtist to artist of current track
                 set trackAlbum to album of current track
@@ -550,7 +694,7 @@ final class NowPlayingManager: ObservableObject {
                 try
                     set trackURL to spotify url of current track
                 end try
-                return trackName & "||" & trackArtist & "||" & trackAlbum & "||" & (trackDuration / 1000) & "||" & trackPosition & "||" & trackURL
+                return playbackState & "||" & trackName & "||" & trackArtist & "||" & trackAlbum & "||" & (trackDuration / 1000) & "||" & trackPosition & "||" & trackURL
             else
                 return "NOT_PLAYING"
             end if
@@ -558,34 +702,31 @@ final class NowPlayingManager: ObservableObject {
         """
 
         guard let result = runAppleScript(script), result != "NOT_RUNNING", result != "NOT_PLAYING" else {
-            return false
+            return nil
         }
 
         let parts = result.components(separatedBy: "||")
-        guard parts.count >= 6 else { return false }
+        guard parts.count >= 7 else { return nil }
 
-        let trackTitle = parts[0]
-        let trackURL = parts[5]
-        DispatchQueue.main.async { [weak self] in
-            self?.currentChromeTabURL = ""
-            self?.currentBundleIdentifier = "com.spotify.client"
-            self?.currentAlbumArtist = parts[1]
-            self?.currentTrackIdentifier = trackURL
-            self?.currentTrackIsLocalFile = trackURL.isEmpty
-            self?.title = trackTitle
-            self?.artist = parts[1]
-            self?.album = parts[2]
-            self?.duration = TimeInterval(parts[3]) ?? 0
-            self?.elapsedTime = TimeInterval(parts[4]) ?? 0
-            self?.isPlaying = true
-            self?.sourceName = "Spotify"
-            if trackTitle != self?.lastDetectedTitle {
-                self?.lastDetectedTitle = trackTitle
-                AppState.shared.setActiveModule(.nowPlaying)
-            }
-        }
-        fetchSpotifyArtwork()
-        return true
+        let trackURL = parts[6]
+        return NowPlayingSnapshot(
+            providerID: "spotify",
+            title: parts[1],
+            artist: parts[2],
+            album: parts[3],
+            duration: TimeInterval(parts[4]) ?? 0,
+            elapsedTime: TimeInterval(parts[5]) ?? 0,
+            playbackRate: parts[0] == "playing" ? 1 : 0,
+            isPlaying: parts[0] == "playing",
+            sourceName: "Spotify",
+            bundleIdentifier: "com.spotify.client",
+            albumArtist: parts[2],
+            artworkURL: nil,
+            trackIdentifier: trackURL,
+            isLocalFile: trackURL.isEmpty,
+            browserTabURL: "",
+            capturedAt: Date()
+        )
     }
 
     nonisolated private func fetchSpotifyArtwork() {
@@ -609,14 +750,24 @@ final class NowPlayingManager: ObservableObject {
         }.resume()
     }
 
-    nonisolated private func fetchMusicViaAppleScript() -> Bool {
-        guard isApplicationInstalled(bundleIdentifier: "com.apple.Music") else { return false }
+    nonisolated private func fetchMusicViaAppleScript(allowPausedFallback: Bool = true) -> Bool {
+        guard let snapshot = musicSnapshotViaAppleScript(allowPausedFallback: allowPausedFallback) else { return false }
+        DispatchQueue.main.async { [weak self] in
+            self?.applySnapshot(snapshot)
+        }
+        return true
+    }
+
+    nonisolated private func musicSnapshotViaAppleScript(allowPausedFallback: Bool) -> NowPlayingSnapshot? {
+        guard isApplicationInstalled(bundleIdentifier: "com.apple.Music") else { return nil }
+        let pausedReturn = allowPausedFallback ? "or player state is paused" : ""
         let script = """
         tell application "System Events"
             if not (exists process "Music") then return "NOT_RUNNING"
         end tell
         tell application "Music"
-            if player state is playing then
+            if player state is playing \(pausedReturn) then
+                set playbackState to player state as string
                 set trackName to name of current track
                 set trackArtist to artist of current track
                 set trackAlbum to album of current track
@@ -634,7 +785,7 @@ final class NowPlayingManager: ObservableObject {
                 try
                     set trackLocation to POSIX path of (location of current track)
                 end try
-                return trackName & "||" & trackArtist & "||" & trackAlbum & "||" & trackDuration & "||" & trackPosition & "||" & trackAlbumArtist & "||" & trackPersistentID & "||" & trackLocation
+                return playbackState & "||" & trackName & "||" & trackArtist & "||" & trackAlbum & "||" & trackDuration & "||" & trackPosition & "||" & trackAlbumArtist & "||" & trackPersistentID & "||" & trackLocation
             else
                 return "NOT_PLAYING"
             end if
@@ -642,46 +793,79 @@ final class NowPlayingManager: ObservableObject {
         """
 
         guard let result = runAppleScript(script), result != "NOT_RUNNING", result != "NOT_PLAYING" else {
-            return false
+            return nil
         }
 
         let parts = result.components(separatedBy: "||")
-        guard parts.count >= 8 else { return false }
+        guard parts.count >= 9 else { return nil }
 
-        let trackTitle = parts[0]
-        let persistentID = parts[6]
-        let locationPath = parts[7]
+        return NowPlayingSnapshot(
+            providerID: "appleMusic",
+            title: parts[1],
+            artist: parts[2],
+            album: parts[3],
+            duration: TimeInterval(parts[4]) ?? 0,
+            elapsedTime: TimeInterval(parts[5]) ?? 0,
+            playbackRate: parts[0] == "playing" ? 1 : 0,
+            isPlaying: parts[0] == "playing",
+            sourceName: "Apple Music",
+            bundleIdentifier: "com.apple.Music",
+            albumArtist: parts[6],
+            artworkURL: nil,
+            trackIdentifier: parts[7],
+            isLocalFile: !parts[8].isEmpty,
+            browserTabURL: "",
+            capturedAt: Date()
+        )
+    }
+
+    nonisolated private func fetchChromeViaAppleScript(allowPausedFallback: Bool = true) -> Bool {
+        guard let snapshot = browserSnapshotViaAppleScript(allowPausedFallback: allowPausedFallback) else { return false }
         DispatchQueue.main.async { [weak self] in
-            self?.currentChromeTabURL = ""
-            self?.currentBundleIdentifier = "com.apple.Music"
-            self?.currentAlbumArtist = parts[5]
-            self?.currentTrackIdentifier = persistentID
-            self?.currentTrackIsLocalFile = !locationPath.isEmpty
-            self?.currentArtworkURL = nil
-            self?.title = trackTitle
-            self?.artist = parts[1]
-            self?.album = parts[2]
-            self?.duration = TimeInterval(parts[3]) ?? 0
-            self?.elapsedTime = TimeInterval(parts[4]) ?? 0
-            self?.isPlaying = true
-            self?.sourceName = "Apple Music"
-            if trackTitle != self?.lastDetectedTitle {
-                self?.lastDetectedTitle = trackTitle
-                AppState.shared.setActiveModule(.nowPlaying)
-            }
+            self?.applySnapshot(snapshot)
+            self?.fetchArtworkIfNeeded(for: snapshot)
         }
         return true
     }
 
-    nonisolated private func fetchChromeViaAppleScript(allowPausedFallback: Bool = true) -> Bool {
+    nonisolated private func browserSnapshotViaAppleScript(allowPausedFallback: Bool) -> NowPlayingSnapshot? {
+        guard UserDefaults.standard.bool(forKey: nowPlayingBrowserDetectionEnabledKey) else { return nil }
+
+        var pausedSnapshot: NowPlayingSnapshot?
+        let allowedBundleIDs = Set(
+            UserDefaults.standard.stringArray(forKey: nowPlayingAllowedBrowserBundleIDsKey) ?? nowPlayingDefaultAllowedBrowserBundleIDs
+        )
+        let targets = nowPlayingSupportedBrowserTargets.filter { allowedBundleIDs.contains($0.id) }
+
+        for target in targets {
+            guard let snapshot = browserSnapshotViaAppleScript(for: target, allowPausedFallback: allowPausedFallback) else {
+                continue
+            }
+            if snapshot.isPlaying {
+                return snapshot
+            }
+            if pausedSnapshot == nil {
+                pausedSnapshot = snapshot
+            }
+        }
+        return pausedSnapshot
+    }
+
+    nonisolated private func browserSnapshotViaAppleScript(
+        for target: NowPlayingBrowserTarget,
+        allowPausedFallback: Bool
+    ) -> NowPlayingSnapshot? {
+        guard isApplicationInstalled(bundleIdentifier: target.id) else { return nil }
         let pausedReturn = allowPausedFallback
             ? "if pausedURL is not \"\" then return \"PAUSED_TAB||\" & pausedTitle & \"||\" & pausedURL & \"||\" & pausedInfo"
             : ""
+        let processName = escapeAppleScriptString(target.processName)
+        let applicationName = escapeAppleScriptString(target.applicationName)
         let script = """
         tell application "System Events"
-            if not (exists process "Google Chrome") then return "NOT_RUNNING"
+            if not (exists process "\(processName)") then return "NOT_RUNNING"
         end tell
-        tell application "Google Chrome"
+        tell application "\(applicationName)"
             set playingTitle to ""
             set playingURL to ""
             set playingInfo to ""
@@ -726,11 +910,11 @@ final class NowPlayingManager: ObservableObject {
         """
 
         guard let result = runAppleScript(script), result != "NOT_RUNNING", result != "NOT_FOUND" else {
-            return false
+            return nil
         }
 
         let parts = result.components(separatedBy: "||")
-        guard parts.count >= 5 else { return false }
+        guard parts.count >= 5 else { return nil }
 
         let rawTitle = parts[1]
         let url = parts[2]
@@ -748,35 +932,115 @@ final class NowPlayingManager: ObservableObject {
 
         // Parse YouTube title format: "Song Name - Artist - YouTube"
         let parsed = parseYouTubeTitle(rawTitle)
-        let chromeSourceName = chromeSourceName(for: url)
+        let chromeSourceName = chromeSourceName(for: url, fallback: target.displayName)
 
-        DispatchQueue.main.async { [weak self] in
-            self?.currentBundleIdentifier = "com.google.Chrome"
-            self?.currentAlbumArtist = ""
-            self?.currentTrackIdentifier = url
-            self?.currentTrackIsLocalFile = url.hasPrefix("file://")
-            self?.currentArtworkURL = artworkURL.isEmpty ? nil : artworkURL
-            self?.title = parsed.title
-            self?.artist = parsed.artist
-            self?.album = ""
-            self?.isPlaying = mediaIsPlaying
-            self?.elapsedTime = mediaCurrentTime
-            self?.duration = mediaDuration
-            self?.currentChromeTabURL = url
-            self?.sourceName = chromeSourceName
-            if parsed.title != self?.lastDetectedTitle {
-                self?.lastDetectedTitle = parsed.title
-                self?.albumArt = nil
+        return NowPlayingSnapshot(
+            providerID: "browser",
+            title: parsed.title,
+            artist: parsed.artist,
+            album: "",
+            duration: mediaDuration,
+            elapsedTime: mediaCurrentTime,
+            playbackRate: mediaIsPlaying ? 1 : 0,
+            isPlaying: mediaIsPlaying,
+            sourceName: chromeSourceName,
+            bundleIdentifier: target.id,
+            albumArtist: "",
+            artworkURL: artworkURL.isEmpty ? nil : artworkURL,
+            trackIdentifier: url,
+            isLocalFile: url.hasPrefix("file://"),
+            browserTabURL: url,
+            capturedAt: Date()
+        )
+    }
+
+    private func applySnapshot(_ snapshot: NowPlayingSnapshot, stale: Bool = false) {
+        currentChromeTabURL = snapshot.browserTabURL
+        currentBundleIdentifier = snapshot.bundleIdentifier
+        currentAlbumArtist = snapshot.albumArtist
+        currentTrackIdentifier = snapshot.trackIdentifier
+        currentTrackIsLocalFile = snapshot.isLocalFile
+        currentArtworkURL = snapshot.artworkURL
+        title = snapshot.title
+        artist = snapshot.artist
+        album = snapshot.album
+        duration = snapshot.duration
+        elapsedTime = snapshot.elapsedTime
+        playbackRate = snapshot.playbackRate
+        isPlaying = stale ? false : snapshot.isPlaying
+        sourceName = snapshot.sourceName
+        providerStatus = stale ? .stale(snapshot.sourceName) : (snapshot.isPlaying ? .playing(snapshot.sourceName) : .paused(snapshot.sourceName))
+
+        if snapshot.browserTabURL.isEmpty {
+            lastPausedChromeTabURL = ""
+        } else if !snapshot.isPlaying {
+            lastPausedChromeTabURL = snapshot.browserTabURL
+        }
+
+        if snapshot.title != lastDetectedTitle {
+            lastDetectedTitle = snapshot.title
+            if snapshot.providerID == "browser" {
+                albumArt = nil
+            }
+            if snapshot.isPlaying, !stale {
                 AppState.shared.setActiveModule(.nowPlaying)
             }
         }
 
-        if !artworkURL.isEmpty {
-            fetchRemoteArtwork(from: artworkURL)
-        } else if url.contains("youtube.com") {
-            fetchYouTubeThumbnail(from: url)
+        if !stale {
+            lastKnownSnapshot = snapshot
         }
 
+        updatePlaybackTimer()
+    }
+
+    private func fetchArtworkIfNeeded(for snapshot: NowPlayingSnapshot) {
+        switch snapshot.providerID {
+        case "spotify":
+            fetchSpotifyArtwork()
+        case "browser":
+            if let artworkURL = snapshot.artworkURL, !artworkURL.isEmpty {
+                fetchRemoteArtwork(from: artworkURL)
+            } else if snapshot.browserTabURL.contains("youtube.com") {
+                fetchYouTubeThumbnail(from: snapshot.browserTabURL)
+            }
+        default:
+            break
+        }
+    }
+
+    private func rememberCurrentSnapshot(providerID: String) {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        lastKnownSnapshot = NowPlayingSnapshot(
+            providerID: providerID,
+            title: title,
+            artist: artist,
+            album: album,
+            duration: duration,
+            elapsedTime: elapsedTime,
+            playbackRate: playbackRate,
+            isPlaying: isPlaying,
+            sourceName: sourceName,
+            bundleIdentifier: currentBundleIdentifier,
+            albumArtist: currentAlbumArtist,
+            artworkURL: currentArtworkURL,
+            trackIdentifier: currentTrackIdentifier,
+            isLocalFile: currentTrackIsLocalFile,
+            browserTabURL: currentChromeTabURL,
+            capturedAt: Date()
+        )
+    }
+
+    @discardableResult
+    private func showLastKnownSnapshotIfUseful() -> Bool {
+        guard let snapshot = lastKnownSnapshot else { return false }
+        guard Date().timeIntervalSince(snapshot.capturedAt) < 600 else { return false }
+        guard !snapshot.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        if snapshot.providerID == "browser", !browserDetectionEnabled {
+            return false
+        }
+
+        applySnapshot(snapshot, stale: true)
         return true
     }
 
@@ -855,11 +1119,13 @@ final class NowPlayingManager: ObservableObject {
         guard isPlaying, duration > 0 else { return }
 
         playbackTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self, self.isPlaying else { return }
-            self.elapsedTime += 1.0
-            if self.elapsedTime >= self.duration {
-                self.elapsedTime = self.duration
-                self.playbackTimer?.invalidate()
+            Task { @MainActor in
+                guard let self, self.isPlaying else { return }
+                self.elapsedTime += 1.0
+                if self.elapsedTime >= self.duration {
+                    self.elapsedTime = self.duration
+                    self.playbackTimer?.invalidate()
+                }
             }
         }
     }
@@ -889,7 +1155,7 @@ final class NowPlayingManager: ObservableObject {
             return
         }
 
-        if isChromePlaybackSource {
+        if isBrowserPlaybackSource {
             _ = controlChromePlayback(shouldPlay: shouldPlay)
             refreshPlaybackStateAfterControlAction(preferChromeRefresh: true)
             return
@@ -978,15 +1244,74 @@ final class NowPlayingManager: ObservableObject {
         return elapsedTime / duration
     }
 
+    var browserTargets: [NowPlayingBrowserTarget] {
+        nowPlayingSupportedBrowserTargets
+    }
+
+    var emptyTitle: String {
+        providerStatus.title
+    }
+
+    var emptySubtitle: String {
+        providerStatus.subtitle
+    }
+
+    func isBrowserAllowed(_ browserID: String) -> Bool {
+        allowedBrowserBundleIDs.contains(browserID)
+    }
+
+    func setBrowser(_ browserID: String, allowed: Bool) {
+        var nextAllowed = allowedBrowserBundleIDs
+        if allowed {
+            nextAllowed.insert(browserID)
+        } else {
+            nextAllowed.remove(browserID)
+        }
+        allowedBrowserBundleIDs = nextAllowed
+    }
+
+    func testBrowserDetection() {
+        browserDetectionTestMessage = "Checking browser media..."
+        guard browserDetectionEnabled else {
+            providerStatus = .browserDisabled
+            browserDetectionTestMessage = "Enable browser media detection first."
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            let snapshot = await self.runOnAppleScriptQueue {
+                self.browserSnapshotViaAppleScript(allowPausedFallback: true)
+            }
+
+            guard let snapshot else {
+                self.providerStatus = .permissionNeeded("Browser media")
+                self.browserDetectionTestMessage = "No browser media found. Check Automation permission and browser JavaScript from Apple Events."
+                return
+            }
+
+            self.applySnapshot(snapshot)
+            self.fetchArtworkIfNeeded(for: snapshot)
+            self.browserDetectionTestMessage = snapshot.isPlaying
+                ? "Detected media in \(snapshot.sourceName)."
+                : "Detected paused media in \(snapshot.sourceName)."
+        }
+    }
+
+    func openAutomationSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     private func formatTime(_ time: TimeInterval) -> String {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%d:%02d", minutes, seconds)
     }
 
-    private var isChromePlaybackSource: Bool {
+    private var isBrowserPlaybackSource: Bool {
         switch sourceName {
-        case "YouTube", "YouTube Music", "SoundCloud", "Spotify Web", "Google Chrome":
+        case "YouTube", "YouTube Music", "SoundCloud", "Spotify Web", "Google Chrome", "Google Chrome Canary":
             return true
         default:
             return !currentChromeTabURL.isEmpty && !lastPausedChromeTabURL.isEmpty
@@ -1004,17 +1329,21 @@ final class NowPlayingManager: ObservableObject {
     }
 
     private func controlChromePlayback(shouldPlay: Bool) -> Bool {
+        let target = browserTarget(for: currentBundleIdentifier) ?? browserTargets.first
+        guard let target else { return false }
         let preferredURL = shouldPlay ? lastPausedChromeTabURL : currentChromeTabURL
         let js = chromeControlJavaScript(shouldPlay: shouldPlay)
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         let escapedPreferredURL = escapeAppleScriptString(preferredURL)
+        let processName = escapeAppleScriptString(target.processName)
+        let applicationName = escapeAppleScriptString(target.applicationName)
 
         let script = """
         tell application "System Events"
-            if not (exists process "Google Chrome") then return "NOT_RUNNING"
+            if not (exists process "\(processName)") then return "NOT_RUNNING"
         end tell
-        tell application "Google Chrome"
+        tell application "\(applicationName)"
             set preferredURL to "\(escapedPreferredURL)"
             if preferredURL is not "" then
                 repeat with w in windows
@@ -1056,6 +1385,10 @@ final class NowPlayingManager: ObservableObject {
         return true
     }
 
+    private func browserTarget(for bundleIdentifier: String) -> NowPlayingBrowserTarget? {
+        nowPlayingSupportedBrowserTargets.first { $0.id == bundleIdentifier }
+    }
+
     private func chromeControlJavaScript(shouldPlay: Bool) -> String {
         if shouldPlay {
             return """
@@ -1090,12 +1423,12 @@ final class NowPlayingManager: ObservableObject {
         """
     }
 
-    nonisolated private func chromeSourceName(for url: String) -> String {
+    nonisolated private func chromeSourceName(for url: String, fallback: String = "Google Chrome") -> String {
         if url.contains("music.youtube.com") { return "YouTube Music" }
         if url.contains("youtube.com") { return "YouTube" }
         if url.contains("soundcloud.com") { return "SoundCloud" }
         if url.contains("spotify.com") { return "Spotify Web" }
-        return "Google Chrome"
+        return fallback
     }
 
     private func sourceName(forBundleIdentifier bundleIdentifier: String) -> String {
@@ -1194,7 +1527,7 @@ final class NowPlayingManager: ObservableObject {
         bundleIdentifier == "com.google.Chrome" || bundleIdentifier == "com.google.Chrome.canary"
     }
 
-    private func escapeAppleScriptString(_ value: String) -> String {
+    nonisolated private func escapeAppleScriptString(_ value: String) -> String {
         value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -1232,11 +1565,13 @@ final class NowPlayingManager: ObservableObject {
         lastPausedChromeTabURL = ""
         currentBundleIdentifier = ""
         lastDetectedTitle = ""
+        providerStatus = browserDetectionEnabled ? .idle : .browserDisabled
         playbackTimer?.invalidate()
         playbackTimer = nil
     }
 
     deinit {
+        providerRefreshTask?.cancel()
         playbackTimer?.invalidate()
         pollTimer?.invalidate()
         adapterStreamTask?.cancel()
