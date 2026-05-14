@@ -88,6 +88,10 @@ scripts/            Build & release scripts
 
 Extensions are JavaScript packages that run inside a sandboxed JavaScriptCore context. Read the full guide at [dynamicisland.app/docs](https://dynamicisland.app/docs) or in [EXTENSIONS.md](EXTENSIONS.md).
 
+## Calendar
+
+The Calendar module supports account/source selection, holiday and birthday filters, duplicate collapse, and meeting-link actions. See [docs/CALENDAR.md](docs/CALENDAR.md).
+
 ---
 
 ## Contributing
