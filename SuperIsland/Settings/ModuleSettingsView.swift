@@ -13,6 +13,15 @@ struct ModuleSettingsView: View {
                 SettingToggleRow(title: "Volume HUD", isOn: $appState.volumeHUDEnabled)
             }
 
+            SettingSectionLabel(title: "Home")
+            SettingGroup {
+                homeSlotRow(title: "Left slot", selection: $appState.homeLeadingPanelRaw)
+                SettingRowDivider()
+                homeSlotRow(title: "Center slot", selection: $appState.homeCenterPanelRaw)
+                SettingRowDivider()
+                homeSlotRow(title: "Right slot", selection: $appState.homeTrailingPanelRaw)
+            }
+
             SettingSectionLabel(title: "System")
             SettingGroup {
                 SettingToggleRow(title: "Battery", isOn: $appState.batteryEnabled)
@@ -65,5 +74,24 @@ struct ModuleSettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func homeSlotRow(title: String, selection: Binding<String>) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 13))
+            Spacer(minLength: 12)
+            Picker("", selection: selection) {
+                ForEach(HomePanel.allCases) { panel in
+                    Label(panel.title, systemImage: panel.iconName)
+                        .tag(panel.rawValue)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(width: 150)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
     }
 }
