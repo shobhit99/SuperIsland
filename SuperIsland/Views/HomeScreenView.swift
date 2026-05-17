@@ -26,27 +26,20 @@ struct HomeScreenView: View {
     }
 
     private var visiblePanels: [HomePanel] {
-        var result: [HomePanel] = []
-        if appState.nowPlayingEnabled { result.append(.nowPlaying) }
-        if appState.calendarEnabled { result.append(.calendar) }
-        if appState.weatherEnabled { result.append(.weather) }
-        return result
+        appState.homePanels
     }
 
     private var threePanelLayout: some View {
         HStack(alignment: .top, spacing: 14) {
-            HomeNowPlayingPanel()
-                .frame(width: 228, alignment: .topLeading)
+            ForEach(Array(visiblePanels.enumerated()), id: \.element.id) { index, panel in
+                panelView(for: panel)
+                    .frame(width: preferredWidth(for: panel), alignment: .topLeading)
+                    .frame(maxWidth: panel == .calendar ? .infinity : nil, alignment: .topLeading)
 
-            homeDivider
-
-            HomeCalendarPanel()
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-
-            homeDivider
-
-            HomeWeatherPanel()
-                .frame(width: 150, alignment: .topLeading)
+                if index < visiblePanels.count - 1 {
+                    homeDivider
+                }
+            }
         }
     }
 
@@ -66,6 +59,8 @@ struct HomeScreenView: View {
     @ViewBuilder
     private func panelView(for panel: HomePanel) -> some View {
         switch panel {
+        case .none:
+            EmptyView()
         case .nowPlaying:
             HomeNowPlayingPanel()
         case .calendar:
@@ -81,14 +76,17 @@ struct HomeScreenView: View {
             .frame(width: 1)
             .padding(.vertical, 4)
     }
-}
 
-private enum HomePanel: String, Identifiable {
-    case nowPlaying
-    case calendar
-    case weather
-
-    var id: String { rawValue }
+    private func preferredWidth(for panel: HomePanel) -> CGFloat? {
+        switch panel {
+        case .nowPlaying:
+            return visiblePanels.count == 3 ? 228 : nil
+        case .weather:
+            return visiblePanels.count == 3 ? 150 : nil
+        case .calendar, .none:
+            return nil
+        }
+    }
 }
 
 private struct HomeNowPlayingPanel: View {

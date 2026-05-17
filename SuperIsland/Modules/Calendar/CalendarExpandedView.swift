@@ -315,18 +315,28 @@ struct CalendarExpandedView: View {
 
             Spacer(minLength: 0)
 
-            if let url = manager.joinURL(for: event) {
-                Button { NSWorkspace.shared.open(url) } label: {
-                    Image(systemName: "video.fill")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(.white.opacity(0.88))
-                        .frame(width: 24, height: 24)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            HStack(spacing: 4) {
+                if let url = manager.joinURL(for: event) {
+                    Button { NSWorkspace.shared.open(url) } label: {
+                        eventActionIcon("video.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open meeting link")
+
+                    Button { copy(url: url) } label: {
+                        eventActionIcon("doc.on.doc")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy meeting link")
+                }
+
+                Button { manager.hideCalendar(for: event) } label: {
+                    eventActionIcon("eye.slash")
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 4)
+                .help("Hide this calendar")
             }
+            .padding(.top, 4)
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 6)
@@ -339,6 +349,20 @@ struct CalendarExpandedView: View {
     private func isEventActive(_ event: EKEvent) -> Bool {
         let now = Date()
         return !event.isAllDay && event.startDate <= now && event.endDate > now
+    }
+
+    private func eventActionIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 9, weight: .bold))
+            .foregroundColor(.white.opacity(0.88))
+            .frame(width: 24, height: 24)
+            .background(Color.white.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
+    private func copy(url: URL) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
     }
 
     // MARK: - Day Cell
