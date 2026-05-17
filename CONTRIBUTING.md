@@ -40,6 +40,15 @@ Check the [Issues](https://github.com/shobhit99/superisland/issues) tab. Issues 
 
 ---
 
+## Release and packaging changes
+
+- Keep local builds simple: `./scripts/build-dmg.sh` should work without notarization credentials
+- Use `./scripts/build-and-release.sh --dry-run` before changing release steps
+- Use `./scripts/verify-universal-build.sh` for release app bundles
+- Update [docs/RELEASE.md](docs/RELEASE.md) when release, signing, notarization, or Homebrew packaging steps change
+
+---
+
 ## Adding extensions
 
 Extensions are the easiest way to contribute without touching Swift. See [dynamicisland.app/docs](https://dynamicisland.app/docs) or [EXTENSIONS.md](EXTENSIONS.md) for a full guide. Drop your extension in `Extensions/` and it will be picked up automatically during development.

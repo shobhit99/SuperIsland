@@ -266,8 +266,14 @@ final class AppState: ObservableObject {
     // Appearance settings
     @AppStorage("appearance.animationSpeed") var animationSpeed: Double = 1.0
     @AppStorage("appearance.bounceAmount") var bounceAmount: Double = 0.25
+    @AppStorage("appearance.animationLevel") var animationLevelRaw = AnimationLevel.full.rawValue
+    @AppStorage("appearance.reduceMotion") var reduceMotion = false
     @AppStorage("appearance.compactIslandWidth") var compactIslandWidth: Double = 200
     @AppStorage("appearance.compactIslandHeight") var compactIslandHeight: Double = 36
+
+    @AppStorage("home.leadingPanel") var homeLeadingPanelRaw = HomePanel.nowPlaying.rawValue
+    @AppStorage("home.centerPanel") var homeCenterPanelRaw = HomePanel.calendar.rawValue
+    @AppStorage("home.trailingPanel") var homeTrailingPanelRaw = HomePanel.weather.rawValue
 
     // General settings
     @AppStorage("general.showMenuBarIcon") var showMenuBarIcon = true
@@ -303,11 +309,55 @@ final class AppState: ObservableObject {
     /// Recomputed per-call so the live bounce-amount setting takes effect
     /// without needing an app relaunch.
     var notchAnimation: Animation {
-        .interactiveSpring(
-            duration: 0.5,
-            extraBounce: bounceAmount,
+        if shouldReduceMotion {
+            return .easeOut(duration: 0.14)
+        }
+
+        let level = animationLevel
+        let duration = 0.5 / max(0.5, animationSpeed)
+        let bounce = min(bounceAmount, level.bounceLimit)
+        return .interactiveSpring(
+            duration: duration,
+            extraBounce: bounce,
             blendDuration: 0.125
         )
+    }
+
+    var contentSwapAnimation: Animation {
+        shouldReduceMotion
+            ? .easeOut(duration: 0.12)
+            : .smooth(duration: 0.22 / max(0.5, animationSpeed))
+    }
+
+    var hoverAnimation: Animation {
+        shouldReduceMotion
+            ? .easeOut(duration: 0.08)
+            : .easeOut(duration: 0.18 / max(0.5, animationSpeed))
+    }
+
+    var shouldReduceMotion: Bool {
+        reduceMotion || animationLevel == .reduced
+    }
+
+    var animationLevel: AnimationLevel {
+        get { AnimationLevel(rawValue: animationLevelRaw) ?? .full }
+        set { animationLevelRaw = newValue.rawValue }
+    }
+
+    var homePanels: [HomePanel] {
+        let configured = [
+            HomePanel(rawValue: homeLeadingPanelRaw) ?? .nowPlaying,
+            HomePanel(rawValue: homeCenterPanelRaw) ?? .calendar,
+            HomePanel(rawValue: homeTrailingPanelRaw) ?? .weather
+        ]
+
+        var seen = Set<HomePanel>()
+        return configured.filter { panel in
+            guard panel != .none else { return false }
+            guard seen.insert(panel).inserted else { return false }
+            guard let module = panel.module else { return false }
+            return isModuleEnabled(module)
+        }
     }
 
     var enabledNotificationSourceIDs: Set<String> {
@@ -707,7 +757,7 @@ final class AppState: ObservableObject {
             nextModule = modules[modules.count - 1]
         }
 
-        withAnimation(Constants.contentSwap) {
+        withAnimation(contentSwapAnimation) {
             previousModule = activeModule
             activeModule = nextModule
         }
@@ -721,14 +771,14 @@ final class AppState: ObservableObject {
         if case .builtIn(let builtIn) = module, !isModuleEnabled(builtIn) {
             return
         }
-        withAnimation(Constants.contentSwap) {
+        withAnimation(contentSwapAnimation) {
             previousModule = activeModule
             activeModule = module
         }
     }
 
     func selectFullExpandedTab(_ tab: FullExpandedTab) {
-        withAnimation(Constants.contentSwap) {
+        withAnimation(contentSwapAnimation) {
             fullExpandedSelectedTab = tab
         }
 
@@ -740,7 +790,7 @@ final class AppState: ObservableObject {
     }
 
     func showHomeTab() {
-        withAnimation(Constants.contentSwap) {
+        withAnimation(contentSwapAnimation) {
             fullExpandedSelectedTab = .home
         }
         shelfDefaultToShelf = false
@@ -1229,7 +1279,7 @@ final class AppState: ObservableObject {
             : (currentIndex - 1 + tabs.count) % tabs.count
         let nextTab = tabs[nextIndex]
 
-        withAnimation(Constants.contentSwap) {
+        withAnimation(contentSwapAnimation) {
             fullExpandedSelectedTab = nextTab
             if case .module(let module) = nextTab {
                 previousModule = activeModule
@@ -1284,7 +1334,7 @@ final class AppState: ObservableObject {
         activeModule = .builtIn(.shelf)
         fullExpandedSelectedTab = .module(.builtIn(.shelf))
 
-        withAnimation(currentState == .compact ? notchAnimation : Constants.contentSwap) {
+        withAnimation(currentState == .compact ? notchAnimation : contentSwapAnimation) {
             currentState = .fullExpanded
         }
     }
@@ -1301,7 +1351,7 @@ final class AppState: ObservableObject {
         activeModule = .builtIn(.shelf)
         fullExpandedSelectedTab = .module(.builtIn(.shelf))
 
-        withAnimation(currentState == .compact ? notchAnimation : Constants.contentSwap) {
+        withAnimation(currentState == .compact ? notchAnimation : contentSwapAnimation) {
             currentState = .fullExpanded
         }
     }

@@ -41,9 +41,15 @@ Select the `SuperIsland` scheme, choose your Mac as the destination, and hit Run
 
 ---
 
-## Building a release DMG
+## Building a DMG
 
-Requires a Developer ID certificate and notarization credentials. Copy `.env.example` to `.env` and fill in:
+For a quick unsigned local build:
+
+```bash
+./scripts/build-dmg.sh
+```
+
+For a signed release, use a Developer ID certificate and notarization credentials. Copy `.env.template` to `.env` and fill in:
 
 ```
 APPLE_ID=you@example.com
@@ -58,12 +64,14 @@ Then run:
 ./scripts/build-and-release.sh
 ```
 
-This archives, exports, notarizes, and produces a signed `build/SuperIsland.dmg`.
+This archives a universal app, bundles a universal runtime, notarizes the DMG, and produces `build/SuperIsland.dmg`.
 
-For a quick unsigned local build:
+Release and Homebrew packaging notes are in [docs/RELEASE.md](docs/RELEASE.md). A Homebrew Cask template is available at [packaging/homebrew/superisland.rb](packaging/homebrew/superisland.rb).
+
+To verify a built app bundle:
 
 ```bash
-./scripts/build-dmg.sh
+./scripts/verify-universal-build.sh build/SuperIsland.app --skip-signature
 ```
 
 ---
@@ -91,6 +99,18 @@ Extensions are JavaScript packages that run inside a sandboxed JavaScriptCore co
 ## Notifications
 
 The Notifications module supports source-level controls for SuperIsland extensions, the bundled WhatsApp integration, and compatible public app broadcasts. See [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
+
+## Appearance
+
+Home slots, compact island size, animation intensity, and reduced motion can be configured in Settings. See [docs/APPEARANCE.md](docs/APPEARANCE.md).
+
+## Calendar
+
+The Calendar module supports account/source selection, holiday and birthday filters, duplicate collapse, and meeting-link actions. See [docs/CALENDAR.md](docs/CALENDAR.md).
+
+## File Shelf
+
+The built-in Shelf module can stage local files, folders, URLs, text snippets, and images from the island. See [docs/SHELF.md](docs/SHELF.md).
 
 ---
 
