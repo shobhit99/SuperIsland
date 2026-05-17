@@ -83,7 +83,7 @@ struct IslandContainerView: View {
             onDragEnded: { handleSwipe(value: $0) }
         ))
         .onContinuousHover(coordinateSpace: .local) { phase in
-            handleSurfaceHover(phase: phase, surfaceSize: surfaceSize)
+            handleSurfaceHover(phase: phase)
         }
         .onTapGesture {
             handleSurfaceTap()
@@ -114,17 +114,11 @@ struct IslandContainerView: View {
             CompactView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .opacity(compactContentOpacity)
-                .transition(
-                    .scale(scale: 0.85, anchor: .top)
-                    .combined(with: .opacity)
-                )
+                .transition(contentTransition(scale: 0.85))
         } else {
             expandedIslandLayout
                 .opacity(compactContentOpacity)
-                .transition(
-                    .scale(scale: 0.5, anchor: .top)
-                    .combined(with: .opacity)
-                )
+                .transition(contentTransition(scale: 0.5))
         }
     }
 
@@ -147,6 +141,12 @@ struct IslandContainerView: View {
 
     private var compactContentOpacity: Double {
         1.0
+    }
+
+    private func contentTransition(scale: CGFloat) -> AnyTransition {
+        appState.shouldReduceMotion
+            ? .opacity
+            : .scale(scale: scale, anchor: .top).combined(with: .opacity)
     }
 
     // Shadows are intentionally disabled in the compact state. The island
@@ -343,7 +343,7 @@ struct IslandContainerView: View {
         .frame(width: windowWidth, height: appState.currentContentFrameHeight, alignment: .center)
         .frame(maxHeight: .infinity, alignment: .top)
         .opacity(appState.isHovering ? 1 : 0.78)
-        .animation(.easeOut(duration: 0.18), value: appState.isHovering)
+        .animation(appState.hoverAnimation, value: appState.isHovering)
         .transition(.opacity)
         .allowsHitTesting(appState.currentState != .compact)
     }
@@ -383,20 +383,10 @@ struct IslandContainerView: View {
         syncHoverState()
     }
 
-    private func handleSurfaceHover(phase: HoverPhase, surfaceSize: CGSize) {
+    private func handleSurfaceHover(phase: HoverPhase) {
         switch phase {
-        case .active(let location):
-            guard appState.currentState == .compact,
-                  appState.shouldUseMinimalCompactLayout else {
-                setIslandSurfaceHover(true)
-                return
-            }
-
-            let centerGapWidth = appState.compactMinimalCenterGapWidth
-            let centerMinX = max(0, (surfaceSize.width - centerGapWidth) / 2)
-            let centerMaxX = min(surfaceSize.width, centerMinX + centerGapWidth)
-            let hoveringCenter = location.x >= centerMinX && location.x <= centerMaxX
-            setIslandSurfaceHover(hoveringCenter)
+        case .active:
+            setIslandSurfaceHover(true)
         case .ended:
             setIslandSurfaceHover(false)
         }

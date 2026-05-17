@@ -7,6 +7,8 @@ struct AppearanceSettingsView: View {
     // and for the @AppStorage initial values in AppState.
     private enum Defaults {
         static let bounceAmount: Double = 0.25
+        static let animationLevel = AnimationLevel.full
+        static let reduceMotion = false
         static let compactIslandWidth: Double = 200
         static let compactIslandHeight: Double = 36
     }
@@ -17,9 +19,37 @@ struct AppearanceSettingsView: View {
             section(
                 title: "Animation",
                 reset: {
+                    appState.animationLevel = Defaults.animationLevel
+                    appState.reduceMotion = Defaults.reduceMotion
                     appState.bounceAmount = Defaults.bounceAmount
                 }
             ) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Animation intensity").font(.system(size: 13))
+                        Text("Controls island motion and transition strength")
+                            .font(.system(size: 11)).foregroundColor(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    Picker("", selection: $appState.animationLevelRaw) {
+                        ForEach(AnimationLevel.allCases) { level in
+                            Text(level.title).tag(level.rawValue)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(width: 120)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+
+                SettingRowDivider()
+                SettingToggleRow(
+                    title: "Reduce motion",
+                    description: "Simplify island transitions and content swaps",
+                    isOn: $appState.reduceMotion
+                )
+
+                SettingRowDivider()
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Bounce").font(.system(size: 13))
