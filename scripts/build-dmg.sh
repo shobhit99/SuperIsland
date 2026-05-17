@@ -1,9 +1,10 @@
 #!/bin/bash
-# Usage: ./scripts/build-dmg.sh
+# Usage: ./scripts/build-dmg.sh [--dry-run]
 # Creates a local (unsigned) install-style DMG in build/ for development/testing.
 
 set -euo pipefail
 
+DRY_RUN=0
 APP_NAME="SuperIsland"
 SCHEME="${APP_NAME}"
 BUILD_DIR="build"
@@ -11,6 +12,41 @@ DERIVED_DATA="${BUILD_DIR}/DerivedData"
 APP_PATH="${BUILD_DIR}/${APP_NAME}.app"
 DMG_PATH="${BUILD_DIR}/${APP_NAME}.dmg"
 DMG_STAGING_DIR="${BUILD_DIR}/dmg-root"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run)
+      DRY_RUN=1
+      ;;
+    -h|--help)
+      echo "Usage: $0 [--dry-run]"
+      exit 0
+      ;;
+    *)
+      echo "ERROR: unexpected argument: $1"
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "ERROR: required command not found: $1"
+    exit 1
+  fi
+}
+
+for command_name in xcodegen xcodebuild hdiutil lipo security codesign; do
+  require_command "${command_name}"
+done
+
+if [ "${DRY_RUN}" = "1" ]; then
+  echo "Dry run: local DMG build prerequisites are available"
+  ./scripts/bundle-node-runtime.sh "${APP_PATH}" --dry-run
+  echo "Dry run: would build a universal Release app and create ${DMG_PATH}"
+  exit 0
+fi
 
 echo "==> Cleaning build directory..."
 rm -rf "${BUILD_DIR}"
@@ -25,8 +61,9 @@ xcodebuild build \
   -scheme "${SCHEME}" \
   -configuration Release \
   -derivedDataPath "${DERIVED_DATA}" \
-  -destination "platform=macOS,arch=arm64" \
-  ONLY_ACTIVE_ARCH=NO
+  -destination "generic/platform=macOS" \
+  ONLY_ACTIVE_ARCH=NO \
+  ARCHS="arm64 x86_64"
 
 echo "==> Copying app bundle..."
 BUILT_APP=$(find "${DERIVED_DATA}" -name "${APP_NAME}.app" -type d | head -1)
@@ -37,14 +74,8 @@ fi
 cp -R "${BUILT_APP}" "${APP_PATH}"
 
 echo "==> Bundling Node.js runtime..."
-NODE_VERSION="20.19.0"
-NODE_TMP="$(mktemp -d)"
-curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-arm64.tar.gz" \
-  | tar -xz -C "${NODE_TMP}" --strip-components=2 "node-v${NODE_VERSION}-darwin-arm64/bin/node"
-cp "${NODE_TMP}/node" "${APP_PATH}/Contents/Resources/node"
-chmod +x "${APP_PATH}/Contents/Resources/node"
-rm -rf "${NODE_TMP}"
-echo "   Bundled node v${NODE_VERSION} ($(du -sh "${APP_PATH}/Contents/Resources/node" | cut -f1))"
+./scripts/bundle-node-runtime.sh "${APP_PATH}"
+echo "   Bundled node ($(du -sh "${APP_PATH}/Contents/Resources/node" | cut -f1))"
 
 echo "==> Code signing for local testing..."
 # An unsigned app can't register with TCC (Calendar, Location, etc. won't appear in System Settings).
@@ -61,6 +92,9 @@ if [ -n "${CERT}" ]; then
 else
   echo "   Warning: no signing certificate found — TCC permissions (Calendar, etc.) won't register."
 fi
+
+echo "==> Verifying universal binaries..."
+./scripts/verify-universal-build.sh "${APP_PATH}" --skip-signature
 
 echo "==> Preparing DMG contents..."
 mkdir -p "${DMG_STAGING_DIR}"

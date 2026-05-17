@@ -51,7 +51,7 @@ struct ShelfExpandedView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
 
-                Text(shelf.items.isEmpty ? "Drop files, links, or text" : "\(shelf.items.count) saved")
+                Text(shelf.items.isEmpty ? "Drop files, links, images, or text" : "\(shelf.items.count) saved")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.58))
             }
@@ -66,7 +66,7 @@ struct ShelfExpandedView: View {
                         Text("Drop onto the island")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
-                        Text("Items stay pinned here until you remove them.")
+                        Text("Items stay here until you remove them.")
                             .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.56))
                     }
@@ -93,20 +93,45 @@ struct ShelfExpandedView: View {
 struct ShelfFullExpandedView: View {
     @ObservedObject private var shelf = ShelfStore.shared
     @EnvironmentObject private var appState: AppState
+    @State private var searchText = ""
 
     var body: some View {
         HStack(spacing: 12) {
             AirDropDropPane()
                 .frame(width: 142)
 
-            TrayDropPane(items: orderedItems)
+            TrayDropPane(
+                items: filteredItems,
+                totalCount: orderedItems.count,
+                isFiltering: !trimmedSearchText.isEmpty,
+                searchText: $searchText
+            )
                 .environmentObject(appState)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var orderedItems: [ShelfItem] {
-        shelf.items
+        shelf.items.sorted { lhs, rhs in
+            if lhs.isPinned != rhs.isPinned {
+                return lhs.isPinned
+            }
+            return lhs.addedAt > rhs.addedAt
+        }
+    }
+
+    private var filteredItems: [ShelfItem] {
+        let query = trimmedSearchText.lowercased()
+        guard !query.isEmpty else { return orderedItems }
+        return orderedItems.filter { item in
+            item.displayName.localizedCaseInsensitiveContains(query)
+                || item.subtitle.localizedCaseInsensitiveContains(query)
+                || (item.previewText?.localizedCaseInsensitiveContains(query) ?? false)
+        }
+    }
+
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -163,6 +188,9 @@ private struct AirDropDropPane: View {
 
 private struct TrayDropPane: View {
     let items: [ShelfItem]
+    let totalCount: Int
+    let isFiltering: Bool
+    @Binding var searchText: String
 
     @ObservedObject private var shelf = ShelfStore.shared
     @EnvironmentObject private var appState: AppState
@@ -180,7 +208,7 @@ private struct TrayDropPane: View {
                         )
                 )
 
-            if items.isEmpty {
+            if totalCount == 0 {
                 VStack(spacing: 12) {
                     Image(systemName: "tray.and.arrow.down")
                         .font(.system(size: 20, weight: .semibold))
@@ -194,44 +222,84 @@ private struct TrayDropPane: View {
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("Tray")
+                        Text("Shelf")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.72))
 
+                        Text(totalCount == 1 ? "1 item" : "\(totalCount) items")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.42))
+
                         Spacer(minLength: 8)
 
-                        Button("Clear") {
-                            shelf.clear()
+                        TextField("Search", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.86))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .frame(width: 150)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color.white.opacity(0.06))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                            )
+
+                        Menu("Clear") {
+                            Button("Clear Unpinned") {
+                                shelf.clearUnpinned()
+                            }
+                            .disabled(!shelf.items.contains { !$0.isPinned })
+
+                            Button("Clear All") {
+                                shelf.clear()
+                            }
                         }
-                        .buttonStyle(.plain)
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.78))
                         .hoverPointer()
                     }
 
-                    Spacer(minLength: 0)
+                    if items.isEmpty && isFiltering {
+                        VStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.64))
+                            Text("No matches")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.68))
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        Spacer(minLength: 0)
 
-                    ScrollViewReader { proxy in
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 18) {
-                                ForEach(items) { item in
-                                    TrayItemTile(item: item)
-                                        .id(item.id)
+                        ScrollViewReader { proxy in
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 18) {
+                                    ForEach(items) { item in
+                                        TrayItemTile(item: item)
+                                            .id(item.id)
+                                    }
                                 }
+                                .padding(.horizontal, 4)
+                                .frame(maxHeight: .infinity, alignment: .center)
                             }
-                            .padding(.horizontal, 4)
-                            .frame(maxHeight: .infinity, alignment: .center)
+                            .frame(height: 88)
+                            .onAppear {
+                                scrollToLatest(using: proxy, animated: false)
+                            }
+                            .onChange(of: items.count) { _, _ in
+                                scrollToLatest(using: proxy, animated: true)
+                            }
                         }
-                        .frame(height: 88)
-                        .onAppear {
-                            scrollToLatest(using: proxy, animated: false)
-                        }
-                        .onChange(of: items.count) { _, _ in
-                            scrollToLatest(using: proxy, animated: true)
-                        }
-                    }
 
-                    Spacer(minLength: 0)
+                        Spacer(minLength: 0)
+                    }
                 }
                 .padding(14)
             }
@@ -246,13 +314,13 @@ private struct TrayDropPane: View {
     }
 
     private func scrollToLatest(using proxy: ScrollViewProxy, animated: Bool) {
-        guard let lastID = items.last?.id else { return }
+        guard let lastID = items.first?.id else { return }
         if animated {
             withAnimation(.smooth(duration: 0.22)) {
-                proxy.scrollTo(lastID, anchor: .trailing)
+                proxy.scrollTo(lastID, anchor: .leading)
             }
         } else {
-            proxy.scrollTo(lastID, anchor: .trailing)
+            proxy.scrollTo(lastID, anchor: .leading)
         }
     }
 }
@@ -297,6 +365,9 @@ private struct ExpandedShelfChip: View {
         .onDrag {
             shelf.dragProvider(for: item)
         }
+        .contextMenu {
+            ShelfItemActionsMenu(item: item)
+        }
     }
 }
 
@@ -309,6 +380,40 @@ private struct TrayItemTile: View {
         VStack(spacing: 6) {
             ZStack(alignment: .topTrailing) {
                 ShelfItemArtworkView(item: item, size: 42, cornerRadius: 9)
+
+                if item.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .frame(width: 15, height: 15)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .background(
+                            Circle()
+                                .fill(Color.black.opacity(0.28))
+                        )
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                        )
+                        .offset(x: -34, y: -4)
+                }
+
+                if item.isMissing {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.yellow.opacity(0.95))
+                        .frame(width: 15, height: 15)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .background(
+                            Circle()
+                                .fill(Color.black.opacity(0.28))
+                        )
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                        )
+                        .offset(x: -17, y: -4)
+                }
 
                 Button {
                     shelf.remove(item)
@@ -361,29 +466,76 @@ private struct TrayItemTile: View {
             shelf.dragProvider(for: item)
         }
         .contextMenu {
+            ShelfItemActionsMenu(item: item)
+        }
+    }
+}
+
+private struct ShelfItemActionsMenu: View {
+    let item: ShelfItem
+    @ObservedObject private var shelf = ShelfStore.shared
+
+    var body: some View {
+        Button(item.isPinned ? "Unpin" : "Pin") {
+            shelf.togglePinned(item)
+        }
+
+        if !item.isMissing {
             Button("Open") {
                 shelf.open(item)
             }
+        }
 
-            if item.kind == .file {
-                Button("Show in Finder") {
-                    shelf.reveal(item)
-                }
+        if item.canQuickLook {
+            Button("Quick Look") {
+                shelf.quickLook(item)
             }
+        }
 
-            Button(item.kind == .text ? "Copy Text" : "Copy") {
+        if item.isFileBacked && !item.isMissing {
+            Button("Show in Finder") {
+                shelf.reveal(item)
+            }
+        }
+
+        Divider()
+
+        if !item.isMissing || !item.isFileBacked {
+            Button(copyTitle) {
                 shelf.copy(item)
+            }
+        }
+
+        if item.isFileBacked {
+            Button("Copy Path") {
+                shelf.copyPath(item)
+            }
+        }
+
+        if !item.isMissing || !item.isFileBacked {
+            Divider()
+
+            Button("Share...") {
+                shelf.share(items: [item])
             }
 
             Button("Share via AirDrop") {
                 shelf.shareViaAirDrop(items: [item])
             }
+        }
 
-            Divider()
+        Divider()
 
-            Button("Remove") {
-                shelf.remove(item)
-            }
+        Button("Remove") {
+            shelf.remove(item)
+        }
+    }
+
+    private var copyTitle: String {
+        switch item.kind {
+        case .link: return "Copy Link"
+        case .text: return "Copy Text"
+        default: return "Copy Item"
         }
     }
 }
@@ -405,7 +557,7 @@ private struct ShelfItemArtworkView: View {
                 Image(nsImage: item.icon)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .padding(item.kind == .file ? 0 : 2)
+                    .padding(item.isFileBacked ? 0 : 2)
             }
         }
         .frame(width: size, height: size)
@@ -419,7 +571,7 @@ private struct ShelfItemArtworkView: View {
 @MainActor
 private enum ShelfThumbnailLoader {
     static func thumbnail(for item: ShelfItem, size: CGFloat) async -> NSImage? {
-        guard item.kind == .file, let url = item.resolvedFileURL else {
+        guard item.isFileBacked, !item.isMissing, let url = item.resolvedFileURL else {
             return nil
         }
 

@@ -1,9 +1,25 @@
 import Foundation
 import EventKit
 import Combine
+import CoreGraphics
 
 private extension Int {
     var nonZero: Int? { self == 0 ? nil : self }
+}
+
+struct CalendarDisplayOption: Identifiable {
+    let id: String
+    let title: String
+    let sourceID: String
+    let sourceTitle: String
+    let color: CGColor
+    let type: EKCalendarType
+}
+
+struct CalendarSourceGroup: Identifiable {
+    let id: String
+    let title: String
+    let calendars: [CalendarDisplayOption]
 }
 
 @MainActor
@@ -13,17 +29,38 @@ final class CalendarManager: ObservableObject {
     @Published var todayEvents: [EKEvent] = []
     @Published var nextEvent: EKEvent?
     @Published var hasAccess: Bool = false
+    @Published var authorizationStatus: EKAuthorizationStatus = EKEventStore.authorizationStatus(for: .event)
     @Published var displayedMonthStart: Date = startOfMonth(for: Date()) {
         didSet { prefetchDatesWithEventsIfNeeded() }
     }
     @Published var selectedDate: Date = Date()
     @Published var selectedDateEvents: [EKEvent] = []
     @Published var upcomingWeekEvents: [(date: Date, events: [EKEvent])] = []
+    @Published var calendarSourceGroups: [CalendarSourceGroup] = []
+    @Published var hideBirthdays: Bool = UserDefaults.standard.bool(forKey: "calendar.hideBirthdays") {
+        didSet {
+            UserDefaults.standard.set(hideBirthdays, forKey: "calendar.hideBirthdays")
+            refreshEventsAfterPreferenceChange()
+        }
+    }
+    @Published var hideHolidays: Bool = UserDefaults.standard.bool(forKey: "calendar.hideHolidays") {
+        didSet {
+            UserDefaults.standard.set(hideHolidays, forKey: "calendar.hideHolidays")
+            refreshEventsAfterPreferenceChange()
+        }
+    }
+    @Published var collapseDuplicates: Bool = UserDefaults.standard.object(forKey: "calendar.collapseDuplicates") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(collapseDuplicates, forKey: "calendar.collapseDuplicates")
+            refreshEventsAfterPreferenceChange()
+        }
+    }
 
     private let store = EKEventStore()
     private var refreshTimer: Timer?
     private var preEventTimer: Timer?
     private let calendarQueue = DispatchQueue(label: "superisland.calendar", qos: .userInitiated)
+    private let enabledCalendarIDsKey = "calendar.enabledCalendarIDs"
     @Published var datesWithEvents: Set<Date> = []
 
     var preEventMinutes: Int {
@@ -31,11 +68,33 @@ final class CalendarManager: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "calendar.preEventMinutes") }
     }
 
+    var lookaheadDays: Int {
+        get { UserDefaults.standard.integer(forKey: "calendar.lookaheadDays").nonZero ?? 7 }
+        set {
+            UserDefaults.standard.set(max(1, min(30, newValue)), forKey: "calendar.lookaheadDays")
+            fetchUpcomingWeekEvents()
+        }
+    }
+
     private init() {
-        requestAccess()
+        refreshAccessStatus()
     }
 
     // MARK: - Access
+
+    func refreshAccessStatus() {
+        authorizationStatus = EKEventStore.authorizationStatus(for: .event)
+        hasAccess = Self.isAuthorized(authorizationStatus)
+        if hasAccess {
+            reloadCalendars()
+            fetchTodayEvents()
+            startRefreshTimer()
+            prefetchDatesWithEventsIfNeeded()
+        } else {
+            clearEvents()
+            stopRefreshTimer()
+        }
+    }
 
     func requestAccess() {
         Task {
@@ -43,16 +102,104 @@ final class CalendarManager: ObservableObject {
                 let granted = try await store.requestFullAccessToEvents()
                 await MainActor.run {
                     hasAccess = granted
+                    authorizationStatus = EKEventStore.authorizationStatus(for: .event)
                     if granted {
+                        reloadCalendars()
                         fetchTodayEvents()
                         startRefreshTimer()
                         prefetchDatesWithEventsIfNeeded()
                     }
                 }
             } catch {
+                await MainActor.run {
+                    authorizationStatus = EKEventStore.authorizationStatus(for: .event)
+                    hasAccess = Self.isAuthorized(authorizationStatus)
+                }
                 print("Calendar access error: \(error)")
             }
         }
+    }
+
+    func openCalendarSettings() {
+        PermissionsManager.shared.openCalendarSettings()
+    }
+
+    private static func isAuthorized(_ status: EKAuthorizationStatus) -> Bool {
+        switch status {
+        case .fullAccess, .authorized:
+            return true
+        default:
+            return false
+        }
+    }
+
+    // MARK: - Calendar Sources
+
+    var hasCustomCalendarSelection: Bool {
+        UserDefaults.standard.object(forKey: enabledCalendarIDsKey) != nil
+    }
+
+    var enabledCalendarIDs: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: enabledCalendarIDsKey) ?? [])
+    }
+
+    func isCalendarEnabled(_ calendarID: String) -> Bool {
+        guard hasCustomCalendarSelection else { return true }
+        return enabledCalendarIDs.contains(calendarID)
+    }
+
+    func setCalendar(_ calendarID: String, enabled: Bool) {
+        var selectedIDs = hasCustomCalendarSelection ? enabledCalendarIDs : Set(allCalendarIDs)
+        if enabled {
+            selectedIDs.insert(calendarID)
+        } else {
+            selectedIDs.remove(calendarID)
+        }
+
+        UserDefaults.standard.set(allCalendarIDs.filter { selectedIDs.contains($0) }, forKey: enabledCalendarIDsKey)
+        refreshEventsAfterPreferenceChange()
+    }
+
+    func hideCalendar(for event: EKEvent) {
+        guard let calendar = event.calendar else { return }
+        setCalendar(calendar.calendarIdentifier, enabled: false)
+    }
+
+    func reloadCalendars() {
+        guard hasAccess else {
+            calendarSourceGroups = []
+            return
+        }
+
+        let grouped = Dictionary(grouping: store.calendars(for: .event)) { calendar in
+            calendar.source.sourceIdentifier
+        }
+
+        calendarSourceGroups = grouped.map { sourceID, calendars in
+            let sortedCalendars = calendars.sorted {
+                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
+            let sourceTitle = sortedCalendars.first?.source.title ?? "Calendars"
+            return CalendarSourceGroup(
+                id: sourceID,
+                title: sourceTitle,
+                calendars: sortedCalendars.map { calendar in
+                    CalendarDisplayOption(
+                        id: calendar.calendarIdentifier,
+                        title: calendar.title,
+                        sourceID: sourceID,
+                        sourceTitle: sourceTitle,
+                        color: calendar.cgColor,
+                        type: calendar.type
+                    )
+                }
+            )
+        }
+        .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    private var allCalendarIDs: [String] {
+        calendarSourceGroups.flatMap { $0.calendars.map(\.id) }
     }
 
     // MARK: - Fetching
@@ -70,8 +217,9 @@ final class CalendarManager: ObservableObject {
             let events = storeRef.events(matching: predicate).sorted { $0.startDate < $1.startDate }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.todayEvents = events
-                self.nextEvent = events.first { $0.startDate > Date() }
+                let visibleEvents = self.visibleEvents(from: events)
+                self.todayEvents = visibleEvents
+                self.nextEvent = visibleEvents.first { $0.startDate > Date() }
                 self.schedulePreEventNotification()
                 self.fetchEventsForSelectedDate()
                 self.fetchUpcomingWeekEvents()
@@ -107,6 +255,8 @@ final class CalendarManager: ObservableObject {
     // MARK: - Refresh
 
     private func startRefreshTimer() {
+        guard refreshTimer == nil else { return }
+
         // Refresh every 5 minutes
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -121,6 +271,12 @@ final class CalendarManager: ObservableObject {
             name: .NSCalendarDayChanged,
             object: nil
         )
+    }
+
+    private func stopRefreshTimer() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        NotificationCenter.default.removeObserver(self, name: .NSCalendarDayChanged, object: nil)
     }
 
     @objc private func dayChanged() {
@@ -161,7 +317,8 @@ final class CalendarManager: ObservableObject {
         let patterns = [
             "https://[\\w.-]+\\.zoom\\.us/[\\w/?=&-]+",
             "https://meet\\.google\\.com/[\\w-]+",
-            "https://teams\\.microsoft\\.com/[\\w/?=&-]+"
+            "https://teams\\.microsoft\\.com/[\\w/?=&-]+",
+            "https?://[^\\s<>]+"
         ]
 
         for text in searchTexts {
@@ -189,7 +346,9 @@ final class CalendarManager: ObservableObject {
 
         calendarQueue.async { [weak self] in
             let events = storeRef.events(matching: predicate).sorted { $0.startDate < $1.startDate }
-            DispatchQueue.main.async { self?.selectedDateEvents = events }
+            DispatchQueue.main.async { [weak self] in
+                self?.selectedDateEvents = self?.visibleEvents(from: events) ?? []
+            }
         }
     }
 
@@ -197,36 +356,38 @@ final class CalendarManager: ObservableObject {
         guard hasAccess else { return }
         let cal = Foundation.Calendar.current
         let tomorrow = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date()))!
-        let weekEnd = cal.date(byAdding: .day, value: 7, to: tomorrow)!
+        let weekEnd = cal.date(byAdding: .day, value: lookaheadDays, to: tomorrow)!
         let predicate = store.predicateForEvents(withStart: tomorrow, end: weekEnd, calendars: nil)
         let storeRef = store
 
         calendarQueue.async { [weak self] in
             let allEvents = storeRef.events(matching: predicate).sorted { $0.startDate < $1.startDate }
 
-            var grouped: [(date: Date, events: [EKEvent])] = []
-            var currentDay: Date?
-            var currentEvents: [EKEvent] = []
-
-            for event in allEvents {
-                let day = cal.startOfDay(for: event.startDate)
-                if day != currentDay {
-                    if let prev = currentDay, !currentEvents.isEmpty {
-                        grouped.append((date: prev, events: currentEvents))
-                    }
-                    currentDay = day
-                    currentEvents = [event]
-                } else {
-                    currentEvents.append(event)
-                }
-            }
-            if let last = currentDay, !currentEvents.isEmpty {
-                grouped.append((date: last, events: currentEvents))
-            }
-
             DispatchQueue.main.async { [weak self] in
-                self?.upcomingWeekEvents = grouped
-                self?.prefetchDatesWithEventsIfNeeded()
+                guard let self else { return }
+                let visibleEvents = self.visibleEvents(from: allEvents)
+                var grouped: [(date: Date, events: [EKEvent])] = []
+                var currentDay: Date?
+                var currentEvents: [EKEvent] = []
+
+                for event in visibleEvents {
+                    let day = cal.startOfDay(for: event.startDate)
+                    if day != currentDay {
+                        if let prev = currentDay, !currentEvents.isEmpty {
+                            grouped.append((date: prev, events: currentEvents))
+                        }
+                        currentDay = day
+                        currentEvents = [event]
+                    } else {
+                        currentEvents.append(event)
+                    }
+                }
+                if let last = currentDay, !currentEvents.isEmpty {
+                    grouped.append((date: last, events: currentEvents))
+                }
+
+                self.upcomingWeekEvents = grouped
+                self.prefetchDatesWithEventsIfNeeded()
             }
         }
     }
@@ -247,12 +408,91 @@ final class CalendarManager: ObservableObject {
 
         calendarQueue.async { [weak self] in
             let events = storeRef.events(matching: predicate)
-            var dates = Set<Date>()
-            for event in events {
-                dates.insert(cal.startOfDay(for: event.startDate))
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                var dates = Set<Date>()
+                for event in self.visibleEvents(from: events) {
+                    dates.insert(cal.startOfDay(for: event.startDate))
+                }
+                self.datesWithEvents = dates
             }
-            DispatchQueue.main.async { self?.datesWithEvents = dates }
         }
+    }
+
+    private func refreshEventsAfterPreferenceChange() {
+        guard hasAccess else { return }
+        fetchTodayEvents()
+        fetchEventsForSelectedDate()
+        fetchUpcomingWeekEvents()
+        prefetchDatesWithEventsIfNeeded()
+    }
+
+    private func clearEvents() {
+        calendarSourceGroups = []
+        todayEvents = []
+        nextEvent = nil
+        selectedDateEvents = []
+        upcomingWeekEvents = []
+        datesWithEvents = []
+        preEventTimer?.invalidate()
+        preEventTimer = nil
+    }
+
+    private func visibleEvents(from events: [EKEvent]) -> [EKEvent] {
+        let filtered = events.filter { event in
+            guard let calendar = event.calendar else { return false }
+            guard isCalendarEnabled(calendar.calendarIdentifier) else { return false }
+            if hideBirthdays, isBirthdayCalendar(calendar) { return false }
+            if hideHolidays, isHolidayCalendar(calendar) { return false }
+            return true
+        }
+
+        let events = collapseDuplicates ? collapseDuplicateEvents(filtered) : filtered
+        return events.sorted { $0.startDate < $1.startDate }
+    }
+
+    private func isBirthdayCalendar(_ calendar: EKCalendar) -> Bool {
+        calendar.type == .birthday || calendar.title.localizedCaseInsensitiveContains("birthday")
+    }
+
+    private func isHolidayCalendar(_ calendar: EKCalendar) -> Bool {
+        let calendarTitle = calendar.title.lowercased()
+        let sourceTitle = calendar.source.title.lowercased()
+        return calendarTitle.contains("holiday") || sourceTitle.contains("holiday")
+    }
+
+    private func collapseDuplicateEvents(_ events: [EKEvent]) -> [EKEvent] {
+        var collapsed: [EKEvent] = []
+        for event in events {
+            guard !collapsed.contains(where: { isDuplicateEvent($0, event) }) else { continue }
+            collapsed.append(event)
+        }
+        return collapsed
+    }
+
+    private func isDuplicateEvent(_ lhs: EKEvent, _ rhs: EKEvent) -> Bool {
+        guard normalizedEventTitle(lhs) == normalizedEventTitle(rhs),
+              lhs.startDate == rhs.startDate,
+              lhs.endDate == rhs.endDate,
+              lhs.isAllDay == rhs.isAllDay else {
+            return false
+        }
+
+        let leftLocation = normalizedEventLocation(lhs)
+        let rightLocation = normalizedEventLocation(rhs)
+        return leftLocation == rightLocation || leftLocation.isEmpty || rightLocation.isEmpty
+    }
+
+    private func normalizedEventTitle(_ event: EKEvent) -> String {
+        (event.title ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private func normalizedEventLocation(_ event: EKEvent) -> String {
+        (event.location ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 
     private func changeDisplayedMonth(by offset: Int) {
@@ -270,6 +510,7 @@ final class CalendarManager: ObservableObject {
 
     deinit {
         refreshTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self, name: .NSCalendarDayChanged, object: nil)
         preEventTimer?.invalidate()
     }
 }
