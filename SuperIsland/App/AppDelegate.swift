@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var updateCancellable: AnyCancellable?
     private var statusItem: NSStatusItem?
     private var menuBarDefaultsObserver: NSObjectProtocol?
+    private var powerStateObserver: NSObjectProtocol?
     private var quitHotkeyMonitor: Any?
     private var didBootstrapApp = false
     private static var fallbackSettingsWindowController: NSWindowController?
@@ -44,9 +45,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AgentsStatusBridge.shared.stop()
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        AppState.shared.setAppActive(true)
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        AppState.shared.setAppActive(false)
+    }
+
     deinit {
         if let quitHotkeyMonitor {
             NSEvent.removeMonitor(quitHotkeyMonitor)
+        }
+        if let powerStateObserver {
+            NotificationCenter.default.removeObserver(powerStateObserver)
         }
     }
 
@@ -56,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupIslandWindow()
         applyMenuBarVisibility()
         observeMenuBarSetting()
+        observePowerState()
         initializeManagers()
     }
 
@@ -123,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         extensions.discoverExtensions()
         extensions.activateDiscoveredExtensions()
         rebuildStatusMenu()
+        state.refreshEnergyState()
 
         UpdateChecker.shared.checkIfDue()
         observeUpdateState()
@@ -355,6 +369,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.applyMenuBarVisibility()
+                ModuleRefreshScheduler.shared.refreshScheduling()
+                ExtensionManager.shared.syncRuntimeEnergyState()
+            }
+        }
+    }
+
+    private func observePowerState() {
+        guard powerStateObserver == nil else { return }
+        powerStateObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name.NSProcessInfoPowerStateDidChange,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                AppState.shared.refreshEnergyState()
             }
         }
     }

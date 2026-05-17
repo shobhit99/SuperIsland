@@ -136,6 +136,7 @@ final class TeleprompterManager: ObservableObject {
                 }
             }
         }
+        countdownTimer?.tolerance = 0.1
     }
 
     private func cancelCountdown() {

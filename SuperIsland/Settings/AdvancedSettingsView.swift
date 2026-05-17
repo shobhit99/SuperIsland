@@ -4,6 +4,7 @@ struct AdvancedSettingsView: View {
     @State private var showResetAlert = false
     @State private var screenOptions: [ScreenDetector.ScreenOption] = ScreenDetector.availableScreenOptions()
     @ObservedObject private var updateChecker = UpdateChecker.shared
+    @ObservedObject private var scheduler = ModuleRefreshScheduler.shared
     @EnvironmentObject var appState: AppState
 
     var body: some View {
@@ -34,6 +35,24 @@ struct AdvancedSettingsView: View {
             .onReceive(NotificationCenter.default.publisher(
                 for: NSApplication.didChangeScreenParametersNotification
             )) { _ in refreshScreenOptions() }
+
+            SettingSectionLabel(title: "Energy Diagnostics")
+            SettingGroup {
+                if scheduler.diagnostics.isEmpty {
+                    Text("No scheduled refresh jobs")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                } else {
+                    ForEach(Array(scheduler.diagnostics.enumerated()), id: \.element.id) { index, job in
+                        diagnosticRow(job)
+                        if index < scheduler.diagnostics.count - 1 {
+                            SettingRowDivider()
+                        }
+                    }
+                }
+            }
 
             SettingSectionLabel(title: "Debug")
             SettingGroup {
@@ -118,7 +137,7 @@ struct AdvancedSettingsView: View {
         switch updateChecker.checkState {
         case .checking:
             ProgressView().controlSize(.small)
-        case .updateAvailable(let version, let releaseURL, let downloadURL):
+        case .updateAvailable(_, let releaseURL, let downloadURL):
             Button("Update") {
                 if let downloadURL {
                     AutoUpdater.shared.start(downloadURL: downloadURL, releaseURL: releaseURL)
@@ -139,6 +158,41 @@ struct AdvancedSettingsView: View {
         let domain = Bundle.main.bundleIdentifier ?? "com.workview.SuperIsland"
         UserDefaults.standard.removePersistentDomain(forName: domain)
         UserDefaults.standard.synchronize()
+    }
+
+    private func diagnosticRow(_ job: EnergyDiagnosticsSnapshot) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(job.name)
+                    .font(.system(size: 13))
+                Text("\(job.moduleName) · \(job.policy)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                if let lastError = job.lastError {
+                    Text(lastError)
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                }
+            }
+            Spacer(minLength: 12)
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(job.status)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(job.status == "Scheduled" ? .green : .secondary)
+                if let duration = job.lastRunDuration {
+                    Text("\(String(format: "%.0f", duration * 1000)) ms")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+                if let nextFireDate = job.nextFireDate {
+                    Text("Next \(nextFireDate, style: .relative)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
     }
 
     private func refreshScreenOptions() {

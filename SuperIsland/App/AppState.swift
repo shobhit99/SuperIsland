@@ -233,12 +233,20 @@ final class AppState: ObservableObject {
                 didChangeState?(oldValue, currentState)
             }
             handleStateTransition(from: oldValue, to: currentState)
+            refreshEnergyState()
         }
     }
-    @Published var activeModule: ActiveModule? = nil
+    @Published var activeModule: ActiveModule? = nil {
+        didSet { refreshEnergyState() }
+    }
     @Published var previousModule: ActiveModule? = nil
-    @Published var fullExpandedSelectedTab: FullExpandedTab = .home
-    @Published var isHovering: Bool = false
+    @Published var fullExpandedSelectedTab: FullExpandedTab = .home {
+        didSet { refreshEnergyState() }
+    }
+    @Published var isHovering: Bool = false {
+        didSet { refreshEnergyState() }
+    }
+    @Published private(set) var isAppActive: Bool = true
     @Published private(set) var isShelfDragActive = false
     /// Set by IslandWindowController during overshoot animations to prevent
     /// hover-triggered dismiss from firing while the window frame is resizing.
@@ -292,6 +300,12 @@ final class AppState: ObservableObject {
     @AppStorage("onboarding.completed") var onboardingCompleted = false
     @AppStorage("debug.alwaysShowOnboarding") var debugAlwaysShowOnboarding = false
 
+    // Energy settings
+    @AppStorage("energy.mode") private var energyModeRawValue = EnergyMode.smart.rawValue
+    @AppStorage("energy.reduceAnimations") var reduceAnimations = false
+    @AppStorage("energy.disableBackgroundExtensionRefresh") var disableBackgroundExtensionRefresh = false
+    @AppStorage("energy.lowPowerSuggestionDoNotAskAgain") var lowPowerSuggestionDoNotAskAgain = false
+
     private var autoDismissWorkItem: DispatchWorkItem?
     private var fullExpandedDismissWorkItem: DispatchWorkItem?
     private var hoverActivationWorkItem: DispatchWorkItem?
@@ -332,8 +346,25 @@ final class AppState: ObservableObject {
             : .easeOut(duration: 0.18 / max(0.5, animationSpeed))
     }
 
+    var energyMode: EnergyMode {
+        get { EnergyMode(rawValue: energyModeRawValue) ?? .smart }
+        set {
+            guard energyModeRawValue != newValue.rawValue else { return }
+            energyModeRawValue = newValue.rawValue
+            refreshEnergyState()
+        }
+    }
+
+    var effectiveEnergyMode: EnergyMode {
+        ProcessInfo.processInfo.isLowPowerModeEnabled ? .lowPower : energyMode
+    }
+
+    var shouldReduceAnimations: Bool {
+        reduceAnimations || effectiveEnergyMode == .lowPower || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
     var shouldReduceMotion: Bool {
-        reduceMotion || animationLevel == .reduced
+        reduceMotion || animationLevel == .reduced || shouldReduceAnimations
     }
 
     var animationLevel: AnimationLevel {
@@ -355,6 +386,55 @@ final class AppState: ObservableObject {
             guard let module = panel.module else { return false }
             return isModuleEnabled(module)
         }
+    }
+
+    func setAppActive(_ active: Bool) {
+        guard isAppActive != active else { return }
+        isAppActive = active
+        refreshEnergyState()
+    }
+
+    func refreshEnergyState() {
+        let activity = IslandActivityState(
+            islandState: currentState,
+            activeModule: activeModule,
+            fullExpandedTab: fullExpandedSelectedTab,
+            isHovering: isHovering,
+            isAppActive: isAppActive
+        )
+        ModuleRefreshScheduler.shared.updateActivityState(activity)
+        ExtensionManager.shared.syncRuntimeEnergyState()
+    }
+
+    func isModuleVisibleForRefresh(_ module: ActiveModule) -> Bool {
+        isModuleVisibleForRefresh(
+            module,
+            state: IslandActivityState(
+                islandState: currentState,
+                activeModule: activeModule,
+                fullExpandedTab: fullExpandedSelectedTab,
+                isHovering: isHovering,
+                isAppActive: isAppActive
+            )
+        )
+    }
+
+    func isModuleVisibleForRefresh(_ module: ActiveModule, state: IslandActivityState) -> Bool {
+        if state.activeModule == module {
+            return true
+        }
+
+        if state.islandState == .fullExpanded,
+           case .module(let selectedModule) = state.fullExpandedTab,
+           selectedModule == module {
+            return true
+        }
+
+        if state.islandState == .compact, compactPresentationModule == module {
+            return true
+        }
+
+        return false
     }
 
     // MARK: - State Transitions

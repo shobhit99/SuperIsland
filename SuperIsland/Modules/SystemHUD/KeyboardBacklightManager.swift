@@ -7,7 +7,7 @@ final class KeyboardBacklightManager: ObservableObject {
 
     @Published var brightness: Float = 0.5
 
-    private var pollingTimer: Timer?
+    private var refreshToken: ModuleRefreshToken?
     private var connect: io_connect_t = 0
     private var serviceInitialized = false
 
@@ -40,7 +40,7 @@ final class KeyboardBacklightManager: ObservableObject {
     private func updateBrightness() {
         guard serviceInitialized else { return }
 
-        var inputCount: UInt32 = 1
+        let inputCount: UInt32 = 1
         var input: [UInt64] = [0]
         var outputCount: UInt32 = 1
         var output: [UInt64] = [0]
@@ -63,8 +63,16 @@ final class KeyboardBacklightManager: ObservableObject {
     // MARK: - Polling
 
     private func startPolling() {
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.updateBrightness()
+        Task { @MainActor [weak self] in
+            self?.refreshToken = ModuleRefreshScheduler.shared.register(
+                id: "volume.keyboardBacklight",
+                name: "Keyboard backlight refresh",
+                module: .builtIn(.volumeHUD),
+                policy: .visibleOnly(2, tolerance: 0.5),
+                enabled: { AppState.shared.volumeHUDEnabled }
+            ) { [weak self] in
+                self?.updateBrightness()
+            }
         }
     }
 
@@ -74,7 +82,7 @@ final class KeyboardBacklightManager: ObservableObject {
         guard serviceInitialized else { return }
 
         let rawValue = UInt64(max(0, min(1, newBrightness)) * Float(0xFFF))
-        var inputCount: UInt32 = 2
+        let inputCount: UInt32 = 2
         var input: [UInt64] = [0, rawValue]
         var outputCount: UInt32 = 1
         var output: [UInt64] = [0]
@@ -94,7 +102,10 @@ final class KeyboardBacklightManager: ObservableObject {
     }
 
     deinit {
-        pollingTimer?.invalidate()
+        let token = refreshToken
+        Task { @MainActor in
+            ModuleRefreshScheduler.shared.unregister(token)
+        }
         if serviceInitialized {
             IOServiceClose(connect)
         }

@@ -141,6 +141,51 @@ struct GeneralSettingsView: View {
                 .padding(.horizontal, 16).padding(.vertical, 11)
             }
 
+            // Power
+            SettingSectionLabel(title: "Power")
+            SettingGroup {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Power mode").font(.system(size: 13))
+                        Text(appState.energyMode.description)
+                            .font(.system(size: 11)).foregroundColor(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    Picker("", selection: energyModeBinding) {
+                        ForEach(EnergyMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(width: 132)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+
+                SettingRowDivider()
+                SettingToggleRow(
+                    title: "Reduce animations",
+                    description: "Use simpler motion for island transitions and visual effects.",
+                    isOn: $appState.reduceAnimations
+                )
+
+                SettingRowDivider()
+                SettingToggleRow(
+                    title: "Pause background extension refresh",
+                    description: "Keep inactive extensions quiet until they are visible or selected.",
+                    isOn: $appState.disableBackgroundExtensionRefresh
+                )
+
+                SettingRowDivider()
+                SettingToggleRow(
+                    title: "Low Power suggestions",
+                    description: "Offer Low Power mode when the Mac switches to battery or refresh work stays busy.",
+                    isOn: lowPowerSuggestionBinding
+                )
+            }
+            .onChange(of: appState.reduceAnimations) { _, _ in appState.refreshEnergyState() }
+            .onChange(of: appState.disableBackgroundExtensionRefresh) { _, _ in appState.refreshEnergyState() }
+
             // Behavior
             SettingSectionLabel(title: "Behavior")
             SettingGroup {
@@ -288,6 +333,20 @@ struct GeneralSettingsView: View {
 
     private func permissionGranted(_ permission: PermissionType) -> Bool {
         permissionStates[permission] ?? false
+    }
+
+    private var energyModeBinding: Binding<EnergyMode> {
+        Binding(
+            get: { appState.energyMode },
+            set: { appState.energyMode = $0 }
+        )
+    }
+
+    private var lowPowerSuggestionBinding: Binding<Bool> {
+        Binding(
+            get: { !appState.lowPowerSuggestionDoNotAskAgain },
+            set: { appState.lowPowerSuggestionDoNotAskAgain = !$0 }
+        )
     }
 
     private func refreshPermissionStates() {

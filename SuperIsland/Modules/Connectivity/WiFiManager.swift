@@ -10,7 +10,7 @@ final class WiFiManager: ObservableObject {
     @Published var isConnected: Bool = false
 
     private let client = CWWiFiClient.shared()
-    private var pollTimer: Timer?
+    private var refreshToken: ModuleRefreshToken?
 
     private init() {
         updateWiFiInfo()
@@ -30,9 +30,16 @@ final class WiFiManager: ObservableObject {
 
         client.delegate = self
 
-        // Poll periodically as backup
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            self?.updateWiFiInfo()
+        Task { @MainActor [weak self] in
+            self?.refreshToken = ModuleRefreshScheduler.shared.register(
+                id: "connectivity.wifi",
+                name: "Wi-Fi fallback refresh",
+                module: .builtIn(.connectivity),
+                policy: .visibleOnly(30, tolerance: 10),
+                enabled: { AppState.shared.connectivityEnabled }
+            ) { [weak self] in
+                self?.updateWiFiInfo()
+            }
         }
     }
 
@@ -76,7 +83,10 @@ final class WiFiManager: ObservableObject {
     }
 
     deinit {
-        pollTimer?.invalidate()
+        let token = refreshToken
+        Task { @MainActor in
+            ModuleRefreshScheduler.shared.unregister(token)
+        }
     }
 }
 
