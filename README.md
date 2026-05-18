@@ -99,6 +99,9 @@ Extensions are JavaScript packages that run inside a sandboxed JavaScriptCore co
 ## Notifications
 
 The Notifications module supports source-level controls for SuperIsland extensions, the bundled WhatsApp integration, and compatible public app broadcasts. See [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
+## Now Playing
+
+Now Playing supports system media, Apple Music, Spotify, and opt-in browser media detection for supported Chromium browsers. See [docs/NOW_PLAYING.md](docs/NOW_PLAYING.md).
 
 ## Energy settings
 

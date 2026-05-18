@@ -97,8 +97,8 @@ private struct HomeNowPlayingPanel: View {
             if manager.title.isEmpty {
                 HomeEmptyState(
                     icon: "music.note.house",
-                    title: "Nothing is playing",
-                    subtitle: "Start playback to pin controls here."
+                    title: manager.emptyTitle,
+                    subtitle: manager.emptySubtitle
                 )
             } else {
                 VStack(alignment: .leading, spacing: 8) {
