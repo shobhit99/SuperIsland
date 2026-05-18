@@ -1,5 +1,5 @@
 import Foundation
-import EventKit
+@preconcurrency import EventKit
 import Combine
 import CoreGraphics
 
@@ -57,9 +57,10 @@ final class CalendarManager: ObservableObject {
     }
 
     private let store = EKEventStore()
-    private var refreshTimer: Timer?
+    private var refreshToken: ModuleRefreshToken?
     private var preEventTimer: Timer?
     private let calendarQueue = DispatchQueue(label: "superisland.calendar", qos: .userInitiated)
+    private var isObservingStoreChanges = false
     private let enabledCalendarIDsKey = "calendar.enabledCalendarIDs"
     @Published var datesWithEvents: Set<Date> = []
 
@@ -88,11 +89,12 @@ final class CalendarManager: ObservableObject {
         if hasAccess {
             reloadCalendars()
             fetchTodayEvents()
-            startRefreshTimer()
+            registerRefresh()
+            observeStoreChanges()
             prefetchDatesWithEventsIfNeeded()
         } else {
             clearEvents()
-            stopRefreshTimer()
+            stopRefresh()
         }
     }
 
@@ -106,7 +108,8 @@ final class CalendarManager: ObservableObject {
                     if granted {
                         reloadCalendars()
                         fetchTodayEvents()
-                        startRefreshTimer()
+                        registerRefresh()
+                        observeStoreChanges()
                         prefetchDatesWithEventsIfNeeded()
                     }
                 }
@@ -218,7 +221,9 @@ final class CalendarManager: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 let visibleEvents = self.visibleEvents(from: events)
-                self.todayEvents = visibleEvents
+                if !self.sameEvents(self.todayEvents, visibleEvents) {
+                    self.todayEvents = visibleEvents
+                }
                 self.nextEvent = visibleEvents.first { $0.startDate > Date() }
                 self.schedulePreEventNotification()
                 self.fetchEventsForSelectedDate()
@@ -250,37 +255,59 @@ final class CalendarManager: ObservableObject {
                 AppState.shared.showHUD(module: .calendar, autoDismiss: false)
             }
         }
+        preEventTimer?.tolerance = min(30, max(1, interval * 0.05))
     }
 
     // MARK: - Refresh
 
-    private func startRefreshTimer() {
-        guard refreshTimer == nil else { return }
+    private func registerRefresh() {
+        guard refreshToken == nil else { return }
 
-        // Refresh every 5 minutes
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.fetchTodayEvents()
-            }
+        refreshToken = ModuleRefreshScheduler.shared.register(
+            id: "calendar.refresh",
+            name: "Calendar fallback refresh",
+            module: .builtIn(.calendar),
+            policy: .interval(600, tolerance: 120),
+            enabled: { AppState.shared.calendarEnabled }
+        ) { [weak self] in
+            self?.fetchTodayEvents()
         }
+    }
 
-        // Also refresh at midnight
+    private func observeStoreChanges() {
+        guard !isObservingStoreChanges else { return }
+        isObservingStoreChanges = true
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(dayChanged),
             name: .NSCalendarDayChanged,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(eventStoreChanged),
+            name: .EKEventStoreChanged,
+            object: store
+        )
     }
 
-    private func stopRefreshTimer() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
+    private func stopRefresh() {
+        ModuleRefreshScheduler.shared.unregister(refreshToken)
+        refreshToken = nil
         NotificationCenter.default.removeObserver(self, name: .NSCalendarDayChanged, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .EKEventStoreChanged, object: store)
+        isObservingStoreChanges = false
     }
 
     @objc private func dayChanged() {
         fetchTodayEvents()
+    }
+
+    @objc private func eventStoreChanged() {
+        fetchTodayEvents()
+        prefetchDatesWithEventsIfNeeded()
     }
 
     // MARK: - Helpers
@@ -508,9 +535,22 @@ final class CalendarManager: ObservableObject {
         return calendar.date(from: components) ?? date
     }
 
+    private func sameEvents(_ lhs: [EKEvent], _ rhs: [EKEvent]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        return zip(lhs, rhs).allSatisfy { left, right in
+            left.eventIdentifier == right.eventIdentifier
+                && left.title == right.title
+                && left.startDate == right.startDate
+                && left.endDate == right.endDate
+        }
+    }
+
     deinit {
-        refreshTimer?.invalidate()
-        NotificationCenter.default.removeObserver(self, name: .NSCalendarDayChanged, object: nil)
+        let token = refreshToken
+        Task { @MainActor in
+            ModuleRefreshScheduler.shared.unregister(token)
+        }
         preEventTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
     }
 }

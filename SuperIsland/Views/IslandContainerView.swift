@@ -7,7 +7,7 @@ struct IslandContainerView: View {
     @State private var isHoveringNextButton = false
     @State private var isShelfDropTargeted = false
     @State private var shelfDragEndWorkItem: DispatchWorkItem?
-    private let hoverValidationTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    private let hoverValidationTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
         // No GeometryReader — just like NotchDrop. The surface sizes
@@ -30,6 +30,7 @@ struct IslandContainerView: View {
             setCycleButtonHover(false, forward: true)
         }
         .onReceive(hoverValidationTimer) { _ in
+            guard appState.isHovering || appState.currentState != .compact else { return }
             validateHoverState()
         }
     }
@@ -102,7 +103,7 @@ struct IslandContainerView: View {
                 appState.presentShelfAfterDrop()
             }
         }
-        .animation(.spring(response: 0.48, dampingFraction: 0.8), value: appState.activeModule)
+        .animation(islandSurfaceAnimation, value: appState.activeModule)
     }
 
     // MARK: - Content
@@ -175,6 +176,10 @@ struct IslandContainerView: View {
 
     private var keyShadowYOffset: CGFloat {
         appState.currentState == .compact ? 0 : 10
+    }
+
+    private var islandSurfaceAnimation: Animation {
+        appState.shouldReduceAnimations ? .easeOut(duration: 0.12) : .spring(response: 0.48, dampingFraction: 0.8)
     }
 
     // MARK: - Expanded Layout

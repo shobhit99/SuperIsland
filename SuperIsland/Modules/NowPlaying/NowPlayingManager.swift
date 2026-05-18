@@ -94,8 +94,9 @@ final class NowPlayingManager: ObservableObject {
     private var sendCommandFunc: MRMediaRemoteSendCommandFunction?
     private var setElapsedTimeFunc: MRMediaRemoteSetElapsedTimeFunction?
 
-    private var playbackTimer: Timer?
-    private var pollTimer: Timer?
+    private var sourceRefreshToken: ModuleRefreshToken?
+    private var playbackRefreshToken: ModuleRefreshToken?
+    private var lastPlaybackTickDate: Date?
     private var cancellables = Set<AnyCancellable>()
 
     // Track whether MediaRemote is providing data
@@ -137,10 +138,15 @@ final class NowPlayingManager: ObservableObject {
     // MARK: - Polling
 
     private func startPolling() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.refreshPreferredSource()
-            }
+        sourceRefreshToken = ModuleRefreshScheduler.shared.register(
+            id: "nowPlaying.source",
+            name: "Now Playing fallback refresh",
+            module: .builtIn(.nowPlaying),
+            policy: .interval(5, tolerance: 2),
+            enabled: { AppState.shared.nowPlayingEnabled }
+        ) { [weak self] in
+            guard let self else { return }
+            self.refreshPreferredSource()
         }
     }
 
@@ -1113,20 +1119,40 @@ final class NowPlayingManager: ObservableObject {
     // MARK: - Playback Timer
 
     private func updatePlaybackTimer() {
-        playbackTimer?.invalidate()
-        playbackTimer = nil
+        ModuleRefreshScheduler.shared.unregister(playbackRefreshToken)
+        playbackRefreshToken = nil
+        lastPlaybackTickDate = nil
 
         guard isPlaying, duration > 0 else { return }
 
-        playbackTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.isPlaying else { return }
-                self.elapsedTime += 1.0
-                if self.elapsedTime >= self.duration {
-                    self.elapsedTime = self.duration
-                    self.playbackTimer?.invalidate()
-                }
+        lastPlaybackTickDate = Date()
+        playbackRefreshToken = ModuleRefreshScheduler.shared.register(
+            id: "nowPlaying.progress",
+            name: "Now Playing progress",
+            module: .builtIn(.nowPlaying),
+            policy: .visibleOnly(1, tolerance: 0.2),
+            enabled: { [weak self] in
+                AppState.shared.nowPlayingEnabled && (self?.isPlaying ?? false)
             }
+        ) { [weak self] in
+            self?.advancePlaybackProgress()
+        }
+    }
+
+    private func advancePlaybackProgress() {
+        guard isPlaying, duration > 0 else {
+            updatePlaybackTimer()
+            return
+        }
+
+        let now = Date()
+        let delta = lastPlaybackTickDate.map { now.timeIntervalSince($0) } ?? 1
+        lastPlaybackTickDate = now
+
+        elapsedTime += min(max(delta, 0.5), 5) * max(playbackRate, 1)
+        if elapsedTime >= duration {
+            elapsedTime = duration
+            updatePlaybackTimer()
         }
     }
 
@@ -1566,14 +1592,19 @@ final class NowPlayingManager: ObservableObject {
         currentBundleIdentifier = ""
         lastDetectedTitle = ""
         providerStatus = browserDetectionEnabled ? .idle : .browserDisabled
-        playbackTimer?.invalidate()
-        playbackTimer = nil
+        ModuleRefreshScheduler.shared.unregister(playbackRefreshToken)
+        playbackRefreshToken = nil
+        lastPlaybackTickDate = nil
     }
 
     deinit {
         providerRefreshTask?.cancel()
-        playbackTimer?.invalidate()
-        pollTimer?.invalidate()
+        let sourceToken = sourceRefreshToken
+        let playbackToken = playbackRefreshToken
+        Task { @MainActor in
+            ModuleRefreshScheduler.shared.unregister(sourceToken)
+            ModuleRefreshScheduler.shared.unregister(playbackToken)
+        }
         adapterStreamTask?.cancel()
         if let adapterPipeHandler {
             Task {
