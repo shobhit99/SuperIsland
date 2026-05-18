@@ -133,6 +133,7 @@ final class MediaKeyInterceptor {
                 self.cancelRetry()
             }
         }
+        timer.tolerance = 0.5
         RunLoop.main.add(timer, forMode: .common)
         retryTimer = timer
     }

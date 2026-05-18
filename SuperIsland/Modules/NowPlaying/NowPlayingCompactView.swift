@@ -184,6 +184,7 @@ struct EqualizerBarsView: NSViewRepresentable {
 }
 
 struct NowPlayingPlaybackCompactButton: View {
+    @EnvironmentObject var appState: AppState
     @ObservedObject private var manager = NowPlayingManager.shared
     @State private var isHovering = false
 
@@ -201,7 +202,7 @@ struct NowPlayingPlaybackCompactButton: View {
                             .frame(width: 18, height: 18)
                     } else {
                         EqualizerBarsView(
-                            isPlaying: true,
+                            isPlaying: !appState.shouldReduceAnimations,
                             barColor: manager.albumArtColor ?? .white
                         )
                         .frame(width: 20, height: 16)

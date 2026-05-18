@@ -93,8 +93,8 @@ final class NotificationManager: ObservableObject {
 
     private let logMonitorQueue = DispatchQueue(label: "superisland.whatsapp-log-monitor", qos: .utility)
     private let deliveredMonitorQueue = DispatchQueue(label: "superisland.notifications-delivered-monitor", qos: .utility)
-    private var whatsappLogMonitorTimer: DispatchSourceTimer?
-    private var deliveredNotificationMonitorTimer: DispatchSourceTimer?
+    private var whatsappLogRefreshToken: ModuleRefreshToken?
+    private var deliveredNotificationRefreshToken: ModuleRefreshToken?
     private var seenWhatsAppEventIDs: [String] = []
     private var seenDeliveredNotificationIDs: [String] = []
     private let maxSeenWhatsAppEventIDs = 80
@@ -343,24 +343,27 @@ final class NotificationManager: ObservableObject {
     }
 
     private func startWhatsAppLogMonitor() {
-        let timer = DispatchSource.makeTimerSource(queue: logMonitorQueue)
-        timer.schedule(deadline: .now() + .milliseconds(300), repeating: .seconds(1))
-        timer.setEventHandler { [weak self] in
+        whatsappLogRefreshToken = ModuleRefreshScheduler.shared.register(
+            id: "notifications.whatsappLog",
+            name: "WhatsApp notification log scan",
+            module: .builtIn(.notifications),
+            policy: .interval(15, tolerance: 5),
+            enabled: { AppState.shared.notificationsEnabled }
+        ) { [weak self] in
             guard let self else { return }
 
-            let events = Self.fetchWhatsAppEventsFromUnifiedLog()
-            guard !events.isEmpty else { return }
+            self.logMonitorQueue.async { [weak self] in
+                let events = Self.fetchWhatsAppEventsFromUnifiedLog()
+                guard !events.isEmpty else { return }
 
-            Task { @MainActor [weak self] in
-                self?.ingestWhatsAppLogEvents(events)
+                Task { @MainActor [weak self] in
+                    self?.ingestWhatsAppLogEvents(events)
+                }
             }
         }
-
-        whatsappLogMonitorTimer = timer
-        timer.resume()
     }
 
-    private static func fetchWhatsAppEventsFromUnifiedLog() -> [WhatsAppLogEvent] {
+    nonisolated private static func fetchWhatsAppEventsFromUnifiedLog() -> [WhatsAppLogEvent] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/log")
         process.arguments = [
@@ -949,27 +952,30 @@ final class NotificationManager: ObservableObject {
     }
 
     private func startDeliveredNotificationMonitor() {
-        let timer = DispatchSource.makeTimerSource(queue: deliveredMonitorQueue)
-        timer.schedule(deadline: .now() + .seconds(1), repeating: .seconds(2))
-        timer.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.pollDeliveredNotifications()
+        deliveredNotificationRefreshToken = ModuleRefreshScheduler.shared.register(
+            id: "notifications.delivered",
+            name: "Delivered notification scan",
+            module: .builtIn(.notifications),
+            policy: .interval(10, tolerance: 3),
+            enabled: { AppState.shared.notificationsEnabled }
+        ) { [weak self] in
+            guard let self else { return }
+            self.deliveredMonitorQueue.async { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.pollDeliveredNotifications()
+                }
             }
         }
-
-        deliveredNotificationMonitorTimer = timer
-        timer.resume()
     }
 
     @MainActor
     private func pollDeliveredNotifications() {
         UNUserNotificationCenter.current().getDeliveredNotifications { [weak self] delivered in
-            guard let self else { return }
-            let parsed = self.parseWhatsAppDeliveredNotifications(delivered)
-            guard !parsed.isEmpty else { return }
-
             Task { @MainActor [weak self] in
-                self?.ingestDeliveredNotifications(parsed)
+                guard let self else { return }
+                let parsed = self.parseWhatsAppDeliveredNotifications(delivered)
+                guard !parsed.isEmpty else { return }
+                self.ingestDeliveredNotifications(parsed)
             }
         }
     }
@@ -1644,10 +1650,12 @@ final class NotificationManager: ObservableObject {
     }
 
     deinit {
-        whatsappLogMonitorTimer?.cancel()
-        whatsappLogMonitorTimer = nil
-        deliveredNotificationMonitorTimer?.cancel()
-        deliveredNotificationMonitorTimer = nil
+        let whatsappToken = whatsappLogRefreshToken
+        let deliveredToken = deliveredNotificationRefreshToken
+        Task { @MainActor in
+            ModuleRefreshScheduler.shared.unregister(whatsappToken)
+            ModuleRefreshScheduler.shared.unregister(deliveredToken)
+        }
         DistributedNotificationCenter.default().removeObserver(self)
     }
 }
