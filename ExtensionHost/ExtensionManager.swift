@@ -441,11 +441,12 @@ final class ExtensionManager: ObservableObject {
             return
         }
 
-        let interval = max(2, manifest.refreshInterval)
+        let interval = max(1, manifest.refreshInterval)
         let module = refreshModule(for: manifest)
+        let tolerance = min(0.5, max(0.1, interval * 0.25))
         let policy: ModuleRefreshPolicy = manifest.capabilities.notificationFeed
-            ? .interval(interval, tolerance: max(0.5, interval * 0.25))
-            : .visibleOnly(interval, tolerance: max(0.5, interval * 0.25))
+            ? .interval(interval, tolerance: tolerance)
+            : .visibleOnly(interval, tolerance: tolerance)
 
         refreshTokens[manifest.id] = ModuleRefreshScheduler.shared.register(
             id: "extension.\(manifest.id).refresh",

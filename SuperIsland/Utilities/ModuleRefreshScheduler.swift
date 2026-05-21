@@ -219,7 +219,7 @@ final class ModuleRefreshScheduler: ObservableObject {
             return
         }
 
-        guard effectiveSchedule(for: job) != nil else {
+        guard let schedule = effectiveSchedule(for: job) else {
             reschedule(id: id, runIfNewlyVisible: false)
             return
         }
@@ -229,6 +229,7 @@ final class ModuleRefreshScheduler: ObservableObject {
         let duration = Date().timeIntervalSince(start)
         job.lastRunDate = start
         job.lastRunDuration = duration
+        job.nextFireDate = Date().addingTimeInterval(schedule.interval)
         job.lastError = nil
         jobs[id] = job
 
@@ -277,7 +278,7 @@ final class ModuleRefreshScheduler: ObservableObject {
     private func minimumInterval(for module: ActiveModule?) -> TimeInterval {
         switch module {
         case .extension_:
-            return AppState.shared.effectiveEnergyMode == .normal ? 2 : 5
+            return AppState.shared.effectiveEnergyMode == .lowPower ? 5 : 1
         default:
             return 1
         }

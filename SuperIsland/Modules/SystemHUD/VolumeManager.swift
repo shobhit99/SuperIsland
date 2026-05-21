@@ -280,9 +280,19 @@ final class VolumeManager: ObservableObject {
 
         switch appID {
         case "spotify":
-            setMusicAppVolume(processName: "Spotify", scriptAppName: "Spotify", volume: clamped)
+            setMusicAppVolume(
+                bundleIdentifier: "com.spotify.client",
+                processName: "Spotify",
+                scriptAppName: "Spotify",
+                volume: clamped
+            )
         case "apple-music":
-            setMusicAppVolume(processName: "Music", scriptAppName: "Music", volume: clamped)
+            setMusicAppVolume(
+                bundleIdentifier: "com.apple.Music",
+                processName: "Music",
+                scriptAppName: "Music",
+                volume: clamped
+            )
         case "chrome":
             setChromeMediaVolume(clamped)
         default:
@@ -298,6 +308,11 @@ final class VolumeManager: ObservableObject {
         scriptAppName: String,
         iconName: String
     ) -> MediaAppVolume? {
+        guard isApplicationInstalled(bundleIdentifier: bundleIdentifier),
+              isApplicationRunning(bundleIdentifier: bundleIdentifier, processName: processName) else {
+            return nil
+        }
+
         let script = """
         tell application "System Events"
             if not (exists process "\(processName)") then return "NOT_RUNNING"
@@ -327,7 +342,12 @@ final class VolumeManager: ObservableObject {
         )
     }
 
-    private func setMusicAppVolume(processName: String, scriptAppName: String, volume: Float) {
+    private func setMusicAppVolume(bundleIdentifier: String, processName: String, scriptAppName: String, volume: Float) {
+        guard isApplicationInstalled(bundleIdentifier: bundleIdentifier),
+              isApplicationRunning(bundleIdentifier: bundleIdentifier, processName: processName) else {
+            return
+        }
+
         let target = Int((max(0, min(1, volume)) * 100).rounded())
         let script = """
         tell application "System Events"
@@ -343,6 +363,11 @@ final class VolumeManager: ObservableObject {
     }
 
     nonisolated private func fetchChromeMediaVolume() -> MediaAppVolume? {
+        guard isApplicationInstalled(bundleIdentifier: "com.google.Chrome"),
+              isApplicationRunning(bundleIdentifier: "com.google.Chrome", processName: "Google Chrome") else {
+            return nil
+        }
+
         let script = """
         tell application "System Events"
             if not (exists process "Google Chrome") then return "NOT_RUNNING"
@@ -404,6 +429,11 @@ final class VolumeManager: ObservableObject {
     }
 
     private func setChromeMediaVolume(_ volume: Float) {
+        guard isApplicationInstalled(bundleIdentifier: "com.google.Chrome"),
+              isApplicationRunning(bundleIdentifier: "com.google.Chrome", processName: "Google Chrome") else {
+            return
+        }
+
         let normalized = String(format: "%.3f", max(0, min(1, volume)))
         let script = """
         tell application "System Events"
@@ -435,6 +465,20 @@ final class VolumeManager: ObservableObject {
     }
 
     // MARK: - Helpers
+
+    nonisolated private func isApplicationInstalled(bundleIdentifier: String) -> Bool {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    nonisolated private func isApplicationRunning(bundleIdentifier: String, processName: String) -> Bool {
+        NSWorkspace.shared.runningApplications.contains { app in
+            guard !app.isTerminated else { return false }
+            return app.bundleIdentifier == bundleIdentifier || app.localizedName == processName
+        }
+    }
 
     var volumeIconName: String {
         if isMuted || volume == 0 {
