@@ -28,6 +28,8 @@ targets:
           - "**/*.md"
     dependencies:
       - package: Aptabase
+    scheme:
+      buildImplicitDependencies: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.workview.SuperIsland

@@ -90,7 +90,7 @@ struct GeneralSettingsView: View {
     @ObservedObject private var mascotManager = MascotManager.shared
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
     @State private var permissionStates: [PermissionType: Bool] = [:]
-    private let permissionRefreshTimer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
+    private static let permissionRefreshTimer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -293,7 +293,7 @@ struct GeneralSettingsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .onAppear { refreshPermissionStates() }
-        .onReceive(permissionRefreshTimer) { _ in refreshPermissionStates() }
+        .onReceive(Self.permissionRefreshTimer) { _ in refreshPermissionStates() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshPermissionStates()
         }
