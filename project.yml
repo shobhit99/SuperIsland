@@ -30,6 +30,8 @@ targets:
       - package: Aptabase
     scheme:
       buildImplicitDependencies: true
+      testTargets:
+        - SuperIslandTests
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.workview.SuperIsland
@@ -78,3 +80,14 @@ targets:
                 "${SRC}/" "${DEST}/${ext}/"
             fi
           done
+  SuperIslandTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: SuperIslandTests
+    dependencies:
+      - target: SuperIsland
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.workview.SuperIslandTests
+        GENERATE_INFOPLIST_FILE: true

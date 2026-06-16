@@ -95,7 +95,6 @@ final class ModuleRefreshScheduler: ObservableObject {
         let policy: ModuleRefreshPolicy
         let enabled: @MainActor () -> Bool
         let action: @MainActor () -> Void
-        var timer: Timer?
         var nextFireDate: Date?
         var lastRunDate: Date?
         var lastRunDuration: TimeInterval?
@@ -104,6 +103,14 @@ final class ModuleRefreshScheduler: ObservableObject {
     }
 
     private var jobs: [String: Job] = [:]
+    // Timer ownership is kept here, keyed by job id, deliberately separate from
+    // the Job struct. Jobs are value types stored in a dictionary, so reading a
+    // job into a local `var`, mutating it, and writing it back can clobber a
+    // timer that a re-entrant call (action -> updateActivityState -> reschedule)
+    // installed in the meantime, orphaning a live RunLoop timer that can never be
+    // invalidated. Routing all timer mutations through this dictionary keeps
+    // ownership authoritative and re-entrancy-safe.
+    private var timers: [String: Timer] = [:]
     private var recentActivity: [(date: Date, duration: TimeInterval)] = []
     private var activityState = IslandActivityState(
         islandState: .compact,
@@ -114,6 +121,14 @@ final class ModuleRefreshScheduler: ObservableObject {
     )
 
     private init() {}
+
+#if DEBUG
+    /// Test seam: build an isolated instance instead of the shared singleton.
+    init(isolatedForTesting: Bool) { _ = isolatedForTesting }
+
+    var scheduledTimerCountForTesting: Int { timers.count }
+    var jobCountForTesting: Int { jobs.count }
+#endif
 
     @discardableResult
     func register(
@@ -145,9 +160,14 @@ final class ModuleRefreshScheduler: ObservableObject {
     }
 
     func unregister(id: String) {
-        jobs[id]?.timer?.invalidate()
+        invalidateTimer(id: id)
         jobs.removeValue(forKey: id)
         updateDiagnostics()
+    }
+
+    private func invalidateTimer(id: String) {
+        timers[id]?.invalidate()
+        timers.removeValue(forKey: id)
     }
 
     func updateActivityState(_ nextState: IslandActivityState) {
@@ -177,8 +197,7 @@ final class ModuleRefreshScheduler: ObservableObject {
     private func reschedule(id: String, runIfNewlyVisible: Bool) {
         guard var job = jobs[id] else { return }
 
-        job.timer?.invalidate()
-        job.timer = nil
+        invalidateTimer(id: id)
         job.nextFireDate = nil
 
         guard job.enabled() else {
@@ -203,7 +222,7 @@ final class ModuleRefreshScheduler: ObservableObject {
         timer.tolerance = schedule.tolerance
         RunLoop.main.add(timer, forMode: .common)
 
-        job.timer = timer
+        timers[id] = timer
         job.nextFireDate = nextFireDate
         job.status = "Scheduled"
         jobs[id] = job
