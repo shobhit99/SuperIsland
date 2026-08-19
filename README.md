@@ -135,10 +135,10 @@ SuperIsland checks for updates automatically on launch. When a new version is av
 
 ## Star History
 
-<a href="https://www.star-history.com/#shobhit99/superisland&Date">
+<a href="https://star-history.dera.page/#shobhit99/superisland&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=shobhit99/superisland&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=shobhit99/superisland&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=shobhit99/superisland&type=Date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=shobhit99/superisland&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=shobhit99/superisland&type=Date" />
+    <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=shobhit99/superisland&type=Date" />
   </picture>
 </a>
