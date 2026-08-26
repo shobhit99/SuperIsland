@@ -703,7 +703,7 @@ final class ExtensionJSRuntime {
               icon: function(name, opts) { return { type: 'icon', name: name, size: (opts && opts.size) ?? 14, color: opts && opts.color }; },
               image: function(url, opts) { return { type: 'image', url: url, width: opts.width, height: opts.height, cornerRadius: opts.cornerRadius }; },
               progress: function(value, opts) { return { type: 'progress', value: value, total: (opts && opts.total) ?? 1, color: opts && opts.color }; },
-              circularProgress: function(value, opts) { return { type: 'circular-progress', value: value, total: (opts && opts.total) ?? 1, lineWidth: (opts && opts.lineWidth) ?? 3, color: opts && opts.color }; },
+              circularProgress: function(value, opts) { return { type: 'circular-progress', value: value, total: (opts && opts.total) ?? 1, lineWidth: (opts && opts.lineWidth) ?? 3, size: opts && opts.size, color: opts && opts.color }; },
               gauge: function(value, opts) { return { type: 'gauge', value: value, min: (opts && opts.min) ?? 0, max: (opts && opts.max) ?? 1, label: opts && opts.label }; },
               divider: function() { return { type: 'divider' }; },
               button: function(label, action) { return { type: 'button', label: label, action: action }; },

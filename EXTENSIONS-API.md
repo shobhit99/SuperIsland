@@ -535,7 +535,7 @@ type ViewNode =
   | { type: "icon"; name: string; size?: number; color?: Color }
   | { type: "image"; url: string; width: number; height: number; cornerRadius?: number }
   | { type: "progress"; value: number; total?: number; color?: Color }
-  | { type: "circular-progress"; value: number; total?: number; lineWidth?: number; color?: Color }
+  | { type: "circular-progress"; value: number; total?: number; lineWidth?: number; size?: number; color?: Color }
   | { type: "gauge"; value: number; min?: number; max?: number; label?: string }
   | { type: "divider" }
 
@@ -592,8 +592,8 @@ const View = {
     ({ type: "image", url, ...opts }),
   progress: (value: number, opts?: { total?: number; color?: Color }) =>
     ({ type: "progress", value, total: opts?.total ?? 1, color: opts?.color }),
-  circularProgress: (value: number, opts?: { total?: number; lineWidth?: number; color?: Color }) =>
-    ({ type: "circular-progress", value, total: opts?.total ?? 1, lineWidth: opts?.lineWidth ?? 3, color: opts?.color }),
+  circularProgress: (value: number, opts?: { total?: number; lineWidth?: number; size?: number; color?: Color }) =>
+    ({ type: "circular-progress", value, total: opts?.total ?? 1, lineWidth: opts?.lineWidth ?? 3, size: opts?.size, color: opts?.color }),
   gauge: (value: number, opts?: { min?: number; max?: number; label?: string }) =>
     ({ type: "gauge", value, ...opts }),
   divider: () =>
@@ -652,6 +652,11 @@ SuperIsland.components.inputComposer({
 - `"fillEqually"`: children share equal space along the stack axis
 
 The `View` global is pre-injected into every extension's JSContext so no imports are needed.
+
+For `circular-progress`, `size` sets a fixed outer diameter in points. Omit it
+to preserve the host default; it is useful when layering multiple rings in a
+`zstack`. Values smaller than twice `lineWidth` are clamped to avoid a
+degenerate stroke.
 
 ---
 
