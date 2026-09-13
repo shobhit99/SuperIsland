@@ -46,7 +46,7 @@ final class WeatherManager: NSObject, ObservableObject {
 
     func requestLocationAndFetch() {
         switch locationManager.authorizationStatus {
-        case .authorizedAlways, .authorized:
+        case .authorizedAlways, .authorizedWhenInUse, .authorized:
             locationManager.startUpdatingLocation()
         case .notDetermined:
             locationManager.requestAlwaysAuthorization()
@@ -78,7 +78,10 @@ final class WeatherManager: NSObject, ObservableObject {
         URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
             defer { DispatchQueue.main.async { self?.isLoading = false } }
 
-            guard let data, error == nil else { return }
+            guard let data, error == nil else {
+                NSLog("SuperIsland: weather fetch failed — \(error?.localizedDescription ?? "no data")")
+                return
+            }
 
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -255,7 +258,7 @@ final class WeatherManager: NSObject, ObservableObject {
 extension WeatherManager: CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         switch manager.authorizationStatus {
-        case .authorizedAlways, .authorized:
+        case .authorizedAlways, .authorizedWhenInUse, .authorized:
             manager.startUpdatingLocation()
         default:
             break
