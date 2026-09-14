@@ -33,3 +33,14 @@ Displays Codex + Claude usage/availability inside SuperIsland with circular indi
 - Codex still updates from local summary / OAuth API data.
 - Claude reads session (`five_hour`) and weekly (`seven_day*`) windows from OAuth usage when available.
 - Week/session values no longer mirror overall remaining when source data is missing (they show `--%`).
+
+## Full-expanded usage pace
+
+- Click the Codex or Claude card to open a reset-aware pace view, then use
+  `‹ Overview` to return.
+- When the provider returns both an exact remaining percentage and reset time,
+  the page shows a budget to local midnight and an even daily pace from now to
+  reset.
+- These are allocation suggestions from the remaining quota and reset time,
+  not a claimed historical daily-usage average. Missing source fields stay
+  `--` rather than being inferred.
