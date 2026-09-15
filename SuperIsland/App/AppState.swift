@@ -966,6 +966,35 @@ final class AppState: ObservableObject {
         currentState == .fullExpanded && currentContentTopInset > 0 && fullExpandedShoulderGapWidth > 0
     }
 
+    /// Module tabs shown in the shoulder strip — same filter as the tab bar:
+    /// home lives outside the strip and notifications has its own trailing
+    /// button.
+    var fullExpandedShoulderModuleTabCount: Int {
+        fullExpandedTabs.filter { tab in
+            if tab == .home { return false }
+            if case .module(.builtIn(.notifications)) = tab { return false }
+            return true
+        }.count
+    }
+
+    /// Widens the full-expanded island so every module tab fits in the
+    /// leading shoulder next to Home. The shoulder layout is symmetric
+    /// around the camera gap, so the island must grow by twice the extra
+    /// tab width. Capped to the presentation screen; past the cap the strip
+    /// falls back to scrolling with the overflow hint.
+    private func fullExpandedAdaptiveWidth(baseWidth: CGFloat) -> CGFloat {
+        guard presentationHasNotch, let notch = currentNotchRect else { return baseWidth }
+        let metrics = FullExpandedShoulderMetrics.self
+        let gap = notch.width + 20
+        let neededLeading = metrics.leadingShoulderWidth(moduleCount: fullExpandedShoulderModuleTabCount)
+        let required = ((neededLeading + metrics.horizontalPadding) * 2) + gap
+        guard required > baseWidth else { return baseWidth }
+
+        let screenWidth = presentationScreenFrame.width
+        let cap = screenWidth > 0 ? screenWidth - 200 : required
+        return min(required, max(baseWidth, cap))
+    }
+
     var fullExpandedShoulderGapWidth: CGFloat {
         guard currentState == .fullExpanded,
               let notch = currentNotchRect else {
@@ -1095,7 +1124,10 @@ final class AppState: ObservableObject {
             if usesOutwardTopCorners && !presentationHasNotch {
                 return CGSize(width: base.width, height: base.height + 50)
             }
-            return base
+            return CGSize(
+                width: fullExpandedAdaptiveWidth(baseWidth: base.width),
+                height: base.height
+            )
         }
     }
 

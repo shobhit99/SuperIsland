@@ -1,5 +1,25 @@
 import SwiftUI
 
+/// Shared metrics for the full-expanded shoulder bar, used by the views and
+/// by AppState when sizing the island so every module tab fits beside Home.
+enum FullExpandedShoulderMetrics {
+    static let horizontalPadding: CGFloat = 40
+    static let tabSpacing: CGFloat = 8
+    static let iconTabWidth: CGFloat = 36
+    static let trailingControlsSlotWidth: CGFloat = 168
+
+    static func moduleTabsWidth(count: Int) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let n = CGFloat(count)
+        return (iconTabWidth * n) + (tabSpacing * (n - 1)) + 4
+    }
+
+    /// Width the leading shoulder needs to show Home plus every module tab.
+    static func leadingShoulderWidth(moduleCount: Int) -> CGFloat {
+        iconTabWidth + tabSpacing + moduleTabsWidth(count: moduleCount)
+    }
+}
+
 struct FullExpandedView: View {
     @EnvironmentObject var appState: AppState
 
@@ -109,11 +129,11 @@ struct FullExpandedTopBarView: View {
 
     let layout: FullExpandedTopBarLayout
 
-    private let shoulderHorizontalPadding: CGFloat = 40
+    private let shoulderHorizontalPadding = FullExpandedShoulderMetrics.horizontalPadding
     private let shoulderTopPadding: CGFloat = 2
-    private let shoulderTabSpacing: CGFloat = 8
-    private let iconTabWidth: CGFloat = 36
-    private let trailingControlsSlotWidth: CGFloat = 168
+    private let shoulderTabSpacing = FullExpandedShoulderMetrics.tabSpacing
+    private let iconTabWidth = FullExpandedShoulderMetrics.iconTabWidth
+    private let trailingControlsSlotWidth = FullExpandedShoulderMetrics.trailingControlsSlotWidth
     private let shoulderLeadingInset: CGFloat = 0
     private let settingsLeadingInset: CGFloat = 4
 
@@ -210,6 +230,16 @@ struct FullExpandedTopBarView: View {
                 }
                 .frame(width: shoulderModuleViewportWidth, alignment: .leading)
                 .clipped()
+                .mask(shoulderModuleStripMask)
+                .overlay(alignment: .trailing) {
+                    if shoulderModulesOverflow {
+                        Image(systemName: "chevron.compact.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .offset(x: 4)
+                            .allowsHitTesting(false)
+                    }
+                }
                 .onAppear {
                     scrollShoulderTabs(with: proxy, animated: false)
                 }
@@ -389,10 +419,38 @@ struct FullExpandedTopBarView: View {
         }
     }
 
+    /// Total width the module tabs would need if none were hidden.
+    private var shoulderModuleContentWidth: CGFloat {
+        let count = CGFloat(moduleTabs.count)
+        guard count > 0 else { return 0 }
+        return (iconTabWidth * count) + (shoulderTabSpacing * (count - 1)) + 4
+    }
+
+    /// Use every point the leading shoulder offers instead of capping the
+    /// viewport at a fixed tab count; the strip scrolls only when the tabs
+    /// genuinely overflow the available width.
     private var shoulderModuleViewportWidth: CGFloat {
-        let visibleModuleCount: CGFloat = 3
-        let contentWidth = (iconTabWidth * visibleModuleCount) + (shoulderTabSpacing * max(0, visibleModuleCount - 1)) + 4
-        return min(leadingScrollableWidth, contentWidth)
+        min(leadingScrollableWidth, shoulderModuleContentWidth)
+    }
+
+    private var shoulderModulesOverflow: Bool {
+        shoulderModuleContentWidth > leadingScrollableWidth
+    }
+
+    /// Fades out the trailing edge of the module strip when more tabs hide
+    /// past it, hinting that the strip scrolls.
+    private var shoulderModuleStripMask: some View {
+        HStack(spacing: 0) {
+            Rectangle().fill(Color.black)
+            if shoulderModulesOverflow {
+                LinearGradient(
+                    colors: [.black, .clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: 22)
+            }
+        }
     }
 
     private var shoulderAvailableWidth: CGFloat {
@@ -407,7 +465,12 @@ struct FullExpandedTopBarView: View {
     }
 
     private var leadingShoulderWidth: CGFloat {
-        max(0, shoulderAvailableWidth - shoulderGapWidth - trailingControlsSlotWidth - shoulderLeadingInset)
+        // Symmetric around the camera housing: the leading shoulder ends
+        // exactly where the reserved camera gap starts, so when the island
+        // is wider than the default the tabs grow toward the camera without
+        // ever sliding under it. The trailing controls keep their fixed slot
+        // inside the (equally sized) trailing shoulder.
+        max(0, (shoulderAvailableWidth - shoulderGapWidth) / 2 - shoulderLeadingInset)
     }
 
     private var leadingScrollableWidth: CGFloat {
@@ -468,11 +531,13 @@ private struct FullExpandedTabButton: View {
     var showsTitle: Bool = true
     let action: () -> Void
 
+    @State private var isHovered = false
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 tabIcon
-                    .foregroundColor(.white.opacity(isSelected ? 0.96 : 0.72))
+                    .foregroundColor(.white.opacity(iconOpacity))
 
                 if showsTitle && isSelected {
                     Text(tab.title)
@@ -496,17 +561,44 @@ private struct FullExpandedTabButton: View {
                     )
                     .overlay(
                         Capsule(style: .continuous)
-                            .fill(Color.white.opacity(isSelected ? 0.05 : 0.02))
+                            .fill(Color.white.opacity(fillOpacity))
                     )
             )
             .overlay(
                 Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(isSelected ? 0.12 : 0.08), lineWidth: 1)
+                    .stroke(Color.white.opacity(strokeOpacity), lineWidth: isSelected ? 1.5 : 1)
             )
+            .scaleEffect(isHovered && !isSelected ? 1.08 : 1.0)
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+        }
         .hoverPointer()
         .help(tab.title)
+    }
+
+    // The island surface is near-black, so the resting states stay dark and
+    // the hovered/selected states jump well above it — a subtle 2–5 % fill
+    // was indistinguishable from the background.
+    private var fillOpacity: Double {
+        if isSelected { return 0.22 }
+        if isHovered { return 0.12 }
+        return 0.02
+    }
+
+    private var strokeOpacity: Double {
+        if isSelected { return 0.42 }
+        if isHovered { return 0.24 }
+        return 0.08
+    }
+
+    private var iconOpacity: Double {
+        if isSelected { return 1.0 }
+        if isHovered { return 0.95 }
+        return 0.72
     }
 
     @ViewBuilder
