@@ -19,10 +19,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarDefaultsObserver: NSObjectProtocol?
     private var powerStateObserver: NSObjectProtocol?
     private var quitHotkeyMonitor: Any?
+    private var appNapActivity: NSObjectProtocol?
     private var didBootstrapApp = false
     private static var fallbackSettingsWindowController: NSWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        beginBackgroundActivity()
         Analytics.start()
         Analytics.track("app_launched", properties: [
             "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
@@ -45,6 +47,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Ensure the agents-status Python subprocess exits with us so port 7823
         // is released cleanly and no orphan is inherited by launchd.
         AgentsStatusBridge.shared.stop()
+        endBackgroundActivity()
+    }
+
+    /// SuperIsland is an LSUIElement app that is almost never frontmost, so
+    /// macOS App Nap throttles it after a few minutes idle: timers get
+    /// coalesced (extension polling drops from 1 s to ~8 s), background
+    /// refreshes stall, and modules end up showing stale or empty data —
+    /// e.g. Agents Status reporting "No active sessions" while sessions are
+    /// live, or AI Usage never picking up fresh numbers. Hold a process-wide
+    /// activity assertion for the app's lifetime; idle system sleep is still
+    /// allowed, so this does not keep the Mac awake.
+    private func beginBackgroundActivity() {
+        guard appNapActivity == nil else { return }
+        appNapActivity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep],
+            reason: "Live island modules and extension refresh timers"
+        )
+    }
+
+    private func endBackgroundActivity() {
+        if let appNapActivity {
+            ProcessInfo.processInfo.endActivity(appNapActivity)
+            self.appNapActivity = nil
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
