@@ -191,13 +191,26 @@ function agentAccent(agent) {
 }
 
 // "1 Mission Park Dr" style trim — last path segment, unless it's $HOME.
+// Worktree-aware: a session running in a git worktree directory (wt-*,
+// worktree*, or inside a worktrees/ folder) is labeled "project - worktree"
+// so the row names the project, not just the checkout.
 function cwdShort(cwd) {
   if (!cwd) return "";
-  var parts = cwd.split("/");
-  for (var i = parts.length - 1; i >= 0; i--) {
-    if (parts[i]) return parts[i];
+  var parts = cwd.split("/").filter(function (p) { return p; });
+  if (parts.length === 0) return cwd;
+  var last = parts[parts.length - 1];
+  var parent = parts.length > 1 ? parts[parts.length - 2] : "";
+  var looksLikeWorktree =
+    /^wt[-_]/i.test(last) ||
+    /^worktree/i.test(last) ||
+    /^\.?worktrees?$/i.test(parent);
+  if (/^\.?worktrees?$/i.test(parent) && parts.length > 2) {
+    return parts[parts.length - 3] + " \u00b7 " + last;
   }
-  return cwd;
+  if (looksLikeWorktree && parent) {
+    return parent + " \u00b7 " + last;
+  }
+  return last;
 }
 
 function titleFor(s) {
@@ -219,6 +232,19 @@ function relativeTime(updatedAt) {
   if (diff < 3600) return Math.round(diff / 60) + "m";
   if (diff < 3600 * 36) return Math.round(diff / 3600) + "h";
   return Math.round(diff / 86400) + "d";
+}
+
+// A Working session refreshes updated_at with every tool event, so
+// relativeTime would show a permanent "now". Show how long the current
+// turn has been running instead; other states keep last-activity time.
+function sessionTimeLabel(s) {
+  if (s && s.state === "Working" && s.turn_started_at) {
+    var running = Math.max(0, Date.now() / 1000 - s.turn_started_at);
+    if (running < 60) return "<1m";
+    if (running < 3600) return Math.round(running / 60) + "m";
+    return Math.floor(running / 3600) + "h" + Math.round((running % 3600) / 60) + "m";
+  }
+  return relativeTime(s && s.updated_at);
 }
 
 // Working-session count for the tight minimal-trailing slot. Shows the number
@@ -364,7 +390,7 @@ function sessionRow(s, pixelSize, showCwd, tappable) {
   if (s.agent) chips.push(chip(s.agent, agentAccent(s.agent)));
   if (s.tab_ordinal) chips.push(chip("#" + s.tab_ordinal, WHITE_65));
   if (s.terminal) chips.push(chip(s.terminal, WHITE_65));
-  chips.push(View.text(relativeTime(s.updated_at), { style: "footnote", color: WHITE_40 }));
+  chips.push(View.text(sessionTimeLabel(s), { style: "footnote", color: WHITE_40 }));
 
   var row = View.hstack([
     pixelBox(effectiveState(s), true, pixelSize),

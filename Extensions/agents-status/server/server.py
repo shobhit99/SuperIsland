@@ -169,6 +169,105 @@ _last_claude_scan_results = []
 # startup-scan sync so stale `ps` results don't resurrect the session.
 _recently_ended_pids = {}
 
+# Sessions survive bridge restarts: the host app (and this server with it)
+# restarts on updates/reinstalls, and a purely in-memory registry would then
+# show "No active sessions" until every agent happens to fire its next hook
+# event — minutes for an agent inside a long tool call, indefinitely for idle
+# ones. Persist the registry and reload it at boot; the existing dead-PID and
+# TTL pruning cleans up anything that ended while the server was down.
+_STATE_DIR = os.path.expanduser("~/Library/Application Support/SuperIsland")
+_STATE_FILE = os.path.join(_STATE_DIR, "agents-status-sessions.json")
+_PERSIST_MAX_AGE = 24 * 3600.0
+
+_JSON_SAFE = (str, int, float, bool, type(None))
+
+
+def _boot_time():
+    # Recorded with the snapshot so a reload can tell whether the saved PIDs
+    # still refer to the same running system. Returns None when unknown, which
+    # callers must treat as "PIDs are not trustworthy".
+    try:
+        out = subprocess.run(
+            ["sysctl", "-n", "kern.boottime"],
+            capture_output=True, text=True, timeout=0.8, check=False,
+        ).stdout
+        m = re.search(r"sec\s*=\s*(\d+)", out or "")
+        return int(m.group(1)) if m else None
+    except Exception:
+        return None
+
+
+def _save_sessions():
+    with _lock:
+        snapshot = []
+        for s in _sessions.values():
+            entry = {k: v for k, v in s.items() if isinstance(v, _JSON_SAFE)}
+            snapshot.append(entry)
+    try:
+        os.makedirs(_STATE_DIR, exist_ok=True)
+        tmp = _STATE_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"boot_time": _boot_time(), "sessions": snapshot}, f)
+        os.replace(tmp, _STATE_FILE)
+    except Exception:
+        pass
+
+
+def _load_sessions():
+    try:
+        with open(_STATE_FILE) as f:
+            snapshot = json.load(f)
+    except Exception:
+        return
+    # Accept both the current {"boot_time": …, "sessions": […]} envelope and
+    # the bare list written by earlier builds.
+    if isinstance(snapshot, dict):
+        saved_boot = snapshot.get("boot_time")
+        entries = snapshot.get("sessions")
+    else:
+        saved_boot = None
+        entries = snapshot
+    if not isinstance(entries, list):
+        return
+
+    # PIDs are only meaningful within the boot that recorded them: after a
+    # restart the kernel hands the same numbers to unrelated processes, and
+    # _prune() short-circuits on any entry that has a pid — so a restored
+    # session could stay "Working" forever behind a stranger's PID. Across a
+    # reboot (or an unknown boot time) drop the pid and let TTL pruning deal
+    # with the entry.
+    current_boot = _boot_time()
+    trust_pids = (
+        saved_boot is not None
+        and current_boot is not None
+        and abs(int(saved_boot) - int(current_boot)) <= 2
+    )
+
+    now = time.time()
+    with _lock:
+        for entry in entries:
+            try:
+                if not isinstance(entry, dict):
+                    continue
+                agent = entry.get("agent")
+                session_id = entry.get("session_id")
+                if not agent or not session_id:
+                    continue
+                updated_at = entry.get("updated_at")
+                if not isinstance(updated_at, (int, float)) or isinstance(updated_at, bool):
+                    continue
+                if now - updated_at > _PERSIST_MAX_AGE:
+                    continue
+                if not trust_pids:
+                    entry.pop("pid", None)
+                key = (agent, session_id)
+                if key not in _sessions:
+                    _sessions[key] = entry
+            except Exception:
+                # A hand-edited or corrupted entry must never keep the bridge
+                # from starting — skip it and carry on.
+                continue
+
 # Pending AskUserQuestion permissions. Each entry blocks a PermissionRequest
 # hook thread on its `event` until the extension POSTs /permission/resolve
 # with the chosen option (or the hook times out).
@@ -2494,6 +2593,8 @@ def _route_post(path, body_bytes):
         except Exception:
             return _build_response(400, "Bad Request", {"error": "invalid JSON"})
         ok, payload = _apply_event(data)
+        if ok:
+            _save_sessions()
         return _build_response(200 if ok else 400, "OK" if ok else "Bad Request", payload)
     if path_only == "/focus":
         try:
@@ -2620,6 +2721,7 @@ def _handle_client(conn):
 
 
 def main():
+    _load_sessions()
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", PORT))
