@@ -310,6 +310,11 @@ final class AppState: ObservableObject {
     @AppStorage("energy.lowPowerSuggestionDoNotAskAgain") var lowPowerSuggestionDoNotAskAgain = false
 
     private var autoDismissWorkItem: DispatchWorkItem?
+    /// Module a transient HUD displaced, restored once the HUD auto-dismisses.
+    /// `hudModule` is the module the HUD set; if the user switches modules
+    /// while the HUD is up, the restore is skipped so their choice sticks.
+    private var moduleBeforeHUD: ActiveModule?
+    private var hudModule: ActiveModule?
     private var fullExpandedDismissWorkItem: DispatchWorkItem?
     private var hoverActivationWorkItem: DispatchWorkItem?
     private var systemEmojiInteractionWorkItem: DispatchWorkItem?
@@ -609,6 +614,19 @@ final class AppState: ObservableObject {
 
         cancelAutoDismiss()
 
+        if autoDismiss {
+            // A chain of HUDs (connect, then battery, …) restores the module
+            // that was active before the first one, not the previous HUD.
+            if hudModule == nil {
+                moduleBeforeHUD = activeModule
+            }
+            hudModule = module
+        } else {
+            // A persistent presentation is the new baseline — nothing to restore.
+            hudModule = nil
+            moduleBeforeHUD = nil
+        }
+
         withAnimation(notchAnimation) {
             activeModule = module
             if currentState == .compact {
@@ -623,6 +641,21 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Called after an auto-dismiss. Without this, `activeModule` kept the
+    /// HUD's module forever, so the compact island went on showing e.g. the
+    /// last connected Bluetooth device until something else replaced it.
+    private func restoreModuleAfterHUD() {
+        guard let hud = hudModule else { return }
+        hudModule = nil
+        let restored = moduleBeforeHUD
+        moduleBeforeHUD = nil
+        // The user picked something else while the HUD was up — keep it.
+        guard activeModule == hud else { return }
+        withAnimation(contentSwapAnimation) {
+            activeModule = restored
+        }
+    }
+
     func scheduleAutoDismiss(after delayOverride: TimeInterval? = nil) {
         cancelAutoDismiss()
         guard !isShelfDragActive else { return }
@@ -632,6 +665,7 @@ final class AppState: ObservableObject {
         guard delay > 0 else { return }
         let workItem = DispatchWorkItem { [weak self] in
             self?.dismiss()
+            self?.restoreModuleAfterHUD()
         }
         autoDismissWorkItem = workItem
         DispatchQueue.main.asyncAfter(
