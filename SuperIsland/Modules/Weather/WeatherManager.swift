@@ -10,6 +10,7 @@ struct WeatherData {
     var conditionIcon: String = "sun.max.fill"
     var locationName: String = ""
     var hourlyForecast: [HourlyWeather] = []
+    var dailyForecast: [DailyWeather] = []
     var feelsLike: Double = 0
     var humidity: Int = 0
     var windSpeed: Double = 0
@@ -21,6 +22,14 @@ struct HourlyWeather: Identifiable {
     let id = UUID()
     let hour: String
     let temperature: Double
+    let conditionIcon: String
+}
+
+struct DailyWeather: Identifiable {
+    let id = UUID()
+    let dayLabel: String
+    let high: Double
+    let low: Double
     let conditionIcon: String
 }
 
@@ -46,7 +55,7 @@ final class WeatherManager: NSObject, ObservableObject {
 
     func requestLocationAndFetch() {
         switch locationManager.authorizationStatus {
-        case .authorizedAlways, .authorized:
+        case .authorizedAlways, .authorizedWhenInUse, .authorized:
             locationManager.startUpdatingLocation()
         case .notDetermined:
             locationManager.requestAlwaysAuthorization()
@@ -68,7 +77,7 @@ final class WeatherManager: NSObject, ObservableObject {
 
         isLoading = true
 
-        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(latitude)&longitude=\(longitude)&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,uv_index_max&wind_speed_unit=mph&timezone=auto&forecast_days=1"
+        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(latitude)&longitude=\(longitude)&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,uv_index_max,weather_code&wind_speed_unit=mph&timezone=auto&forecast_days=7"
 
         guard let url = URL(string: urlString) else {
             isLoading = false
@@ -78,7 +87,10 @@ final class WeatherManager: NSObject, ObservableObject {
         URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
             defer { DispatchQueue.main.async { self?.isLoading = false } }
 
-            guard let data, error == nil else { return }
+            guard let data, error == nil else {
+                NSLog("SuperIsland: weather fetch failed — \(error?.localizedDescription ?? "no data")")
+                return
+            }
 
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -145,7 +157,7 @@ final class WeatherManager: NSObject, ObservableObject {
             }
         }
 
-        // Daily high/low + UV
+        // Daily high/low + UV (today) and the multi-day forecast
         if let daily = json["daily"] as? [String: Any] {
             if let maxTemps = daily["temperature_2m_max"] as? [Double], let first = maxTemps.first {
                 weather.temperatureHigh = first
@@ -155,6 +167,31 @@ final class WeatherManager: NSObject, ObservableObject {
             }
             if let uvMax = daily["uv_index_max"] as? [Double], let first = uvMax.first {
                 weather.uvIndex = first
+            }
+
+            if let times = daily["time"] as? [String],
+               let maxTemps = daily["temperature_2m_max"] as? [Double],
+               let minTemps = daily["temperature_2m_min"] as? [Double],
+               let codes = daily["weather_code"] as? [Int] {
+                let dayFormatter = DateFormatter()
+                dayFormatter.dateFormat = "yyyy-MM-dd"
+                let labelFormatter = DateFormatter()
+                labelFormatter.locale = Locale(identifier: "en_US_POSIX")
+                labelFormatter.dateFormat = "EEE"
+
+                var forecast: [DailyWeather] = []
+                let count = min(times.count, maxTemps.count, minTemps.count, codes.count)
+                // Start at 1 — today is already shown as the current conditions.
+                for i in 1..<count {
+                    let label = dayFormatter.date(from: times[i]).map { labelFormatter.string(from: $0) } ?? times[i]
+                    forecast.append(DailyWeather(
+                        dayLabel: label,
+                        high: maxTemps[i],
+                        low: minTemps[i],
+                        conditionIcon: conditionIcon(for: codes[i])
+                    ))
+                }
+                weather.dailyForecast = forecast
             }
         }
 
@@ -255,7 +292,7 @@ final class WeatherManager: NSObject, ObservableObject {
 extension WeatherManager: CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         switch manager.authorizationStatus {
-        case .authorizedAlways, .authorized:
+        case .authorizedAlways, .authorizedWhenInUse, .authorized:
             manager.startUpdatingLocation()
         default:
             break

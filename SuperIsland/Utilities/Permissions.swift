@@ -66,19 +66,28 @@ enum PermissionType: CaseIterable {
     }
 }
 
-private final class LocationDelegate: NSObject, CLLocationManagerDelegate {
+final class PermissionsLocationDelegate: NSObject, CLLocationManagerDelegate {
     var onAuthorizationChange: ((CLAuthorizationStatus) -> Void)?
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         onAuthorizationChange?(manager.authorizationStatus)
     }
+
+    // PermissionsManager never consumes location fixes — WeatherManager owns its
+    // own CLLocationManager for that. These are still implemented because
+    // CLLocationManager.requestLocation() raises
+    // "Delegate must respond to locationManager:didUpdateLocations:" if any code
+    // path ever routes a location request through this manager.
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {}
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
 }
 
 final class PermissionsManager {
     static let shared = PermissionsManager()
     private static let accessibilityPromptedDefaultsKey = "permissions.accessibilityPrompted"
     private var locationManager: CLLocationManager?
-    private let locationDelegate = LocationDelegate()
+    private let locationDelegate = PermissionsLocationDelegate()
     private var calendarStore: EKEventStore?
     private var bluetoothTrigger: CBCentralManager?
 
@@ -334,12 +343,13 @@ final class PermissionsManager {
         guard locationManager == nil else { return }
         locationManager = CLLocationManager()
         locationManager?.delegate = locationDelegate
-        locationDelegate.onAuthorizationChange = { [weak self] status in
-            guard let self else { return }
-            if self.isAuthorizedLocationStatus(status) {
-                self.locationManager?.requestLocation()
-            }
-        }
+        // Deliberately no location request here: PermissionsManager only checks
+        // and requests authorization. Fetching an actual fix is WeatherManager's
+        // job — its own CLLocationManager receives the same authorization
+        // callback and starts updating once access is granted. Requesting a
+        // location from this manager used to trip a CoreLocation assertion
+        // ("Delegate must respond to locationManager:didUpdateLocations:") that
+        // broke location delivery for the whole process.
     }
 
     private func isAuthorizedLocationStatus(_ status: CLAuthorizationStatus) -> Bool {
