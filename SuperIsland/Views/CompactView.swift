@@ -103,6 +103,12 @@ struct CompactView: View {
                 leading: AnyView(NowPlayingMinimalCompactAlbumView()),
                 trailing: AnyView(NowPlayingMinimalCompactPlaybackView())
             )
+        case .builtIn(.notifications):
+            MinimalCompactLayout(
+                centerGapWidth: appState.compactMinimalCenterGapWidth,
+                leading: AnyView(NotificationMinimalCompactLeadingView()),
+                trailing: AnyView(NotificationMinimalCompactTrailingView())
+            )
         case .extension_(let extensionID):
             MinimalCompactLayout(
                 centerGapWidth: appState.compactMinimalCenterGapWidth,
@@ -165,15 +171,18 @@ private struct MinimalCompactLayout: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            // Center the content within each side sliver instead of pinning
+            // it to the island's outer edge — flush-out content read as
+            // "glued to the corners" with dead space toward the camera.
             leading
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.leading, leadingSlotPadding)
 
             Color.clear
                 .frame(width: centerGapWidth)
 
             trailing
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.trailing, trailingSlotPadding)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)

@@ -1410,6 +1410,11 @@ final class AppState: ObservableObject {
         switch module {
         case .builtIn(.nowPlaying):
             return true
+        case .builtIn(.notifications):
+            // The plain compact pill peeks out only a few points beside the
+            // camera, which cropped the notification icon + count to slivers.
+            // The side-slot layout gives them real room.
+            return true
         case .extension_(let extensionID):
             return ExtensionManager.shared.installed.first(where: { $0.id == extensionID })?.capabilities.minimalCompact ?? false
         default:

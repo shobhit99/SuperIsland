@@ -8,7 +8,7 @@ struct NotificationCompactView: View {
         HStack(spacing: 6) {
             if let latestNotification = manager.latestNotification {
                 let notif = manager.displayNotification(latestNotification)
-                notificationLeadingView(notif, size: 14)
+                NotificationSourceIconView(notification: notif, size: 14)
 
                 Text(headline(for: notif))
                     .font(.system(size: 11, weight: .medium))
@@ -52,9 +52,56 @@ struct NotificationCompactView: View {
         }
         return trimmed
     }
+}
 
-    @ViewBuilder
-    private func notificationLeadingView(_ notification: IslandNotification, size: CGFloat) -> some View {
+// MARK: - Minimal compact (side slots around the notch)
+
+/// Leading side slot: the notification source's avatar or app icon. On a
+/// notch Mac the plain compact pill barely peeks out beside the camera, so
+/// notifications use the minimal side-slot layout instead of squeezing an
+/// icon + headline + count into two ~8 pt slivers.
+struct NotificationMinimalCompactLeadingView: View {
+    @ObservedObject private var manager = NotificationManager.shared
+
+    var body: some View {
+        if let latestNotification = manager.latestNotification {
+            NotificationSourceIconView(
+                notification: manager.displayNotification(latestNotification),
+                size: 16
+            )
+        }
+    }
+}
+
+/// Trailing side slot: unread count.
+struct NotificationMinimalCompactTrailingView: View {
+    @ObservedObject private var manager = NotificationManager.shared
+
+    var body: some View {
+        let count = manager.recentNotifications.count
+        if count > 0 {
+            Text(count > 99 ? "99+" : "\(count)")
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color.green.opacity(0.82))
+                )
+        }
+    }
+}
+
+// MARK: - Source icon
+
+/// Avatar / app icon for a notification, shared by the compact pill and the
+/// minimal side slots.
+struct NotificationSourceIconView: View {
+    let notification: IslandNotification
+    let size: CGFloat
+
+    var body: some View {
         if let avatar = image(from: notification.avatarURL) {
             Image(nsImage: avatar)
                 .resizable()
