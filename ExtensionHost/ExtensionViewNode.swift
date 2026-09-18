@@ -102,7 +102,7 @@ indirect enum ViewNode: Equatable {
     case icon(name: String, size: Double, color: ColorValue)
     case image(url: String, width: Double, height: Double, cornerRadius: Double)
     case progress(value: Double, total: Double, color: ColorValue)
-    case circularProgress(value: Double, total: Double, lineWidth: Double, color: ColorValue)
+    case circularProgress(value: Double, total: Double, lineWidth: Double, size: Double?, color: ColorValue)
     case gauge(value: Double, min: Double, max: Double, label: String?)
     case divider
 
@@ -221,6 +221,7 @@ indirect enum ViewNode: Equatable {
                 value: value.forProperty("value")?.toDouble() ?? 0,
                 total: value.forProperty("total")?.toDouble() ?? 1,
                 lineWidth: value.forProperty("lineWidth")?.toDouble() ?? 3,
+                size: propertyDouble(value, key: "size"),
                 color: parseColor(value.forProperty("color"))
             )
 

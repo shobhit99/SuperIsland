@@ -168,11 +168,12 @@ struct ViewNodeRenderer: View {
             }
             .frame(maxWidth: .infinity, minHeight: 6)
 
-        case .circularProgress(let value, let total, let lineWidth, let color):
+        case .circularProgress(let value, let total, let lineWidth, let size, let color):
             ExtensionCircularProgressNode(
                 value: value,
                 total: total,
                 lineWidth: lineWidth,
+                size: size,
                 color: color.swiftUI
             )
 
@@ -516,6 +517,7 @@ private struct ExtensionCircularProgressNode: View {
     let value: Double
     let total: Double
     let lineWidth: Double
+    let size: Double?
     let color: Color
 
     private var normalizedProgress: Double {
@@ -529,7 +531,10 @@ private struct ExtensionCircularProgressNode: View {
     }
 
     private var diameter: CGFloat {
-        max(10, strokeWidth * 4)
+        if let size {
+            return max(strokeWidth * 2, CGFloat(size))
+        }
+        return max(10, strokeWidth * 4)
     }
 
     var body: some View {
