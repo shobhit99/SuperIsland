@@ -5,6 +5,17 @@ var EXT_VERSION = "1.6.0";
 var PORT = 7823;
 var BASE = "http://127.0.0.1:" + PORT;
 var POLL_INTERVAL_MS = 800;
+// The host spawns the Python bridge right before onActivate and waits only
+// briefly for it to bind the port. On a cold login the server can take longer,
+// so the first /control/resume may be refused although nothing is broken.
+// Retry with one-shot timers (which the host never suspends) before declaring
+// "setup required"; ~27 s total.
+var ACTIVATION_RETRY_DELAYS_MS = [500, 1000, 2000, 3000, 5000, 5000, 5000, 5000];
+// While the bridge is offline the regular poll may be suspended by the host
+// (lowPower / smart energy modes pause repeating timers for hidden modules),
+// which would freeze the offline state forever. A slow one-shot probe keeps
+// reconnecting regardless; it stops as soon as a poll succeeds.
+var OFFLINE_PROBE_MS = 5000;
 var SETTING_HOOKS_CC = "hooksClaudeCode";
 var SETTING_HOOKS_CODEX = "hooksCodex";
 var SETTING_SOUND_ALERT = "soundAlert";
@@ -40,6 +51,8 @@ var activationFailed = false;
 var offlineWarningSent = false;
 var inFlight = false;
 var pollTimer = null;
+var offlineProbeTimer = null;
+var activationGeneration = 0;  // bumped on every onActivate/onDeactivate so stale retries bail out
 var prevSessionStates = {};  // key "agent|session_id" -> last-seen state
 var soundsSeeded = false;    // skip sounds on the first snapshot after boot
 var doneUntil = {};          // key "agent|session_id" -> ms timestamp; while now < value, show Done (green) instead of Idle
@@ -563,13 +576,23 @@ function fetchState() {
       } else {
         if (bridgeOnline) dlog("bridge went offline status=" + status);
         bridgeOnline = false;
+        scheduleOfflineProbe();
       }
     })
     .catch(function (e) {
       inFlight = false;
       bridgeOnline = false;
       dlog("fetch threw: " + e);
+      scheduleOfflineProbe();
     });
+}
+
+function scheduleOfflineProbe() {
+  if (offlineProbeTimer !== null || pollTimer === null) return;
+  offlineProbeTimer = setTimeout(function () {
+    offlineProbeTimer = null;
+    if (!bridgeOnline && pollTimer !== null) fetchState();
+  }, OFFLINE_PROBE_MS);
 }
 
 function postBridge(path, bodyString) {
@@ -645,6 +668,24 @@ function activateBridge() {
     .catch(function () { return false; });
 }
 
+// Resolves true once /control/resume succeeds, false after the retry delays
+// are exhausted or when `generation` no longer matches (deactivated meanwhile).
+function activateWithRetry(generation, attempt) {
+  return activateBridge().then(function (ok) {
+    if (generation !== activationGeneration) return false;
+    if (ok) return true;
+    if (attempt >= ACTIVATION_RETRY_DELAYS_MS.length) return false;
+    var delay = ACTIVATION_RETRY_DELAYS_MS[attempt];
+    dlog("bridge not reachable yet, retrying activation in " + delay + " ms (attempt " + (attempt + 1) + ")");
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        if (generation !== activationGeneration) { resolve(false); return; }
+        resolve(activateWithRetry(generation, attempt + 1));
+      }, delay);
+    });
+  });
+}
+
 function deactivateBridge() {
   return postBridge("/control/pause", "")
     .then(function (r) {
@@ -703,6 +744,7 @@ function startPolling() {
 }
 function stopPolling() {
   if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null; }
+  if (offlineProbeTimer !== null) { clearTimeout(offlineProbeTimer); offlineProbeTimer = null; }
 }
 
 // --- Module --------------------------------------------------------------
@@ -713,8 +755,10 @@ SuperIsland.registerModule({
     offlineWarningSent = false;
     prevSessionStates = {};
     soundsSeeded = false;
+    var generation = ++activationGeneration;
 
-    activateBridge().then(function (ok) {
+    activateWithRetry(generation, 0).then(function (ok) {
+      if (generation !== activationGeneration) return;
       if (ok) {
         dlog("bridge resumed on activate");
         bridgeOnline = true;
@@ -735,6 +779,7 @@ SuperIsland.registerModule({
 
   onDeactivate: function () {
     dlog("deactivate requested → pausing bridge");
+    activationGeneration++;
     stopPolling();
     deactivateBridge();
     prevSessionStates = {};

@@ -42,6 +42,12 @@ final class AgentsStatusBridge {
             if isServerListening() { return }
             Thread.sleep(forTimeInterval: 0.05)
         }
+        // Not fatal: the extension retries /control/resume with one-shot timers
+        // for ~30 s before it reports "setup required". Log it so a slow cold
+        // login is visible in the extension log instead of looking like a
+        // broken install.
+        ExtensionLogger.shared.log(Self.managedExtensionID, .warning,
+            "agents-status server not listening after \(timeout)s; extension will keep retrying")
     }
 
     private func isServerListening() -> Bool {
