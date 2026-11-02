@@ -477,6 +477,7 @@ private struct FullExpandedTabButton: View {
                 if showsTitle && isSelected {
                     Text(tab.title)
                         .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.96))
                         .lineLimit(1)
                 }
             }
