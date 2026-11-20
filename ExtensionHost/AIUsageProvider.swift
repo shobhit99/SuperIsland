@@ -51,7 +51,7 @@ enum AIUsageProvider {
         buildPayload: { claudeOAuthResponsePayload(from: $0, updatedAt: $1) }
     )
 
-    private enum ClaudeKeychainAccessState: String {
+    enum ClaudeKeychainAccessState: String {
         case unknown
         case allowed
         case denied
@@ -107,6 +107,9 @@ enum AIUsageProvider {
 
     // MARK: - Codex
 
+    private static let codexLock = NSLock()
+    private static var codexLastGoodPayload: [String: Any]?
+
     private static func buildCodexPayload(updatedAt: Int) -> [String: Any] {
         if let localSummary = loadJSONDictionary(fromCandidates: homePathCandidates([
             ".codex/usage-summary.json",
@@ -116,11 +119,39 @@ enum AIUsageProvider {
         }
 
         if let oauthPayload = loadCodexPayloadFromOAuthAPI(updatedAt: updatedAt) {
+            codexLock.lock()
+            codexLastGoodPayload = oauthPayload
+            codexLock.unlock()
             return oauthPayload
         }
 
-        // Last fallback: if auth exists we still mark as available to avoid N/A UI.
-        let hasAuth = loadCodexAccessToken() != nil
+        codexLock.lock()
+        let lastGood = codexLastGoodPayload
+        codexLock.unlock()
+        return codexFallbackPayload(lastGood: lastGood, hasAuth: loadCodexAccessToken() != nil, updatedAt: updatedAt)
+    }
+
+    /// What to show when the usage endpoint did not answer: the previous
+    /// successful payload marked stale (a single failed poll — offline,
+    /// timeout, 5xx — must not wipe the numbers), or, without one, a
+    /// placeholder that still marks Codex as available when auth exists so
+    /// the UI does not fall back to N/A.
+    static func codexFallbackPayload(lastGood: [String: Any]?, hasAuth: Bool, updatedAt: Int) -> [String: Any] {
+        if var payload = lastGood {
+            payload["available"] = true
+            payload["stale"] = true
+            payload["source"] = "oauth-api-stale"
+            if let fetchedAt = payload["updatedAt"] as? Int {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "HH:mm"
+                let time = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(fetchedAt)))
+                payload["statusLabel"] = "Codex usage API unreachable — data from \(time)"
+            } else {
+                payload["statusLabel"] = "Codex usage API unreachable — showing cached data"
+            }
+            return payload
+        }
+
         return [
             "available": hasAuth,
             "primary": NSNull(),
@@ -763,7 +794,7 @@ enum AIUsageProvider {
         if !allowUserInteraction {
             SecKeychainSetUserInteractionAllowed(true)
         }
-        updateClaudeKeychainAccessState(for: status)
+        updateClaudeKeychainAccessState(for: status, interactive: allowUserInteraction)
         guard status == errSecSuccess, let data = result as? Data else {
             return nil
         }
@@ -830,11 +861,28 @@ enum AIUsageProvider {
             return .unknown
         }
 
-        // An explicit denial is sticky. It is cleared only by a successful
-        // read (see updateClaudeKeychainAccessState), which happens once the
-        // user grants access from the macOS dialog or Keychain Access — never
-        // by elapsed time, or the app would nag a user who said no.
-        return state
+        let defaults = UserDefaults.standard
+        let promptRecorded = defaults.object(forKey: claudeKeychainPromptedAtDefaultsKey) != nil
+            || defaults.bool(forKey: claudeKeychainPromptedDefaultsKey)
+        return effectiveClaudeKeychainAccessState(stored: state, promptRecorded: promptRecorded)
+    }
+
+    /// An explicit denial is sticky. It is cleared only by a successful read
+    /// (see updateClaudeKeychainAccessState), which happens once the user
+    /// grants access from the macOS dialog or Keychain Access — never by
+    /// elapsed time, or the app would nag a user who said no.
+    ///
+    /// A denial can only come from a dialog the user saw, so a stored
+    /// `.denied` without any prompt on record (earlier builds wrote it from
+    /// background reads) is not a user decision and is ignored.
+    static func effectiveClaudeKeychainAccessState(
+        stored: ClaudeKeychainAccessState,
+        promptRecorded: Bool
+    ) -> ClaudeKeychainAccessState {
+        if stored == .denied && !promptRecorded {
+            return .unknown
+        }
+        return stored
     }
 
     private static func setClaudeKeychainAccessState(_ state: ClaudeKeychainAccessState) {
@@ -851,21 +899,33 @@ enum AIUsageProvider {
         }
     }
 
-    private static func updateClaudeKeychainAccessState(for status: OSStatus) {
+    private static func updateClaudeKeychainAccessState(for status: OSStatus, interactive: Bool) {
+        if status != errSecSuccess {
+            NSLog("SuperIsland AIUsage: claude keychain read failed status=%d interactive=%d", status, interactive ? 1 : 0)
+        }
+        if let state = claudeKeychainAccessState(after: status, interactive: interactive) {
+            setClaudeKeychainAccessState(state)
+        }
+    }
+
+    /// Maps a SecItemCopyMatching result to the access state it proves, or
+    /// nil when it proves nothing about the user's intent.
+    ///
+    /// Only a dialog the user actually saw can be a refusal. A background
+    /// read with interaction disabled fails with errSecAuthFailed as well
+    /// (observed on macOS 26/27 when the item's ACL or partition list no
+    /// longer covers the app, e.g. after Claude Code rewrote the item), and
+    /// treating that as a denial would silence the dialog forever.
+    static func claudeKeychainAccessState(after status: OSStatus, interactive: Bool) -> ClaudeKeychainAccessState? {
         switch status {
         case errSecSuccess:
-            setClaudeKeychainAccessState(.allowed)
+            return .allowed
         #if os(macOS)
         case errSecAuthFailed, errSecUserCanceled:
-            // Stop repeated OS keychain prompts after the user explicitly denies once.
-            setClaudeKeychainAccessState(.denied)
-        case errSecInteractionNotAllowed:
-            // If the app is backgrounded, Security can refuse interaction without
-            // implying the user denied access. Leave the cached state untouched.
-            break
+            return interactive ? .denied : nil
         #endif
         default:
-            break
+            return nil
         }
     }
 
@@ -941,18 +1001,27 @@ enum AIUsageProvider {
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             defer { semaphore.signal() }
 
+            let statusCode = (response as? HTTPURLResponse)?.statusCode
             guard error == nil,
-                  let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode),
+                  let statusCode,
+                  (200..<300).contains(statusCode),
                   let data,
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                NSLog(
+                    "SuperIsland AIUsage: request to %@ failed status=%@ error=%@",
+                    url.host ?? url.absoluteString,
+                    statusCode.map(String.init) ?? "none",
+                    error.map { "\($0)" } ?? (data == nil ? "no body" : "unexpected body")
+                )
                 return
             }
             parsed = object
         }
 
         task.resume()
-        _ = semaphore.wait(timeout: .now() + timeout + 0.3)
+        if semaphore.wait(timeout: .now() + timeout + 0.3) == .timedOut {
+            NSLog("SuperIsland AIUsage: request to %@ timed out after %.1fs", url.host ?? url.absoluteString, timeout)
+        }
         return parsed
     }
 
