@@ -308,14 +308,15 @@ enum AIUsageProvider {
     }
 
     /// Maps a successful OAuth usage response to the module payload.
-    /// Returns nil when the response lacks the expected usage windows.
+    /// Returns nil when the response lacks every usage window. `five_hour`
+    /// is null while no 5-hour window is open, so the weekly windows alone
+    /// are enough.
     static func claudeOAuthResponsePayload(from response: [String: Any], updatedAt: Int) -> [String: Any]? {
-        guard let sessionRemainingPercent = claudeCurrentSessionRemainingPercent(from: response) else {
+        let sessionRemainingPercent = claudeCurrentSessionRemainingPercent(from: response)
+        let weeklyRemainingPercent = claudeWeeklyRemainingPercent(from: response)
+        guard let overallRemainingPercent = [sessionRemainingPercent, weeklyRemainingPercent].compactMap({ $0 }).min() else {
             return nil
         }
-
-        let weeklyRemainingPercent = claudeWeeklyRemainingPercent(from: response)
-        let overallRemainingPercent = weeklyRemainingPercent.map { min(sessionRemainingPercent, $0) } ?? sessionRemainingPercent
         let status: String
         if overallRemainingPercent <= 0 {
             status = "rejected"
@@ -343,7 +344,7 @@ enum AIUsageProvider {
         ]
         payload["remainingPercent"] = overallRemainingPercent
         payload["weeklyRemainingPercent"] = weeklyRemainingPercent ?? NSNull()
-        payload["currentSessionRemainingPercent"] = sessionRemainingPercent
+        payload["currentSessionRemainingPercent"] = sessionRemainingPercent ?? NSNull()
         return payload
     }
 
@@ -648,6 +649,22 @@ enum AIUsageProvider {
     }
 
     static func claudeToken(fromJSONObject object: Any) -> ClaudeUsageFetcher.Token? {
+        // The keychain item keeps several OAuth blocks side by side
+        // (claudeAiOauth, designOauth, mcpOAuth[...]). Only claudeAiOauth is
+        // the Claude Code sign-in, so when that block exists it alone
+        // decides — an empty one means signed out even if another product's
+        // token is present. Other layouts (a flat credentials file) keep the
+        // tolerant deep search.
+        if let dictionary = object as? [String: Any], let claudeAiOauth = dictionary["claudeAiOauth"] {
+            guard let block = claudeAiOauth as? [String: Any] else {
+                return nil
+            }
+            return claudeToken(fromOAuthBlock: block)
+        }
+        return claudeToken(fromOAuthBlock: object)
+    }
+
+    private static func claudeToken(fromOAuthBlock object: Any) -> ClaudeUsageFetcher.Token? {
         guard let token = claudeAccessToken(fromJSONObject: object) else {
             return nil
         }
